@@ -1,0 +1,3 @@
+include README.md LICENSE
+include bezpy/mt/data_1d/earth_model*.txt
+include bezpy/mag/data/*.dat

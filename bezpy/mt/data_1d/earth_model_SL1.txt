@@ -1,0 +1,41 @@
+* Lines starting with * are just comments. 
+* Text after the numbers is ignored 
+*SL1 earth conductivity model 
+*/      3.0,    175.0,   9825.0,  12000.0,  18000.0, 600000.0, 150000.0, 160000.0, 110000.0, 150000.0, 230000.0,      INF,/ ! layer thicknesses in m
+*/    4.00 ,    500. ,  10000. ,    667. ,    25.0 ,    244. ,    159. ,    28.9 ,    7.95 ,    2.40 ,    .891 ,    .479 ,/ !Resistivities in Ohm-m
+11                             Number of layers from surface 
+
+0.2500000                      Conductivity in S/m (layer 1)
+3.000e+00                      Layer thickness in m (layer 1)
+
+0.0020000                      Conductivity in S/m (layer 2)
+1.720e+02                      Layer thickness in m (layer 2)
+
+0.0001000                      Conductivity in S/m (layer 3)
+9.825e+03                      Layer thickness in m (layer 3)
+
+0.0015000                      Conductivity in S/m (layer 4)
+1.200e+04                      Layer thickness in m (layer 4)
+
+0.0400000                      Conductivity in S/m (layer 5)
+1.800e+04                      Layer thickness in m (layer 5)
+
+0.0041000                      Conductivity in S/m (layer 6)
+6.000e+04                      Layer thickness in m (layer 6)
+
+0.0063000                      Conductivity in S/m (layer 7)
+1.500e+05                      Layer thickness in m (layer 7)
+
+0.0346000                      Conductivity in S/m (layer 8)
+1.600e+05                      Layer thickness in m (layer 8)
+
+0.1258000                      Conductivity in S/m (layer 9)
+1.100e+05                      Layer thickness in m (layer 9)
+
+0.4168000                      Conductivity in S/m (layer10)
+1.500e+05                      Layer thickness in m (layer10)
+
+1.1220000                      Conductivity in S/m (layer11)
+2.300e+05                      Layer thickness in m (layer11)
+
+2.0892000                      Semi-infinite earth conductivity

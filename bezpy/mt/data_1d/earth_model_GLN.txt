@@ -1,0 +1,36 @@
+* Lines starting with * are just comments.
+* Text after the numbers is ignored
+* Data from: Geological Survey of Canada Open File 8115
+*            Gelectric Field Modelling for Canadian Space Weather Services
+*            L. Trichtchenko, P.A. Fernberg, and D.W. Danskin
+* http://ftp.maps.canada.ca/pub/nrcan_rncan/publications/ess_sst/299/299116/of_8115.pdf
+*
+* Each layer is separated by a space, with Conductivity (S/m) on the first line
+* and Layer thickness (m) on the second line
+8	Number of layers from surface
+
+0.05	Conductivity in S/m (layer 1)
+2.00E+01	Layer thickness in m (layer 1)
+
+1.00E-02	Conductivity in S/m (layer 2)
+1.80E+02	Layer thickness in m (layer 2)
+
+2.50E-05	Conductivity in S/m (layer 3)
+1.48E+04	Layer thickness in m (layer 3)
+
+5.00E-04	Conductivity in S/m (layer 4)
+1.00E+04	Layer thickness in m (layer 4)
+
+1.00E-03	Conductivity in S/m (layer 5)
+7.50E+04	Layer thickness in m (layer 5)
+
+1.00E-02	Conductivity in S/m (layer 6)
+3.00E+05	Layer thickness in m (layer 6)
+
+1.00E-01	Conductivity in S/m (layer 7)
+2.00E+05	Layer thickness in m (layer 7)
+
+2.09	Conductivity in S/m (layer 8)
+100000	Layer thickness in m (layer 8)
+
+1.1220100                      Semi-infinite earth conductivity

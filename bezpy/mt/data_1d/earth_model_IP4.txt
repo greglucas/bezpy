@@ -1,0 +1,47 @@
+* Lines starting with * are just comments. 
+* Text after the numbers is ignored 
+*IP4 earth conductivity model 
+*/    100.0,    500.0,   1000.0,    900.0,  16500.0,   9000.0,  19000.0,  53000.0, 150000.0, 160000.0, 110000.0, 150000.0, 230000.0,      INF,/ ! layer thicknesses in m
+*/    10.0 ,    15.0 ,    1.70 ,    20.0 ,   2801. ,    40.0 ,    265. ,    500. ,    209. ,    50.1 ,    20.0 ,    5.62 ,    1.58 ,    .891 ,/ !Resistivities in Ohm-m
+13                             Number of layers from surface 
+
+0.1000000                      Conductivity in S/m (layer 1)
+1.000e+02                      Layer thickness in m (layer 1)
+
+0.0666000                      Conductivity in S/m (layer 2)
+5.000e+02                      Layer thickness in m (layer 2)
+
+0.5882000                      Conductivity in S/m (layer 3)
+1.000e+03                      Layer thickness in m (layer 3)
+
+0.0500000                      Conductivity in S/m (layer 4)
+9.000e+02                      Layer thickness in m (layer 4)
+
+0.0003570                      Conductivity in S/m (layer 5)
+1.650e+04                      Layer thickness in m (layer 5)
+
+0.0250000                      Conductivity in S/m (layer 6)
+9.000e+03                      Layer thickness in m (layer 6)
+
+0.0037700                      Conductivity in S/m (layer 7)
+1.900e+04                      Layer thickness in m (layer 7)
+
+0.0020000                      Conductivity in S/m (layer 8)
+5.300e+04                      Layer thickness in m (layer 8)
+
+0.0047860                      Conductivity in S/m (layer 9)
+1.500e+05                      Layer thickness in m (layer 9)
+
+0.0199520                      Conductivity in S/m (layer10)
+1.600e+05                      Layer thickness in m (layer10)
+
+0.0501180                      Conductivity in S/m (layer11)
+1.100e+05                      Layer thickness in m (layer11)
+
+0.1778270                      Conductivity in S/m (layer12)
+1.500e+05                      Layer thickness in m (layer12)
+
+0.6309570                      Conductivity in S/m (layer13)
+2.300e+05                      Layer thickness in m (layer13)
+
+1.1220100                      Semi-infinite earth conductivity

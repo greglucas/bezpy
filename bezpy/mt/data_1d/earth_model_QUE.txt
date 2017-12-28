@@ -1,0 +1,23 @@
+* Lines starting with * are just comments.
+* Text after the numbers is ignored
+* Data from: NERC GMD Benchmark Geomagnetic Storm Report
+*            Table 1: Reference earth model (Quebec)
+* http://www.nerc.com/pa/Stand/Project201303GeomagneticDisturbanceMitigation/Benchmark_Clean_May12_complete.pdf
+*
+* Each layer is separated by a space, with Conductivity (S/m) on the first line
+* and Layer thickness (m) on the second line
+4	Number of layers from surface
+
+0.00005 	Conductivity in S/m (layer 1)
+15000	Layer thickness in m (layer 1)
+
+0.005	Conductivity in S/m (layer 2)
+10000	Layer thickness in m (layer 2)
+
+0.001	Conductivity in S/m (layer 3)
+125000	Layer thickness in m (layer 3)
+
+0.01	Conductivity in S/m (layer 4)
+200000	Layer thickness in m (layer 4)
+
+0.3333                     Semi-infinite earth conductivity
