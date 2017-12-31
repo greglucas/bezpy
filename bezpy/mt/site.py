@@ -44,7 +44,6 @@ class Site:
         self.min_period = None
         self.max_period = None
 
-    # FFT of magnetic field time series and the MT site
     def convolve_fft(self, magX, magY, dt=60, extrapolate=0):
         """Convolution in frequency space."""
 
@@ -182,7 +181,7 @@ class Site3d(Site):
                      "\n" +
                      r"Longitude: {lon:4.1f}$^\circ$ ".format(lon=self.longitude) +
                      r"Latitude: {lat:4.1f}$^\circ$".format(lat=self.latitude), size=20)
-        return fig
+        return (fig, ax_res, ax_phase)
 
     def calcZ(self, freqs):
         # extrapolate=1: bandpass filter to only interpolate between data points (no extrapolation)
