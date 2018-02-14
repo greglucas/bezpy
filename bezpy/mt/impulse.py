@@ -71,10 +71,13 @@ class DTIR:
         """Calculates the DTIR for the given periods and Z, or the site object."""
 
         if isinstance(site, Site3d):
-            periods = site.periods
-            Z = site.Z
-            Z_var = site.Z_var
-        elif periods is None or Z is None:
+            # Drop any nan's along the entire column.
+            good_locs = ~np.any(np.isnan(site.Z), axis=0)
+            periods = site.periods[good_locs]
+            Z = site.Z[:,good_locs]
+            Z_var = site.Z_var[:,good_locs]
+        else:
+        #elif periods is None or Z is None:
             raise ValueError("Must pass in either periods and Z or a Site3d object")
 
         t0 = time.time()
@@ -86,68 +89,49 @@ class DTIR:
             raise ValueError("Error in number of componenets, possibly because of a 1D array " +
                              "Expecting Z to be of the shape (4 x N)")
 
-        #TODO: Put the A matrix calculation here instead of inside the loop later
-        #      Need it inside loop currently because of nans and changing size of
-        #      the data array
-        # Generate the A matrix
-        #A = self._calcA(periods)
-
         self._calcQs()
+
+        A = self._calcA(periods)
+        # split out the real and imaginary components to solve in real space
+        A = np.vstack([A.real, A.imag])
 
         # Scaling by variances
         if Z_var is None:
-            variance = np.ones((ncomponents, nper), dtype=np.complex) + 1j
+            variance = np.ones((ncomponents, nper))
         else:
-            # Put variance in both real and complex plane
-            variance = Z_var + Z_var*1j
-            # TODO: Fix this, by possibly dropping the values in the solver
-            #       and then repopulating the matrix?
-            # Where variance is nan, make it infinite
-            #variance[np.isnan(variance)] = 1.e9
-            #Z[np.isnan(Z)] = 0.
+            variance = Z_var
 
         # Output data storage
-        zn = np.zeros((ncomponents,len(self)), dtype=np.complex)
+        self.zn = np.zeros((ncomponents,len(self)))
 
         for k in range(ncomponents):
             t1 = time.time()
 
-            b = Z[k,:]
-            nan_locs = np.isnan(b)
-            b = b[~nan_locs]
-            # Make sigma our variances
-            sigma = np.diag(variance[k,~nan_locs])
-
-            #TODO: Can put the A calculation outside of
-            #      the loop if it weren't for the nan possibility...
-            A = self._calcA(periods[~nan_locs])
-
+            # Stack the real and imaginary components
+            b = np.hstack([Z[k,:].real, Z[k,:].imag])
+            sigma = 1./np.hstack([variance[k,:].real, variance[k,:].real])
+            # No off-diagonal terms for now, so just need
+            # to take 1/diagonal
+            #sigma_inv = np.linalg.inv(sigma)
+            sigma_inv = np.diag(1./sigma)
+            sigma = np.diag(sigma)
 
             if self.model_space:
                 ## MODEL-SPACE
-
                 # Gramian A^T Sigma A + lambda Q
-                #TODO: Do we need Q to be in complex space too?
-                #      Q = Q*(1. + 1j) ???
                 G = A.T@sigma@A + self.decay_factor*self.Q
 
                 # Solve A*zn = b for zn
-                zn[k,:] = np.linalg.solve(G, A.T@sigma@b)
+                self.zn[k,:] = np.linalg.solve(G, A.T@sigma@b)
 
             else:
                 ## DATA-SPACE
-
-                # No off-diagonal terms for now, so just need
-                # to take 1/diagonal
-                #sigma_inv = np.linalg.inv(sigma)
-                sigma_inv = np.diag(1./variance[k,~nan_locs])
-
                 # Gramian (A Q^-1 A^T + lambda Sigma^-1)
                 G = A@self.Q_inv@A.T + self.decay_factor*sigma_inv
 
                 b_lambda = np.linalg.solve(G, b)
 
-                zn[k,:] = self.Q_inv @ A.T @ b_lambda
+                self.zn[k,:] = self.Q_inv @ A.T @ b_lambda
 
             if self.verbose:
                 print("Iteration", k, " complete", time.time()-t1)
@@ -155,9 +139,8 @@ class DTIR:
         if self.verbose:
             print("Total time for impulse response:", time.time()-t0)
 
-        self.zn = zn
         # Return list of ns and the impulse response at those points
-        return (self.ns, zn)
+        return (self.ns, self.zn)
 
     def _calcA(self, periods):
         # input periods in seconds, then turn it into an angular frequency
@@ -169,7 +152,6 @@ class DTIR:
         # m is shape (1, ns) // m = self.ns[np.newaxis,:]
         # periods is shape (nper, 1)
         # broadcast together makes A shape (nper, ns)
-
         return np.exp(-1j*self.ns[np.newaxis,:]*self.dt*(2*np.pi/periods[:,np.newaxis]))
 
     def _calcQs(self):
@@ -201,24 +183,25 @@ class DTIR:
         if self.Q_choice == 1:
             n = self.ns[:,np.newaxis]
             m = self.ns[np.newaxis,:]
+            nm = n*m
+            # Contains indices for odd values
+            odds = np.mod(n-m, 2) == 1
 
             # Ignore the division by zero along the diagonal for now and fill it later
             with np.errstate(divide='ignore', invalid='ignore'):
-                alpha = n*m/((n-m)**2)
+                alpha = nm/((n-m)**2)
                 np.fill_diagonal(alpha, 0)
 
             # Fill everything first to setup the matrix
-            # k - l == odd
-            self.Q = ((2-3*np.pi**2*n*m)*alpha + 12*alpha**2 - np.pi**2*n*m).copy()
             # k - l == even
-            self.Q[::2,::2] = (n*m*np.pi**2*(1+3*alpha))[::2,::2].copy()
+            self.Q = (nm*np.pi**2*(1+3*alpha))
+            # k - l == odd
+            self.Q[odds] = ((2-3*np.pi**2*nm)*alpha + 12*alpha**2 - np.pi**2*nm)[odds]
             # k == l : diagonal
-            np.fill_diagonal(self.Q, (self.ns**2*np.pi**2/2 + self.ns**4*np.pi**4/4).copy())
+            np.fill_diagonal(self.Q, (self.ns**2*np.pi**2/2 + self.ns**4*np.pi**4/4))
             # k == l == 0
-            self.Q[self.ns==0,self.ns==0] = 1.
-
-            # Random scaling from appendix, to get similar results?
-            self.Q *= 1e9
+            n0 = self.ns == 0
+            self.Q[n0, n0] = 1.
 
         elif self.Q_choice == 2:
             # Simple diagonal matrix
@@ -233,7 +216,6 @@ class DTIR:
             second_diff[0] = 2
             second_diff[1] = -1
             self.Q = scipy.linalg.toeplitz(second_diff, r=second_diff)
-
             self.Q *= self.decay_factor * self.ns[:,np.newaxis]**4
 
         if self.verbose:
@@ -249,7 +231,7 @@ class DTIR:
 
         # In dataspace we need to calculate the inverse of Q
         # Q is singular so calculate the pseudo-inverse instead
-        self.Q_inv = np.linalg.pinv(self.Q)
+        self.Q_inv = np.linalg.inv(self.Q)
 
         if self.verbose:
             print("Q Inversion Complete:", time.time()-t0)

@@ -1,7 +1,7 @@
 """Magnetic field utility routines."""
 
 __all__ = ["read_iaga", "detrend_polynomial", "write_iaga_2002",
-           "get_iaga_observatory"]
+           "get_iaga_observatory", "get_iaga_observatory_codes"]
 
 import pandas as pd
 import numpy as np
@@ -130,6 +130,9 @@ with open(IAGA_PATH + "intermagnet_observatories.dat", 'r') as f:
         _IAGA_sites[elements[0][:3]] = {"name": elements[1], "country": elements[2],
                                        "latitude": latitude, "longitude": longitude,
                                        "institute": elements[5], "GIN": elements[6]}
+
+def get_iaga_observatory_codes():
+    return list(_IAGA_sites.keys())
 
 def get_iaga_observatory(iaga_code):
     try:
