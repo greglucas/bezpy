@@ -83,26 +83,28 @@ def read_xml(fname):
     """Read in an IRIS xml file and return a Site3d object"""
     root = ET.parse(fname).getroot()
 
-    site_xml = root.find("Site")
-    name = get_text(site_xml, "Id")
+    xml_site = root.find("Site")
+    name = get_text(xml_site, "Id")
     # Creating the object
     site = Site3d(name)
+    # Store the parsed root xml element
+    site.xml = root
 
-    loc = site_xml.find("Location")
+    loc = xml_site.find("Location")
     site.latitude = convert_float(get_text(loc, "Latitude"))
     site.longitude = convert_float(get_text(loc, "Longitude"))
     site.elevation = convert_float(get_text(loc, "Elevation"))
     site.declination = convert_float(get_text(loc, "Declination"))
 
-    site.start_time = convert_datetime(get_text(site_xml, "Start"))
-    site.end_time = convert_datetime(get_text(site_xml, "End"))
+    site.start_time = convert_datetime(get_text(xml_site, "Start"))
+    site.end_time = convert_datetime(get_text(xml_site, "End"))
 
-    quality = site_xml.find("DataQualityNotes")
+    quality = xml_site.find("DataQualityNotes")
     site.rating = convert_int(get_text(quality, "Rating"))
     site.min_period = convert_float(get_text(quality, "GoodFromPeriod"))
     site.max_period = convert_float(get_text(quality, "GoodToPeriod"))
 
-    site.quality_flag = convert_int(get_text(site_xml, "DataQualityWarnings/Flag"))
+    site.quality_flag = convert_int(get_text(xml_site, "DataQualityWarnings/Flag"))
 
     site.sign_convention = -1 if "-" in get_text(root, "ProcessingInfo/SignConvention") else 1
 
@@ -112,9 +114,6 @@ def read_xml(fname):
     site.periods = np.array(site.data.index)
     site.Z = np.vstack([site.data['z_zxx'], site.data['z_zxy'],
                         site.data['z_zyx'], site.data['z_zyy']])
-
-    # TODO: Change this from a default variance of ones
-    # XXX: May need to eliminate the need for variance?
 
     try:
         site.Z_var = np.vstack([site.data['z.var_zxx'], site.data['z.var_zxy'],

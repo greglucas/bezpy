@@ -53,13 +53,11 @@ class TransmissionLine:
         return len(self.pts)
 
     def set_nearest_sites(self, site_xys):
-        # Make this vectorized by adding new axes to the arrays
+        # Using Haversine distance to calculate nearest sites
         distances = haversine_distance(self.pts[:,0][:, np.newaxis], self.pts[:,1][:, np.newaxis],
                                        site_xys[:,0][np.newaxis,:], site_xys[:,1][np.newaxis,:])
         self.nearest_sites = np.argmin(distances, axis=1)
-        #self.nearest_sites = np.array([np.argmin(haversine_distance(self.pts[i,0], self.pts[i,1],
-        #                                                           site_xys[:,0], site_xys[:,1]))
-        #                              for i in range(self.npts)], dtype=np.int)
+
 
     def set_1d_regions(self, region_polygons, default_region=18):
         # Start out with a default value of 18,
@@ -92,7 +90,6 @@ class TransmissionLine:
         # of a region
         # index_right is which index it was in
         #self.regions1d = np.array(joined_gdf.index_right.fillna(default_region).values, dtype=np.int)
-
 
 
     def set_delaunay_weights(self, site_xys):
@@ -136,7 +133,7 @@ class TransmissionLine:
     def calc_voltages(self, E, how=None):
         """Calculates the voltages across this power line, given E(t).
 
-        :param E: Electric field over time shape: (nlocs, 2, ntimes)
+        :param E: Electric field over time shape: (ntimes, nlocs, 2)
 
         :param how: Method of interpolation, one of (nn, 1d, delaunay)
         """
@@ -145,14 +142,14 @@ class TransmissionLine:
                 raise ValueError("The closest regions were not defined yet, call:\n" +
                                  "    .set_nearest_sites(site_xys)\n" +
                                  "to initialize the closest regions")
-            E3d = np.atleast_3d(E)[self.nearest_sites[:-1],:,:]
+            E3d = np.atleast_3d(E)[:,self.nearest_sites[:-1],:]
 
         elif how == "1d":
             if self.regions1d is None:
                 raise ValueError("The closest regions were not defined yet, call:\n" +
                                  "    .set_1d_regions(region_polygons)\n" +
                                  "to initialize the closest regions")
-            E3d = np.atleast_3d(E)[self.regions1d[:-1],:,:]
+            E3d = np.atleast_3d(E)[:,self.regions1d[:-1],:]
 
         elif how == "delaunay":
             if self.delaunay_vtx is None or self.delaunay_wts is None:
@@ -164,15 +161,15 @@ class TransmissionLine:
             #       due to the dimensionality of the E-fields
 
             # vtx shape: (npts, 3)
-            # that turns the first E into a shape of: (npts, 3, 2, ntime) when
+            # that turns the first E into a shape of: (ntimes, npts, 3, 2) when
             # doing the fancy-indexing
             # Need to sum over the 3 weights, which are along axis 1 to make it a
             # 3d E field again
             # If any weights are less than 0, the interpolation is out of the boundary
             # so return np.nan
-            E3d = np.sum(np.atleast_3d(E)[self.delaunay_vtx[:-1],:,:] *
-                          self.delaunay_wts[:-1,:,np.newaxis, np.newaxis], axis=1)
-            E3d[np.any(self.delaunay_wts[:-1] < 0, axis=1), :,:] = np.nan
+            E3d = np.sum(np.atleast_3d(E)[:,self.delaunay_vtx[:-1],:] *
+                          self.delaunay_wts[np.newaxis,:-1,:,np.newaxis], axis=2)
+            E3d[:,np.any(self.delaunay_wts[:-1] < 0, axis=1),:] = np.nan
 
         else:
             raise ValueError("how must be a string of: nn, 1d, or delaunay")
@@ -180,7 +177,7 @@ class TransmissionLine:
         # E3d in units of mV/km
         # dl in units of km
         # divide by 1000 to change to V
-        voltages = np.sum(E3d*self.dl[:,:,np.newaxis], axis=(0,1)) / 1000.
+        voltages = np.sum(E3d*self.dl[np.newaxis,:,:], axis=(1,2)) / 1000.
         # if there is only one voltage, just return that as a float
         # Otherwise return the entire array of voltages, which is the
         # length of the final dimension of E input (ntimes)

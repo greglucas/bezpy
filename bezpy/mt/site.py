@@ -140,7 +140,9 @@ class Site3d(Site):
                 weights = None
                 smooth_factor = 0. # This forces interpolation through every point
             else:
-                weights = 1./np.sqrt(self.Z_var[i,good_vals])
+                # NOTE: Z_var should never be negative, but some files have negatives
+                #       in them and this is a simple fix
+                weights = 1./np.sqrt(np.abs(self.Z_var[i,good_vals]))
                 smooth_factor = None # This lets the interpolation function determine the smoothing
 
             # Whether to interpolate on magnitude/phase of Z,
