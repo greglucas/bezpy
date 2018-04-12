@@ -13,7 +13,7 @@ def plot_apparent_resistivity(periods, Z, Z_var=None, fig=None, ax_res=None, ax_
     if ax_res is None:
         fig, ax_res = plt.subplots(figsize=figsize)
     if ax_phase is None:
-        ax_phase = make_axes_locatable(ax_res).append_axes("bottom", size=2.5, pad=0.5, sharex=ax_res)
+        ax_phase = make_axes_locatable(ax_res).append_axes("bottom", size="50%", pad="20%", sharex=ax_res)
 
     resistivity, resistivity_var, phase, phase_var = apparent_resistivity(periods, Z, Z_var)
 
@@ -21,12 +21,14 @@ def plot_apparent_resistivity(periods, Z, Z_var=None, fig=None, ax_res=None, ax_
     labels = ['xx', 'xy', 'yx', 'yy']
     colors = ['C1', 'C0', 'C3', 'C2']
     alphas = [alpha, 1., 1., alpha]
+    # Store background color to fill the inside of the markers
+    bg_color = ax_res.get_facecolor()
 
     for i in range(4):
         if Z_var is None:
-            ax_res.plot(periods, resistivity[i,:], c=colors[i], linewidth=1.5,
+            ax_res.plot(periods, resistivity[i,:], c=colors[i],
                         label=labels[i], alpha=alphas[i])
-            ax_phase.plot(periods, phase[i,:], c=colors[i], linewidth=1.5,
+            ax_phase.plot(periods, phase[i,:], c=colors[i],
                           label=labels[i], alpha=alphas[i])
         else:
             # Ignoring nans
@@ -37,14 +39,14 @@ def plot_apparent_resistivity(periods, Z, Z_var=None, fig=None, ax_res=None, ax_
 
             ax_res.errorbar(x, y, yerr=yerr,
                             label=labels[i], color=colors[i], marker='o', fmt='o',
-                            markersize=markersize, elinewidth=2, alpha=alphas[i],
-                            markerfacecolor='none', markeredgecolor=colors[i], markeredgewidth=2)
+                            markersize=markersize, alpha=alphas[i],
+                            markerfacecolor=bg_color, markeredgecolor=colors[i], markeredgewidth=1)
             y = phase[i,good_vals]
             yerr = 2*phase_var[i,good_vals]
             ax_phase.errorbar(x, y, yerr=yerr,
                               color=colors[i], marker='o', fmt='o',
-                              markersize=markersize, elinewidth=2, alpha=alphas[i],
-                              markerfacecolor='none', markeredgecolor=colors[i], markeredgewidth=2)
+                              markersize=markersize, alpha=alphas[i],
+                              markerfacecolor=bg_color, markeredgecolor=colors[i], markeredgewidth=1)
 
     # get handles and remove error bars
     handles, leg_labels = ax_res.get_legend_handles_labels()
@@ -75,7 +77,7 @@ def plot_apparent_resistivity(periods, Z, Z_var=None, fig=None, ax_res=None, ax_
 
     ax_res.set_ylabel(r"$\rho_a$ ($\Omega m$)")
     ax_res.set_title("Apparent Resistivity")
-    ax_res.tick_params(labelbottom='off')
+    ax_res.tick_params(labelbottom=False)
 
     ax_phase.set_xlabel("Period (s)")
     ax_phase.set_ylabel(r"$\phi$ (deg)")

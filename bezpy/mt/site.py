@@ -179,10 +179,12 @@ class Site3d(Site):
             plot_apparent_resistivity(periods, Z, fig=fig, ax_res=ax_res, ax_phase=ax_phase, xlim=xlim)
 
         # Need to leave raw string out of newlines for latex
-        fig.suptitle(r"{name}".format(name=self.name) +
+        ax_res.set_title(r"{name}".format(name=self.name) +
                      "\n" +
                      r"Longitude: {lon:4.1f}$^\circ$ ".format(lon=self.longitude) +
-                     r"Latitude: {lat:4.1f}$^\circ$".format(lat=self.latitude), size=20)
+                     r"Latitude: {lat:4.1f}$^\circ$".format(lat=self.latitude) +
+                     "\n" +
+                     ax_res.get_title())
         return (fig, ax_res, ax_phase)
 
     def calcZ(self, freqs):

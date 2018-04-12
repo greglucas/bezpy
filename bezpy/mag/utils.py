@@ -1,10 +1,11 @@
 """Magnetic field utility routines."""
 
-__all__ = ["read_iaga", "detrend_polynomial", "write_iaga_2002",
+__all__ = ["read_iaga", "detrend_polynomial", "filter", "write_iaga_2002",
            "get_iaga_observatory", "get_iaga_observatory_codes"]
 
 import pandas as pd
 import numpy as np
+from scipy.signal import butter, filtfilt
 
 import pkg_resources
 IAGA_PATH = pkg_resources.resource_filename('bezpy', 'mag/data') + "/"
@@ -40,12 +41,20 @@ def read_iaga(fname, return_xyzf=True):
                           header_records['reported']))
 
     record_length = len(header_records['reported']) // 4
-    # This keeps the last letter of each reported channel
-    column_names = [x for x in header_records['reported'][record_length-1::record_length]]
+
     # This splits the string into 4 equal parts.
     # Some reportings from USGS can be 3 letters each, rather than 1
-    #column_names = [header_records['reported'][i:i+record_length]
-    #                for i in range(0, len(header_records['reported']), record_length)]
+    # This keeps the last letter of each reported channel
+    column_names = [x for x in header_records['reported'][record_length-1::record_length]]
+
+    # Dealing with duplicate column names and appending the count if necessary
+    seen_count = {}
+    for i, col in enumerate(column_names):
+        if col in seen_count:
+            column_names[i] += str(seen_count[col])
+            seen_count[col] += 1
+        else:
+            seen_count[col] = 1
 
     df = pd.read_csv(fname, header=header_records["header_length"],
                     delim_whitespace=True,
@@ -74,6 +83,41 @@ def detrend_polynomial(ys, deg=2):
     poly = np.polyfit(xs, ys, deg=deg)
     # poly gives all the coefficients, polyval evaluates all these at the same xs
     return ys - np.polyval(poly, xs)
+
+def filter(data, sample_freq=1./60, lowcut=1e-4, highcut=1e-1, order=3):
+    """A convenience method to apply butterworth filters to the data.
+
+       data: array of samples at the given sampling frequency (no gaps)
+
+       sample_freq: sampling frequency that data is given in (Hz)
+                    [Default: 1/60 Hz (60 s sample period)]
+
+       lowcut: low cutoff frequency (Hz)
+               [Default: 1e-4 Hz, (10,000 s period)]
+
+       highcut: high cutoff frequency (Hz)
+                [Default: 1e-1 Hz, (10 s period)]
+
+       order: Order of the butterworth filter to use
+              [Default: 3]
+    """
+
+    nyquist = 0.5*sample_freq
+    low = lowcut / nyquist
+    high = highcut / nyquist
+
+    # Create the butterworth filters
+    # If the sample frequency is high enough, make it a band pass
+    # otherwise, it will be a highpass filter
+    # TODO: Might want to add in a low pass filter option?
+    #       Or does the bandpass account for that automatically?
+    if sample_freq > highcut:
+        b, a = butter(order, [low, high], btype='band')
+    else:
+        b, a = butter(order, low, btype='highpass')
+
+    # Apply the filter coefficients to the data and return
+    return filtfilt(b, a, data)
 
 IAGA_HEADER = "\n".join([\
 " Format                 IAGA-2002                                    |",
