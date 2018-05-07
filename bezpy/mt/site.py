@@ -218,12 +218,12 @@ class Site3d(Site):
         # and are standard for the IRIS database
 
         # Magnetic Field
-        self.waveforms[["LFE", "LFN", "LFZ"]] *= 0.01 # nT
+        self.waveforms[["FE", "FN", "FZ"]] *= 0.01 # nT
         # Electric Field
-        self.waveforms[["LQN","LQE"]] *= 2.44141221047903e-05 # mV/km
+        self.waveforms[["QN","QE"]] *= 2.44141221047903e-05 # mV/km
         # Renaming
-        self.waveforms.rename(columns={"LFE": "By", "LFN": "Bx", "LFZ": "Bz",
-                                       "LQE": "Ey", "LQN": "Ex"},
+        self.waveforms.rename(columns={"FE": "BE", "FN": "BN", "FZ": "BZ",
+                                       "QE": "EE", "QN": "EN"},
                               inplace=True)
 
     def load_waveforms(self, directory="./"):
@@ -317,20 +317,23 @@ class Site1d(Site):
         fig.suptitle(r"1D Region: {name}".format(name=self.name), size=20)
         return fig
 
-def convert_trace_to_df(trace):
-    dt = datetime.timedelta(seconds=trace.stats.sampling_rate)
-    index = pd.to_datetime(trace.stats.starttime.datetime + trace.times()*dt)
-    df = pd.DataFrame(index=index, data={trace.stats.channel: trace.data})
-    return df
-
 def convert_stream_to_df(stream):
     cols = {}
     for trace in stream:
-        df_trace = convert_trace_to_df(trace)
-        if trace.stats.channel in cols:
-            cols[trace.stats.channel] = pd.concat([cols[trace.stats.channel], df_trace])
+        # The first letter is sampling frequency, which is already in
+        # the stats object. A stream could contain multiple sampling rates
+        # which would name these different columns, which we don't want.
+        channel = trace.stats.channel[1:]
+        index = pd.date_range(start=trace.stats.starttime.datetime,
+                          freq=1./trace.stats.sampling_rate*datetime.timedelta(seconds=1),
+                          periods=trace.stats.npts)
+        df_trace = pd.DataFrame(index=index,
+                                data={channel: trace.data})
+
+        if channel in cols:
+            cols[channel] = pd.concat([cols[channel], df_trace])
         else:
-            cols[trace.stats.channel] = df_trace
+            cols[channel] = df_trace
 
     df = pd.concat(cols.values(), axis=1)
     return df
