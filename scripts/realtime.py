@@ -200,7 +200,7 @@ xs = np.arange(-180, -20, delta_x)
 ys = np.arange(0, 89, delta_y)
 yy, xx = np.meshgrid(ys, xs)
 # Change it to an N x 2 matrix
-gridded_xys = np.vstack([np.ravel(xx), np.ravel(yy)]).T
+gridded_xy = np.vstack([np.ravel(xx), np.ravel(yy)]).T
 
 # Plot grid
 # NOTE: This specifies box edges for pcolormesh, which must be
@@ -220,9 +220,9 @@ obs_var = np.ones(obs_lat_lon_r.shape)
 # Don't include Z component in fits for now
 obs_var[:,2] = np.inf
 
-gridded_lat_lon_r = np.zeros((len(gridded_xys), 3))
-gridded_lat_lon_r[:,0] = gridded_xys[:,1]
-gridded_lat_lon_r[:,1] = gridded_xys[:,0]
+gridded_lat_lon_r = np.zeros((len(gridded_xy), 3))
+gridded_lat_lon_r[:,0] = gridded_xy[:,1]
+gridded_lat_lon_r[:,1] = gridded_xy[:,0]
 gridded_lat_lon_r[:,2] = R_earth
 
 # specify the SECS grid
@@ -318,7 +318,7 @@ if args.secmap:
 
     cbar = plt.colorbar(cax, orientation='horizontal', label='B (nT)')
 
-    Q = ax.quiver(gridded_xys[:,0], gridded_xys[:,1],
+    Q = ax.quiver(gridded_xy[:,0], gridded_xy[:,1],
                   By_log, Bx_log, color='k',
                   transform=proj_data,
                   scale_units='inches', scale=Bscale, width=arrow_width,
@@ -371,7 +371,7 @@ if args.movie:
 
     cbar = plt.colorbar(cax, orientation='horizontal', label='B (nT)')
 
-    Q = ax.quiver(gridded_xys[:,0], gridded_xys[:,1],
+    Q = ax.quiver(gridded_xy[:,0], gridded_xy[:,1],
                   By_log, Bx_log, color='k',
                   transform=proj_data,
                   scale_units='inches', scale=Bscale, width=arrow_width,
