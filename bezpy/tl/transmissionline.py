@@ -55,7 +55,7 @@ class TransmissionLine:
     def set_nearest_sites(self, site_xys):
         # Using Haversine distance to calculate nearest sites
         distances = haversine_distance(self.pts[:,0][:, np.newaxis], self.pts[:,1][:, np.newaxis],
-                                       site_xys[:,0][np.newaxis,:], site_xys[:,1][np.newaxis,:])
+                                       site_xys[:,1][np.newaxis,:], site_xys[:,0][np.newaxis,:])
         self.nearest_sites = np.argmin(distances, axis=1)
 
 
@@ -107,12 +107,12 @@ class TransmissionLine:
         # Use a gnomonic projection (every line is a great circle distance)
 
         # Make the middle lat/lon point be the mean of our data points
-        lon0 = np.mean(xys[:,0])
-        lat0 = np.mean(xys[:,1])
+        lon0 = np.mean(xys[:,1])
+        lat0 = np.mean(xys[:,0])
 
         # Calculate the x/y locations of the data points
-        lons = xys[:,0]
-        lats = xys[:,1]
+        lons = xys[:,1]
+        lats = xys[:,0]
 
         cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
         x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
