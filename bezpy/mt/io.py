@@ -13,6 +13,7 @@ from . import Site1d, Site3d
 
 DATA_PATH_1D = pkg_resources.resource_filename('bezpy', 'mt/data_1d') + "/"
 
+
 ####################
 # Helper functions
 ####################
@@ -23,12 +24,14 @@ def convert_float(s):
     except (ValueError, TypeError):
         return None
 
+
 def convert_int(s):
     """Converts values, handling bad strings."""
     try:
         return int(s)
     except (ValueError, TypeError):
         return None
+
 
 def convert_datetime(s):
     """Converts values, handling bad strings."""
@@ -37,12 +40,14 @@ def convert_datetime(s):
     except (ValueError, TypeError):
         return None
 
+
 def get_text(base, name):
     """Gets the text from an xml element."""
     try:
         return base.find(name).text
     except AttributeError:
         return None
+
 
 def parse_data(xml_data):
     """Parse data obtained from Anna's xml files."""
@@ -80,7 +85,6 @@ def parse_data(xml_data):
     df.index.name = "period"
 
     return df
-
 
 
 def read_xml(fname):
@@ -129,6 +133,7 @@ def read_xml(fname):
     site.calc_resisitivity()
     return site
 
+
 def read_1d_usgs_profile(fname):
     """Reads in a USGS conductivity profile.
 
@@ -152,7 +157,7 @@ def read_1d_usgs_profile(fname):
             # Moved past all comment lines
             # First line is supposed to be the number of layers
             num_layers = int(line.split()[0])
-            f.readline() # Spaces between each set of points
+            f.readline()  # Spaces between each set of points
 
             for _ in range(num_layers):
                 # Alternates conductivity/depth
@@ -167,12 +172,14 @@ def read_1d_usgs_profile(fname):
                           resistivities=[1./x for x in conductivities])
             return site
 
+
 _SITES1D = {}
 for temp_fname in glob.glob(DATA_PATH_1D + "earth_model_*.txt"):
     site1d = read_1d_usgs_profile(temp_fname)
     _SITES1D[site1d.name] = site1d
 # Make AK-1 default to AK-1A
 _SITES1D["AK1"] = _SITES1D["AK1A"]
+
 
 def get_1d_site(name):
     """Returns the 1D site for the given name, if present."""

@@ -8,6 +8,7 @@ from matplotlib import container
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .utils import apparent_resistivity
 
+
 def plot_apparent_resistivity(periods, Z, Z_var=None, fig=None,
                               ax_res=None, ax_phase=None, alpha=0.25,
                               markersize=8, figsize=(8, 6), xlim=None, ylim=None):

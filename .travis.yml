@@ -1,0 +1,11 @@
+language: python
+
+install:
+  - pip install pylint, flake8
+  - pip install .
+
+script:
+  - echo "*****Beginning pylint tests*****"
+  - pylint bezpy
+  - echo "*****Beginning flake8 tests*****"
+  - flake8 bezpy

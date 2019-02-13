@@ -9,6 +9,7 @@ from scipy.linalg import toeplitz
 from .site import Site3d
 from .utils import apparent_resistivity
 
+
 class DTIR:
     """Discrete Time Impulse Response (DTIR) class
 
@@ -24,7 +25,7 @@ class DTIR:
     # pylint: disable=too-many-instance-attributes,too-many-arguments
     def __init__(self, dt=1, nmin=-60, nmax=600, decay_factor=1.e-2,
                  Q_choice=1, model_space=False, verbose=False):
-        self.dt = dt # In seconds
+        self.dt = dt  # In seconds
         self.nmin = nmin
         self.nmax = nmax
 
@@ -80,7 +81,7 @@ class DTIR:
             Z = site.Z[:, good_locs]
             Z_var = site.Z_var[:, good_locs]
         else:
-        # elif periods is None or Z is None:
+            # elif periods is None or Z is None:
             raise ValueError("Must pass in either periods and Z or a Site3d object")
 
         t0 = time.time()
@@ -115,12 +116,12 @@ class DTIR:
             sigma = 1./np.hstack([variance[k, :].real, variance[k, :].real])
             # No off-diagonal terms for now, so just need
             # to take 1/diagonal
-            #sigma_inv = np.linalg.inv(sigma)
+            # sigma_inv = np.linalg.inv(sigma)
             sigma_inv = np.diag(1./sigma)
             sigma = np.diag(sigma)
 
             if self.model_space:
-                ## MODEL-SPACE
+                # MODEL-SPACE
                 # Gramian A^T Sigma A + lambda Q
                 G = A.T@sigma@A + self.decay_factor*self.Q
 
@@ -128,7 +129,7 @@ class DTIR:
                 self.zn[k, :] = np.linalg.solve(G, A.T@sigma@b)
 
             else:
-                ## DATA-SPACE
+                # DATA-SPACE
                 # Gramian (A Q^-1 A^T + lambda Sigma^-1)
                 G = A@self.Q_inv@A.T + self.decay_factor*sigma_inv
 
@@ -209,9 +210,9 @@ class DTIR:
         elif self.Q_choice == 2:
             # Simple diagonal matrix
             self.Q = np.diag(self.ns**4)
-            #Q[-nmin,-nmin] = 1.
-            #np.fill_diagonal(Q, 1./np.arange(nmin, nmax)**4)
-            #Q[0,0] = 1e-4
+            # Q[-nmin,-nmin] = 1.
+            # np.fill_diagonal(Q, 1./np.arange(nmin, nmax)**4)
+            # Q[0,0] = 1e-4
 
         elif self.Q_choice == 3:
             # Second order difference, with decay for n away from 0
@@ -258,8 +259,8 @@ class DTIR:
         # Convolve the impulse response with the magnetic field to get the electric field
         # in the time domain
         Ex_t = np.convolve(mag_x, zn_pad[0, :].real, mode='same') + \
-               np.convolve(mag_y, zn_pad[1, :].real, mode='same')
+            np.convolve(mag_y, zn_pad[1, :].real, mode='same')
         Ey_t = np.convolve(mag_x, zn_pad[2, :].real, mode='same') + \
-               np.convolve(mag_y, zn_pad[3, :].real, mode='same')
+            np.convolve(mag_y, zn_pad[3, :].real, mode='same')
 
         return (Ex_t, Ey_t)

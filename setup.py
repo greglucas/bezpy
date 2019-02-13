@@ -1,5 +1,5 @@
 """Build and install bezpy."""
-#!/usr/bin/env python
+#!/usr/bin/env python  # noqa
 # -*- coding: utf-8 -*-
 
 # Note: To use the 'upload' functionality of this file, you must:
@@ -39,7 +39,7 @@ with io.open(os.path.join(HERE, 'README.md'), encoding='utf-8') as f:
 # Load the package's __version__.py module as a dictionary.
 ABOUT = {}
 with open(os.path.join(HERE, NAME, '__version__.py')) as f:
-    exec(f.read(), ABOUT) # pylint: disable=exec-used
+    exec(f.read(), ABOUT)  # pylint: disable=exec-used
 
 
 class PublishCommand(Command):
@@ -81,7 +81,7 @@ setup(
     url=URL,
     packages=find_packages(exclude=('tests',)),
     # If your package is a single module, use this instead of 'packages':
-    #py_modules=['bezpy'],
+    # py_modules=['bezpy'],
 
     # entry_points={
     #     'console_scripts': ['mycli=mymodule:cli'],

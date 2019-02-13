@@ -10,6 +10,7 @@ from scipy.signal import butter, filtfilt
 import pkg_resources
 IAGA_PATH = pkg_resources.resource_filename('bezpy', 'mag/data') + "/"
 
+
 def read_iaga_header(fname):
     """
     IAGA-2002 format defined here:
@@ -31,6 +32,7 @@ def read_iaga_header(fname):
             else:
                 return header_records
     return header_records
+
 
 def read_iaga(fname, return_xyzf=True):
     """Reads an IAGA-2002 data file and returns data in XYZF format."""
@@ -79,6 +81,7 @@ def read_iaga(fname, return_xyzf=True):
         del df["H"], df["D"]
     return df
 
+
 def detrend_polynomial(data, deg=2):
     """Detrends the data with a polynomial of specified degree (default: 2)"""
 
@@ -86,6 +89,7 @@ def detrend_polynomial(data, deg=2):
     poly = np.polyfit(xvals, data, deg=deg)
     # poly gives all the coefficients, polyval evaluates all these at the same xs
     return data - np.polyval(poly, xvals)
+
 
 def filter_signal(data, sample_freq=1./60, lowcut=1e-4, highcut=1e-1, order=3):
     """A convenience method to apply butterworth filters to the data.
@@ -122,20 +126,22 @@ def filter_signal(data, sample_freq=1./60, lowcut=1e-4, highcut=1e-1, order=3):
     # Apply the filter coefficients to the data and return
     return filtfilt(b, a, data)
 
-IAGA_HEADER = "\n".join([\
-" Format                 IAGA-2002                                    |",
-" Source of Data         Greg Lucas                                   |",
-" Station Name           Random                                       |",
-" IAGA CODE              RAN                                          |",
-" Geodetic Latitude      0.000                                        |",
-" Geodetic Longitude     0.000                                        |",
-" Elevation              0                                            |",
-" Reported               XYZF                                         |",
-" Sensor Orientation     HDZF                                         |",
-" Digital Sampling       0.01 second                                  |",
-" Data Interval Type     filtered 1-minute (00:15-01:45)              |",
-" Data Type              definitive                                   |",
-"DATE       TIME         DOY     Ex        Ey        RANZ      RANF   |\n"])
+
+IAGA_HEADER = "\n".join([
+    " Format                 IAGA-2002                                    |",
+    " Source of Data         Greg Lucas                                   |",
+    " Station Name           Random                                       |",
+    " IAGA CODE              RAN                                          |",
+    " Geodetic Latitude      0.000                                        |",
+    " Geodetic Longitude     0.000                                        |",
+    " Elevation              0                                            |",
+    " Reported               XYZF                                         |",
+    " Sensor Orientation     HDZF                                         |",
+    " Digital Sampling       0.01 second                                  |",
+    " Data Interval Type     filtered 1-minute (00:15-01:45)              |",
+    " Data Type              definitive                                   |",
+    "DATE       TIME         DOY     Ex        Ey        RANZ      RANF   |\n"])
+
 
 def write_iaga_2002(df, fname):
     """Write the dataframe out in IAGA-2002 format."""
@@ -161,16 +167,15 @@ def write_iaga_2002(df, fname):
                             col4: "{0:9.2f}".format(99999.0)},
                 na_rep=' 99999.00', header=False, index_names=False))
 
+
 # Reading in IAGA codes and getting observatory information
 # This file was downloaded from: http://www.intermagnet.org/imos/imotblobs-eng.php
 # on 11/25/2017
 # Format of the file:
 # IAGA	Name	Country	Colatitute	East Longitude	Institute	GIN
-
 _IAGA_SITES = {}
-
 with open(IAGA_PATH + "intermagnet_observatories.dat", 'r') as f:
-    f.readline() # Read the header
+    f.readline()  # Read the header
     for line in f:
         elements = line.strip().split('\t')
         latitude = 90. - float(elements[3][:-1])
@@ -181,13 +186,15 @@ with open(IAGA_PATH + "intermagnet_observatories.dat", 'r') as f:
                                         "latitude": latitude, "longitude": longitude,
                                         "institute": elements[5], "GIN": elements[6]}
 
+
 def get_iaga_observatory_codes():
     """Get a list of all the IAGA obsevatory codes available."""
     return list(_IAGA_SITES.keys())
+
 
 def get_iaga_observatory(iaga_code):
     """Get the IAGA observatory information from the code."""
     try:
         return _IAGA_SITES[iaga_code.upper()]
-    except:
+    except KeyError:
         raise ValueError("No observatory: ", iaga_code)

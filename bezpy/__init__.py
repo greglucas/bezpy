@@ -13,7 +13,7 @@ MISSING_DEPENDENCIES = []
 for dependency in HARD_DEPENDENCIES:
     try:
         __import__(dependency)
-    except ImportError as err:
+    except ImportError:
         MISSING_DEPENDENCIES.append(dependency)
 
 if MISSING_DEPENDENCIES:

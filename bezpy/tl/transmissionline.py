@@ -13,6 +13,7 @@ import shapely
 
 from .utils import haversine_distance, haversine_dl, fast_interp_weights
 
+
 class TransmissionLine:
     """A high voltage transmission line object."""
 
@@ -64,7 +65,6 @@ class TransmissionLine:
                                        site_xys[:, 0][np.newaxis, :])
         self.nearest_sites = np.argmin(distances, axis=1)
 
-
     def set_1d_regions(self, region_polygons, default_region=18):
         """Sets the 1d region that each point along the transmission line is in."""
         # Start out with a default value of 18,
@@ -78,27 +78,26 @@ class TransmissionLine:
             if possible_polygons:
                 self.regions1d[i] = possible_polygons[0]
 
-            #for j, cond_poly in enumerate(region_polygons):
-            #    if p.within(cond_poly):
-            #        self.regions1d[i] = j
-            #        break # stops after the first within is satisfied
+            # for j, cond_poly in enumerate(region_polygons):
+            #     if p.within(cond_poly):
+            #         self.regions1d[i] = j
+            #         break # stops after the first within is satisfied
 
         # TODO: Use geopandas spatial joins instead
-        #line_gdf = gpd.GeoDataFrame(crs={'init': 'epsg:4326'},
+        # line_gdf = gpd.GeoDataFrame(crs={'init': 'epsg:4326'},
         #                     geometry=[shapely.geometry.Point(self.pts[i,:]) for i in
         #                     range(len(self.pts))])
         # now that we have a geodataframe of the points along the line
         # we can do a spatial join
         # After the spatial join, we need to groupby the index in case the point
         # is within multiple regions, and only keep the first index
-        #joined_gdf = gpd.sjoin(
+        # joined_gdf = gpd.sjoin(
         #    line_gdf, region_polygons, how='left', op='within').groupby(lambda x: x).first()
         # There could be nans inside the joined gdf if the point was outside
         # of a region
         # index_right is which index it was in
-        #self.regions1d = np.array(joined_gdf.index_right.fillna(default_region).values,
-        # dtype=np.int)
-
+        # self.regions1d = np.array(joined_gdf.index_right.fillna(default_region).values,
+        #     dtype=np.int)
 
     def set_delaunay_weights(self, site_xys):
         """Sets the delaunay weights for the given sites for each point along the line."""
