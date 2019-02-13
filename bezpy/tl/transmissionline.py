@@ -11,7 +11,7 @@ __all__ = ["TransmissionLine"]
 import numpy as np
 import shapely
 
-from .utils import *
+from .utils import haversine_distance, haversine_dl, fast_interp_weights
 
 class TransmissionLine:
     """A high voltage transmission line object."""
@@ -25,12 +25,14 @@ class TransmissionLine:
 
         # Calculate the length of the line in km
         # calculate the distance between each successive points and then sum that
-        self.length = np.sum(haversine_distance(self.pts[:-1,0],self.pts[:-1,1], self.pts[1:,0], self.pts[1:,1]))
+        self.length = np.sum(haversine_distance(self.pts[:-1, 0], self.pts[:-1, 1],
+                                                self.pts[1:, 0], self.pts[1:, 1]))
 
         # Calculate the dl: x coordinate is latitude
         # (dLat, dLon) == (dx, dy)
         # dl has the shape: npts x 2
-        self.dl = haversine_dl(self.pts[:-1,0],self.pts[:-1,1], self.pts[1:,0], self.pts[1:,1])
+        self.dl = haversine_dl(self.pts[:-1, 0], self.pts[:-1, 1],
+                               self.pts[1:, 0], self.pts[1:, 1])
 
         # Store the nearest MT Site to each point
         # shape: npts
@@ -47,28 +49,33 @@ class TransmissionLine:
 
     @property
     def npts(self):
+        """Number of points along the line."""
         return len(self)
 
     def __len__(self):
         return len(self.pts)
 
     def set_nearest_sites(self, site_xys):
+        """Sets the nearest site to each point along the transmission line."""
         # Using Haversine distance to calculate nearest sites
-        distances = haversine_distance(self.pts[:,0][:, np.newaxis], self.pts[:,1][:, np.newaxis],
-                                       site_xys[:,1][np.newaxis,:], site_xys[:,0][np.newaxis,:])
+        distances = haversine_distance(self.pts[:, 0][:, np.newaxis],
+                                       self.pts[:, 1][:, np.newaxis],
+                                       site_xys[:, 1][np.newaxis, :],
+                                       site_xys[:, 0][np.newaxis, :])
         self.nearest_sites = np.argmin(distances, axis=1)
 
 
     def set_1d_regions(self, region_polygons, default_region=18):
+        """Sets the 1d region that each point along the transmission line is in."""
         # Start out with a default value of 18,
         # so if there is no point in the polygon it goes there
         # 18 is CP-1 in the conductivity 1D profiles currently
         self.regions1d = np.ones(self.npts, dtype=np.int)*default_region
         for i in range(self.npts):
-            p = shapely.geometry.Point(self.pts[i,:])
+            point = shapely.geometry.Point(self.pts[i, :])
             possible_polygons = [j for j, cond_poly in enumerate(region_polygons)
-                                       if p.within(cond_poly)]
-            if len(possible_polygons) > 0:
+                                 if point.within(cond_poly)]
+            if possible_polygons:
                 self.regions1d[i] = possible_polygons[0]
 
             #for j, cond_poly in enumerate(region_polygons):
@@ -89,10 +96,12 @@ class TransmissionLine:
         # There could be nans inside the joined gdf if the point was outside
         # of a region
         # index_right is which index it was in
-        #self.regions1d = np.array(joined_gdf.index_right.fillna(default_region).values, dtype=np.int)
+        #self.regions1d = np.array(joined_gdf.index_right.fillna(default_region).values,
+        # dtype=np.int)
 
 
     def set_delaunay_weights(self, site_xys):
+        """Sets the delaunay weights for the given sites for each point along the line."""
         # function takes data first, and then the interpolation locations
         # We are trying to go from the site_xys (data_xy) to our transmission line
         # points (interp_xy)
@@ -107,26 +116,26 @@ class TransmissionLine:
         # Use a gnomonic projection (every line is a great circle distance)
 
         # Make the middle lat/lon point be the mean of our data points
-        lon0 = np.mean(xys[:,1])
-        lat0 = np.mean(xys[:,0])
+        lon0 = np.mean(xys[:, 1])
+        lat0 = np.mean(xys[:, 0])
 
         # Calculate the x/y locations of the data points
-        lons = xys[:,1]
-        lats = xys[:,0]
+        lons = xys[:, 1]
+        lats = xys[:, 0]
 
         cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
         x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
         y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))
-        xys[:,0], xys[:,1] = x, y
+        xys[:, 0], xys[:, 1] = x, y
 
         # Now calculate the x/y locations of the interpolation points
-        lons = pts[:,0]
-        lats = pts[:,1]
+        lons = pts[:, 0]
+        lats = pts[:, 1]
 
         cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
         x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
         y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))/cos_c
-        pts[:,0], pts[:,1] = x, y
+        pts[:, 0], pts[:, 1] = x, y
 
         self.delaunay_vtx, self.delaunay_wts = fast_interp_weights(xys, pts)
 
@@ -137,19 +146,20 @@ class TransmissionLine:
 
         :param how: Method of interpolation, one of (nn, 1d, delaunay)
         """
+        # pylint: disable=invalid-name
         if how == "nn":
             if self.nearest_sites is None:
                 raise ValueError("The closest regions were not defined yet, call:\n" +
                                  "    .set_nearest_sites(site_xys)\n" +
                                  "to initialize the closest regions")
-            E3d = np.atleast_3d(E)[:,self.nearest_sites[:-1],:]
+            E3d = np.atleast_3d(E)[:, self.nearest_sites[:-1], :]
 
         elif how == "1d":
             if self.regions1d is None:
                 raise ValueError("The closest regions were not defined yet, call:\n" +
                                  "    .set_1d_regions(region_polygons)\n" +
                                  "to initialize the closest regions")
-            E3d = np.atleast_3d(E)[:,self.regions1d[:-1],:]
+            E3d = np.atleast_3d(E)[:, self.regions1d[:-1], :]
 
         elif how == "delaunay":
             if self.delaunay_vtx is None or self.delaunay_wts is None:
@@ -167,9 +177,9 @@ class TransmissionLine:
             # 3d E field again
             # If any weights are less than 0, the interpolation is out of the boundary
             # so return np.nan
-            E3d = np.sum(np.atleast_3d(E)[:,self.delaunay_vtx[:-1],:] *
-                          self.delaunay_wts[np.newaxis,:-1,:,np.newaxis], axis=2)
-            E3d[:,np.any(self.delaunay_wts[:-1] < 0, axis=1),:] = np.nan
+            E3d = np.sum(np.atleast_3d(E)[:, self.delaunay_vtx[:-1], :] *
+                         self.delaunay_wts[np.newaxis, :-1, :, np.newaxis], axis=2)
+            E3d[:, np.any(self.delaunay_wts[:-1] < 0, axis=1), :] = np.nan
 
         else:
             raise ValueError("how must be a string of: nn, 1d, or delaunay")
@@ -177,7 +187,7 @@ class TransmissionLine:
         # E3d in units of mV/km
         # dl in units of km
         # divide by 1000 to change to V
-        voltages = np.sum(E3d*self.dl[np.newaxis,:,:], axis=(1,2)) / 1000.
+        voltages = np.sum(E3d*self.dl[np.newaxis, :, :], axis=(1, 2)) / 1000.
         # if there is only one voltage, just return that as a float
         # Otherwise return the entire array of voltages, which is the
         # length of the final dimension of E input (ntimes)
@@ -200,4 +210,4 @@ class TransmissionLine:
         # transform takes a list of x and a list of y coordinates
         # it outputs a list of new x and new y coordinates, so we need to
         # stack them back into a single array of shape: (npts, 2)
-        return np.vstack(transform(self.pts[:,0], self.pts[:,1])).T
+        return np.vstack(transform(self.pts[:, 0], self.pts[:, 1])).T

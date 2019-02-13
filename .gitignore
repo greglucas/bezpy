@@ -109,3 +109,6 @@ venv.bak/
 # Images and data
 *.png
 *.npz
+
+# VS code
+.vscode

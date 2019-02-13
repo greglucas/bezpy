@@ -1,3 +1,4 @@
+"""Build and install bezpy."""
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
@@ -28,17 +29,17 @@ REQUIRED = [
 # Except, perhaps the License and Trove Classifiers!
 # If you do change the License, remember to change the Trove Classifier for that!
 
-here = os.path.abspath(os.path.dirname(__file__))
+HERE = os.path.abspath(os.path.dirname(__file__))
 
 # Import the README and use it as the long-description.
 # Note: this will only work if 'README.md' is present in your MANIFEST.in file!
-with io.open(os.path.join(here, 'README.md'), encoding='utf-8') as f:
-    long_description = '\n' + f.read()
+with io.open(os.path.join(HERE, 'README.md'), encoding='utf-8') as f:
+    LONG_DESCRIPTION = '\n' + f.read()
 
 # Load the package's __version__.py module as a dictionary.
-about = {}
-with open(os.path.join(here, NAME, '__version__.py')) as f:
-    exec(f.read(), about)
+ABOUT = {}
+with open(os.path.join(HERE, NAME, '__version__.py')) as f:
+    exec(f.read(), ABOUT) # pylint: disable=exec-used
 
 
 class PublishCommand(Command):
@@ -52,16 +53,11 @@ class PublishCommand(Command):
         """Prints things in bold."""
         print('\033[1m{0}\033[0m'.format(s))
 
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
     def run(self):
+        """Running publish."""
         try:
             self.status('Removing previous builds…')
-            rmtree(os.path.join(here, 'dist'))
+            rmtree(os.path.join(HERE, 'dist'))
         except FileNotFoundError:
             pass
 
@@ -77,9 +73,9 @@ class PublishCommand(Command):
 # Where the magic happens:
 setup(
     name=NAME,
-    version=about['__version__'],
+    version=ABOUT['__version__'],
     description=DESCRIPTION,
-    long_description=long_description,
+    long_description=LONG_DESCRIPTION,
     author=AUTHOR,
     author_email=EMAIL,
     url=URL,
@@ -100,8 +96,7 @@ setup(
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: Implementation :: CPython',
-        'Programming Language :: Python :: Implementation :: PyPy'
+        'Programming Language :: Python :: 3.7'
     ],
     # $ setup.py publish support.
     cmdclass={
