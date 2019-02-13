@@ -10,6 +10,8 @@ install:
 
 script:
   - echo "*****Beginning pylint tests*****"
-  - pylint bezpy
+  # Disabling import-error for matplotlib/obspy errors, since we don't want to 
+  # deal with installing them on travis.
+  - pylint --disable=import-error bezpy
   - echo "*****Beginning flake8 tests*****"
   - flake8 bezpy

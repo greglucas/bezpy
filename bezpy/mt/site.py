@@ -7,8 +7,8 @@ __all__ = ["Site", "Site1d", "Site3d"]
 import datetime
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import scipy.interpolate
+import matplotlib.pyplot as plt
 
 from .utils import apparent_resistivity
 from .plotting import plot_apparent_resistivity
