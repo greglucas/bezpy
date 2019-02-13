@@ -1,12 +1,14 @@
-
+"""Module to compute and use impulse response functions."""
+# pylint: disable=invalid-name
 __all__ = ["DTIR"]
 
 import time
 import numpy as np
-import scipy.linalg
+from scipy.linalg import toeplitz
 
 from .site import Site3d
 from .utils import apparent_resistivity
+
 
 class DTIR:
     """Discrete Time Impulse Response (DTIR) class
@@ -20,9 +22,10 @@ class DTIR:
     Space Weather, 15, 874–894, doi:10.1002/2017SW001594.
     """
 
+    # pylint: disable=too-many-instance-attributes,too-many-arguments
     def __init__(self, dt=1, nmin=-60, nmax=600, decay_factor=1.e-2,
                  Q_choice=1, model_space=False, verbose=False):
-        self.dt = dt # In seconds
+        self.dt = dt  # In seconds
         self.nmin = nmin
         self.nmax = nmax
 
@@ -43,10 +46,12 @@ class DTIR:
 
     def __repr__(self):
         return f"DTIR(dt={self.dt}, nmin={self.nmin}, nmax={self.nmax}, " \
-               f"decay_factor={self.decay_factor}, Q_choice={self.Q_choice}, model_space={self.model_space})"
+               f"decay_factor={self.decay_factor}, Q_choice={self.Q_choice}, " \
+               f"model_space={self.model_space})"
 
     @property
     def ns(self):
+        """Return a list of the time indices."""
         return np.arange(self._Qnmin, self._Qnmax+1)
 
     def __len__(self):
@@ -63,21 +68,20 @@ class DTIR:
         return zf
 
     def get_apparent_resistivity(self, periods):
-        zf = self.get_zf(periods)
-
-        return apparent_resistivity(periods, zf)
+        """Calculates the apparent resistivity for the given periods."""
+        return apparent_resistivity(periods, self.get_zf(periods))
 
     def calculate(self, periods=None, Z=None, Z_var=None, site=None):
         """Calculates the DTIR for the given periods and Z, or the site object."""
-
+        # pylint: disable=too-many-locals
         if isinstance(site, Site3d):
             # Drop any nan's along the entire column.
             good_locs = ~np.any(np.isnan(site.Z), axis=0)
             periods = site.periods[good_locs]
-            Z = site.Z[:,good_locs]
-            Z_var = site.Z_var[:,good_locs]
+            Z = site.Z[:, good_locs]
+            Z_var = site.Z_var[:, good_locs]
         else:
-        #elif periods is None or Z is None:
+            # elif periods is None or Z is None:
             raise ValueError("Must pass in either periods and Z or a Site3d object")
 
         t0 = time.time()
@@ -102,36 +106,36 @@ class DTIR:
             variance = Z_var
 
         # Output data storage
-        self.zn = np.zeros((ncomponents,len(self)))
+        self.zn = np.zeros((ncomponents, len(self)))
 
         for k in range(ncomponents):
             t1 = time.time()
 
             # Stack the real and imaginary components
-            b = np.hstack([Z[k,:].real, Z[k,:].imag])
-            sigma = 1./np.hstack([variance[k,:].real, variance[k,:].real])
+            b = np.hstack([Z[k, :].real, Z[k, :].imag])
+            sigma = 1./np.hstack([variance[k, :].real, variance[k, :].real])
             # No off-diagonal terms for now, so just need
             # to take 1/diagonal
-            #sigma_inv = np.linalg.inv(sigma)
+            # sigma_inv = np.linalg.inv(sigma)
             sigma_inv = np.diag(1./sigma)
             sigma = np.diag(sigma)
 
             if self.model_space:
-                ## MODEL-SPACE
+                # MODEL-SPACE
                 # Gramian A^T Sigma A + lambda Q
                 G = A.T@sigma@A + self.decay_factor*self.Q
 
                 # Solve A*zn = b for zn
-                self.zn[k,:] = np.linalg.solve(G, A.T@sigma@b)
+                self.zn[k, :] = np.linalg.solve(G, A.T@sigma@b)
 
             else:
-                ## DATA-SPACE
+                # DATA-SPACE
                 # Gramian (A Q^-1 A^T + lambda Sigma^-1)
                 G = A@self.Q_inv@A.T + self.decay_factor*sigma_inv
 
                 b_lambda = np.linalg.solve(G, b)
 
-                self.zn[k,:] = self.Q_inv @ A.T @ b_lambda
+                self.zn[k, :] = self.Q_inv @ A.T @ b_lambda
 
             if self.verbose:
                 print("Iteration", k, " complete", time.time()-t1)
@@ -152,7 +156,7 @@ class DTIR:
         # m is shape (1, ns) // m = self.ns[np.newaxis,:]
         # periods is shape (nper, 1)
         # broadcast together makes A shape (nper, ns)
-        return np.exp(-1j*self.ns[np.newaxis,:]*self.dt*(2*np.pi/periods[:,np.newaxis]))
+        return np.exp(-1j*self.ns[np.newaxis, :]*self.dt*(2*np.pi/periods[:, np.newaxis]))
 
     def _calcQs(self):
         """Goes through logic on whether we need to calculate Q/Q_inv"""
@@ -181,8 +185,8 @@ class DTIR:
         t0 = time.time()
 
         if self.Q_choice == 1:
-            n = self.ns[:,np.newaxis]
-            m = self.ns[np.newaxis,:]
+            n = self.ns[:, np.newaxis]
+            m = self.ns[np.newaxis, :]
             nm = n*m
             # Contains indices for odd values
             odds = np.mod(n-m, 2) == 1
@@ -206,17 +210,17 @@ class DTIR:
         elif self.Q_choice == 2:
             # Simple diagonal matrix
             self.Q = np.diag(self.ns**4)
-            #Q[-nmin,-nmin] = 1.
-            #np.fill_diagonal(Q, 1./np.arange(nmin, nmax)**4)
-            #Q[0,0] = 1e-4
+            # Q[-nmin,-nmin] = 1.
+            # np.fill_diagonal(Q, 1./np.arange(nmin, nmax)**4)
+            # Q[0,0] = 1e-4
 
         elif self.Q_choice == 3:
             # Second order difference, with decay for n away from 0
             second_diff = np.zeros(len(self))
             second_diff[0] = 2
             second_diff[1] = -1
-            self.Q = scipy.linalg.toeplitz(second_diff, r=second_diff)
-            self.Q *= self.decay_factor * self.ns[:,np.newaxis]**4
+            self.Q = toeplitz(second_diff, r=second_diff)
+            self.Q *= self.decay_factor * self.ns[:, np.newaxis]**4
 
         if self.verbose:
             print("Q Matrix Size:", self.Q.shape)
@@ -237,24 +241,26 @@ class DTIR:
             print("Q Inversion Complete:", time.time()-t0)
 
     # FFT of magnetic field time series and the MT site
-    def convolve(self, magX, magY):
+    def convolve(self, mag_x, mag_y):
         """Convolution of the DTIR with the magnetic field in time domain."""
 
         if self.zn is None:
             raise ValueError("Need to calculate the DTIR before convolving.")
 
         # Pad the ns/zn to perform the convolution
-        maxN = np.max([np.abs(self._Qnmin), np.abs(self._Qnmax)])
+        max_n = np.max([np.abs(self._Qnmin), np.abs(self._Qnmax)])
         # This will pad 0's before and after zn to make it symmetric
         # about zero. No padding on the component axis, so the shape
         # of zn becomes: (4 x 2*maxN+1)
-        zn_pad = np.pad(self.zn, [(0,0), (np.abs(-maxN-self._Qnmin), maxN-self._Qnmax)], 'constant')
+        zn_pad = np.pad(self.zn,
+                        [(0, 0), (np.abs(-max_n-self._Qnmin), max_n-self._Qnmax)],
+                        'constant')
 
         # Convolve the impulse response with the magnetic field to get the electric field
         # in the time domain
-        Ex_t = np.convolve(magX, zn_pad[0,:].real, mode='same') + \
-               np.convolve(magY, zn_pad[1,:].real, mode='same')
-        Ey_t = np.convolve(magX, zn_pad[2,:].real, mode='same') + \
-               np.convolve(magY, zn_pad[3,:].real, mode='same')
+        Ex_t = np.convolve(mag_x, zn_pad[0, :].real, mode='same') + \
+            np.convolve(mag_y, zn_pad[1, :].real, mode='same')
+        Ey_t = np.convolve(mag_x, zn_pad[2, :].real, mode='same') + \
+            np.convolve(mag_y, zn_pad[3, :].real, mode='same')
 
         return (Ex_t, Ey_t)

@@ -4,48 +4,57 @@ __all__ = ["read_xml", "read_1d_usgs_profile", "get_1d_site"]
 
 import glob
 import datetime
+import xml.etree.ElementTree as ET
 import numpy as np
 import pandas as pd
-import xml.etree.ElementTree as ET
-
-from . import Site3d
-from . import Site1d
-
 import pkg_resources
-DATA_PATH_1d = pkg_resources.resource_filename('bezpy', 'mt/data_1d') + "/"
+
+from . import Site1d, Site3d
+
+DATA_PATH_1D = pkg_resources.resource_filename('bezpy', 'mt/data_1d') + "/"
+
 
 ####################
 # Helper functions
 ####################
 def convert_float(s):
+    """Converts values, handling bad strings."""
     try:
         return float(s)
-    except:
+    except (ValueError, TypeError):
         return None
+
 
 def convert_int(s):
+    """Converts values, handling bad strings."""
     try:
         return int(s)
-    except:
+    except (ValueError, TypeError):
         return None
+
 
 def convert_datetime(s):
+    """Converts values, handling bad strings."""
     try:
         return datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
-    except:
+    except (ValueError, TypeError):
         return None
+
 
 def get_text(base, name):
+    """Gets the text from an xml element."""
     try:
         return base.find(name).text
-    except:
+    except AttributeError:
         return None
 
-def parse_data(data):
+
+def parse_data(xml_data):
+    """Parse data obtained from Anna's xml files."""
     # For storing periods in a dictionary
     periods = {}
     # Iterate through the periods
-    for period in data:
+    for period in xml_data:
         period_length = float(period.attrib['value'])
         periods[period_length] = {}
         df_dict = periods[period_length]
@@ -76,7 +85,6 @@ def parse_data(data):
     df.index.name = "period"
 
     return df
-
 
 
 def read_xml(fname):
@@ -118,12 +126,13 @@ def read_xml(fname):
     try:
         site.Z_var = np.vstack([site.data['z.var_zxx'], site.data['z.var_zxy'],
                                 site.data['z.var_zyx'], site.data['z.var_zyy']])
-    except:
+    except KeyError:
         # No variance in the data fields
         site.Z_var = None
 
     site.calc_resisitivity()
     return site
+
 
 def read_1d_usgs_profile(fname):
     """Reads in a USGS conductivity profile.
@@ -148,9 +157,9 @@ def read_1d_usgs_profile(fname):
             # Moved past all comment lines
             # First line is supposed to be the number of layers
             num_layers = int(line.split()[0])
-            f.readline() # Spaces between each set of points
+            f.readline()  # Spaces between each set of points
 
-            for i in range(num_layers):
+            for _ in range(num_layers):
                 # Alternates conductivity/depth
                 conductivities.append(float(f.readline().split()[0]))
                 thicknesses.append(float(f.readline().split()[0]))
@@ -163,17 +172,20 @@ def read_1d_usgs_profile(fname):
                           resistivities=[1./x for x in conductivities])
             return site
 
-_sites1d = {}
-for fname in glob.glob(DATA_PATH_1d + "earth_model_*.txt"):
-    site = read_1d_usgs_profile(fname)
-    _sites1d[site.name] = site
+
+_SITES1D = {}
+for temp_fname in glob.glob(DATA_PATH_1D + "earth_model_*.txt"):
+    site1d = read_1d_usgs_profile(temp_fname)
+    _SITES1D[site1d.name] = site1d
 # Make AK-1 default to AK-1A
-_sites1d["AK1"] = _sites1d["AK1A"]
+_SITES1D["AK1"] = _SITES1D["AK1A"]
+
 
 def get_1d_site(name):
+    """Returns the 1D site for the given name, if present."""
     # Test for dropping the "-" in the name as well
     newname = "".join(name.split("-"))
-    if newname in _sites1d:
-        return _sites1d[newname]
+    if newname in _SITES1D:
+        return _SITES1D[newname]
 
     raise ValueError("No 1d site profile with the name: " + name)

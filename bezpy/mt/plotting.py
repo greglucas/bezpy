@@ -8,12 +8,17 @@ from matplotlib import container
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from .utils import apparent_resistivity
 
-def plot_apparent_resistivity(periods, Z, Z_var=None, fig=None, ax_res=None, ax_phase=None, alpha=0.25,
+
+def plot_apparent_resistivity(periods, Z, Z_var=None, fig=None,
+                              ax_res=None, ax_phase=None, alpha=0.25,
                               markersize=8, figsize=(8, 6), xlim=None, ylim=None):
+    """Plot generator for standard MT apparent resistivity and phase."""
+    # pylint: disable=invalid-name,too-many-locals,too-many-arguments
     if ax_res is None:
         fig, ax_res = plt.subplots(figsize=figsize)
     if ax_phase is None:
-        ax_phase = make_axes_locatable(ax_res).append_axes("bottom", size="50%", pad="20%", sharex=ax_res)
+        locator = make_axes_locatable(ax_res)
+        ax_phase = locator.append_axes("bottom", size="50%", pad="20%", sharex=ax_res)
 
     resistivity, resistivity_var, phase, phase_var = apparent_resistivity(periods, Z, Z_var)
 
@@ -26,27 +31,27 @@ def plot_apparent_resistivity(periods, Z, Z_var=None, fig=None, ax_res=None, ax_
 
     for i in range(4):
         if Z_var is None:
-            ax_res.plot(periods, resistivity[i,:], c=colors[i],
+            ax_res.plot(periods, resistivity[i, :], c=colors[i],
                         label=labels[i], alpha=alphas[i])
-            ax_phase.plot(periods, phase[i,:], c=colors[i],
+            ax_phase.plot(periods, phase[i, :], c=colors[i],
                           label=labels[i], alpha=alphas[i])
         else:
             # Ignoring nans
-            good_vals = ~np.isnan(resistivity[i,:])
+            good_vals = ~np.isnan(resistivity[i, :])
             x = periods[good_vals]
-            y = resistivity[i,good_vals]
-            yerr = 2*resistivity_var[i,good_vals]
+            y = resistivity[i, good_vals]
+            yerr = 2*resistivity_var[i, good_vals]
 
             ax_res.errorbar(x, y, yerr=yerr,
                             label=labels[i], color=colors[i], marker='o', fmt='o',
                             markersize=markersize, alpha=alphas[i],
                             markerfacecolor=bg_color, markeredgecolor=colors[i], markeredgewidth=1)
-            y = phase[i,good_vals]
-            yerr = 2*phase_var[i,good_vals]
+            y = phase[i, good_vals]
+            yerr = 2*phase_var[i, good_vals]
             ax_phase.errorbar(x, y, yerr=yerr,
-                              color=colors[i], marker='o', fmt='o',
-                              markersize=markersize, alpha=alphas[i],
-                              markerfacecolor=bg_color, markeredgecolor=colors[i], markeredgewidth=1)
+                              color=colors[i], marker='o', fmt='o', alpha=alphas[i],
+                              markersize=markersize, markerfacecolor=bg_color,
+                              markeredgecolor=colors[i], markeredgewidth=1)
 
     # get handles and remove error bars
     handles, leg_labels = ax_res.get_legend_handles_labels()
