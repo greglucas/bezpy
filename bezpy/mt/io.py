@@ -201,8 +201,7 @@ def read_runinfo(site,root):
         # runid of fieldnote
         runid = field.attrib['run']
         site.runinfo[runid] = {}
-        # index of runid in the runlist. This index is used to update the length of E-dipole
-        ind   = site.runlist.index(runid)
+
         try:
             site.NIMSid = get_text( field.find('Instrument'), 'Id')
         except KeyError:
@@ -210,10 +209,9 @@ def read_runinfo(site,root):
 
         # run through E component
         for ecomp in field.findall("Dipole"):
-             # component
-                Edirection = ecomp.attrib['name']
-                length = convert_float(get_text(ecomp, "Length"))
-                site.runinfo[runid][Edirection] = length
+            # component
+            Edirection = ecomp.attrib['name']   # Ex or Ey
+            site.runinfo[runid][Edirection] = convert_float(get_text(ecomp, "Length"))
 
         # set start and end datetime
         site.runinfo[runid]['Start'] = datetime.datetime.strptime( field.find('Start').text,'%Y-%m-%dT%H:%M:%S')
