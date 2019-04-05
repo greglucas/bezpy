@@ -254,7 +254,6 @@ class Site3d(Site):
                 self.waveforms["QE"].loc[mask] *= (1000.0/self.runinfo[runid]['Ey'])*(100.0/1000.0)  # mV/km
 
             except KeyError:
-                print(runid)
                 pass
 
         # Renaming
