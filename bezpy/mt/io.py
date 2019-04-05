@@ -123,6 +123,9 @@ def read_xml(fname):
     site.Z = np.vstack([site.data['z_zxx'], site.data['z_zxy'],
                         site.data['z_zyx'], site.data['z_zyy']])
 
+    site.runlist = get_text(xml_site, "RunList").split()
+    site = read_runinfo(site,root)
+
     try:
         site.Z_var = np.vstack([site.data['z.var_zxx'], site.data['z.var_zxy'],
                                 site.data['z.var_zyx'], site.data['z.var_zyy']])
@@ -189,3 +192,31 @@ def get_1d_site(name):
         return _SITES1D[newname]
 
     raise ValueError("No 1d site profile with the name: " + name)
+
+def read_runinfo(site,root):
+    site.runinfo = {}
+
+    # fieldnotes = xml_site.find("FieldNotes")
+    for field in root.findall("FieldNotes"):
+        # runid of fieldnote
+        runid = field.attrib['run']
+        site.runinfo[runid] = {}
+        # index of runid in the runlist. This index is used to update the length of E-dipole
+        ind   = site.runlist.index(runid)
+        try:
+            site.NIMSid = get_text( field.find('Instrument'), 'Id')
+        except KeyError:
+            site.NIMSid = None
+
+        # run through E component
+        for ecomp in field.findall("Dipole"):
+             # component
+                Edirection = ecomp.attrib['name']
+                length = convert_float(get_text(ecomp, "Length"))
+                site.runinfo[runid][Edirection] = length
+
+        # set start and end datetime
+        site.runinfo[runid]['Start'] = datetime.datetime.strptime( field.find('Start').text,'%Y-%m-%dT%H:%M:%S')
+        site.runinfo[runid]['End']   = datetime.datetime.strptime( field.find('End').text,'%Y-%m-%dT%H:%M:%S')
+
+    return site

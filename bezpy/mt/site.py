@@ -243,8 +243,20 @@ class Site3d(Site):
 
         # Magnetic Field
         self.waveforms[["FE", "FN", "FZ"]] *= 0.01  # nT
-        # Electric Field
-        self.waveforms[["QN", "QE"]] *= 2.44141221047903e-05  # mV/km
+        # Electric voltage
+        self.waveforms[["QN", "QE"]] *= 2.44141221047903e-06  # mV
+        # Electric Field (set default length of dipole as 100m)
+        self.waveforms[["QN", "QE"]] *= (1000.0/100.0)  # mV/km
+        for runid in self.runlist:
+            try:
+                mask = ((self.waveforms.index>self.runinfo[runid]['Start']) & (self.waveforms.index<self.runinfo[runid]['End']))
+                self.waveforms["QN"].loc[mask] *= (1000.0/self.runinfo[runid]['Ex'])*(100.0/1000.0)  # mV/km
+                self.waveforms["QE"].loc[mask] *= (1000.0/self.runinfo[runid]['Ey'])*(100.0/1000.0)  # mV/km
+
+            except KeyError:
+                print(runid)
+                pass
+
         # Renaming
         self.waveforms.rename(columns={"FE": "BE", "FN": "BN", "FZ": "BZ",
                                        "QE": "EE", "QN": "EN"},
