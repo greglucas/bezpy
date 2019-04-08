@@ -124,7 +124,7 @@ def read_xml(fname):
                         site.data['z_zyx'], site.data['z_zyy']])
 
     site.runlist = get_text(xml_site, "RunList").split()
-    site = read_runinfo(site, root)
+    site.runinfo, site.nimsid, site.samplingrate = read_runinfo(root)
 
     try:
         site.Z_var = np.vstack([site.data['z.var_zxx'], site.data['z.var_zxy'],
@@ -195,34 +195,34 @@ def get_1d_site(name):
     raise ValueError("No 1d site profile with the name: " + name)
 
 
-def read_runinfo(site, root):
+def read_runinfo(root):
     """Returns the run info, if present."""
-    site.runinfo = {}
+    runinfo = {}
 
     # Run through for each runid
     for field in root.findall("FieldNotes"):
         # runid of fieldnote
         runid = field.attrib['run']
-        site.runinfo[runid] = {}
+        runinfo[runid] = {}
 
         try:
-            site.nimsid = get_text(field.find('Instrument'), 'Id')
-            site.samplingrate = convert_float(field.find('SamplingRate').text)
+            nimsid = get_text(field.find('Instrument'), 'Id')
+            samplingrate = convert_float(field.find('SamplingRate').text)
         except KeyError:
-            site.nimsid = None
-            site.samplingrate = 1.0
+            nimsid = None
+            samplingrate = 1.0
 
         # Run through E component
         for ecomp in field.findall("Dipole"):
             # Electric component name
             edir = ecomp.attrib['name']   # Ex or Ey
             # Electric dipole length
-            site.runinfo[runid][edir] = convert_float(get_text(ecomp, "Length"))
+            runinfo[runid][edir] = convert_float(get_text(ecomp, "Length"))
 
         # set start and end datetime
-        site.runinfo[runid]['Start'] = datetime.datetime.strptime(field.find('Start').text,
-                                                                  '%Y-%m-%dT%H:%M:%S')
-        site.runinfo[runid]['End'] = datetime.datetime.strptime(field.find('End').text,
-                                                                '%Y-%m-%dT%H:%M:%S')
+        runinfo[runid]['Start'] = datetime.datetime.strptime(field.find('Start').text,
+                                                             '%Y-%m-%dT%H:%M:%S')
+        runinfo[runid]['End'] = datetime.datetime.strptime(field.find('End').text,
+                                                           '%Y-%m-%dT%H:%M:%S')
 
-    return site
+    return runinfo, nimsid, samplingrate
