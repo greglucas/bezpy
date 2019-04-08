@@ -4,10 +4,12 @@ Magnetotelluric site classes.
 """
 __all__ = ["Site", "Site1d", "Site3d"]
 
+import sys
 import datetime
 import numpy as np
 import pandas as pd
 import scipy.interpolate
+from scipy.signal import zpk2tf, filtfilt, bilinear_zpk
 import matplotlib.pyplot as plt
 
 from .utils import apparent_resistivity
@@ -43,6 +45,11 @@ class Site:
 
         self.min_period = None
         self.max_period = None
+
+        self.samplingrate = None
+        self.nimsid = None
+        self.zpk = None
+        self.timedelays = None
 
     def convolve_fft(self, mag_x, mag_y, dt=60):
         """Convolution in frequency space."""
@@ -83,6 +90,122 @@ class Site:
         """Calculates transfer function, Z, from the input frequencies."""
         raise NotImplementedError("calcZ not implemented for this object yet.")
 
+    def sysidcheck(self):
+        """Returns logger and hardware, backbone from sysid and sampling rate (Hz)"""
+        sysid = self.nimsid
+        samplingrate = self.samplingrate
+
+        # first search for an 'H' for the hourly time series, and get rid of it for
+        # the further parsing
+        logger = 'MT1'
+        i = sysid.find('H')
+        if not i == -1:
+            logger = 'HP200'
+            sysid = sysid[0:i] + sysid[i+2:]
+
+        # parse the system ID. If it does not make sense, return an empty
+        # response structure.
+        j = sysid.find('-')
+        if j == -1:
+            sys.exit('Invalid system ID in NIMsysRsp')
+
+        nim1 = int(sysid[0:j])
+        # we know the following NIMS series
+        nimlist1 = [2106, 2311, 2405, 2406, 2501, 2502, 2503, 2508, 2509, 2606, 2611,
+                    2612, 1303, 1305, 1105]
+
+        if np.isnan(nim1):
+            sys.exit('NIMS ID ' + sysid + ' does not seem to be valid. Please correct.')
+        elif nim1 not in nimlist1:
+            sys.exit('We do not know NIMS series ' + str(nim1) + '. Check the system ID.')
+
+        nim2str = sysid[j+2:]
+        nim2 = int(nim2str)
+
+        # and assume that the possible numbers are 1-30
+        nimlist2 = range(1, 31)
+        backbone = 0
+
+        if nim2str[0] == 'B' or nim2str[0] == 'b':
+            # recognized backbone NIMS ID
+            backbone = 1
+        elif nim2str[0] == 'A' or nim2str[0] == 'a':
+            # recognized new experimental NIMS
+            print('NIMS ID ' + sysid + ' is a new experimental system. Look out for clock drift.')
+        elif np.isnan(nim2):
+            sys.exit('NIMS ID ' + sysid + ' does not seem to be valid. Please correct.')
+        elif nim2 not in nimlist2:
+            sys.exit('NIMS ID ' + sysid + ' does not seem to be valid. Please correct.')
+
+        # if 2106-1/10, assume PC104 hardware of v2001 or v2006
+        hardware = 'STE'
+        if (nim1 == 2106) & (nim2 <= 10):
+            hardware = 'PC104'
+
+        # if 2106-1/10 and the sampling rate is 4 Hz, assume HP200 (hourly files)
+        if (nim1 == 2106) & (nim2 <= 10) & (samplingrate == 4):
+            logger = 'HP200'
+
+        # verify HP200 data logger: assuming these can only be 2106-1/10
+        if logger == 'HP200':
+            if (nim1 != 2106) or (nim2 > 10):
+                print('A possible problem with the system ID detected. HP200 data \
+                logger has been inferred, but the system is not 2106-1/10.')
+                sys.exit('Please make sure ' + sysid + ' does not have an H character.')
+
+        return logger, hardware, backbone
+
+    def nim_sys_rsp(self):
+        """reads NIMS id and sampling rate and set parameters of Butterworth filter."""
+
+        # get logger and hardware, backbone from sysid and sampling rate (Hz)
+        logger, hardware, backbone = self.sysidcheck()
+
+        # This overrides anything about time delays in John Booker's nimsread.
+        # This is a product of lengthy correspondence between Gary Egbert and
+        # Barry Narod, with reference to diagrams on the NIMS firmware, and is
+        # believed to be correct.
+        if logger == 'HP200':    # 1 hour files, 4 Hz after decimation by nimsread
+            timedelays = [-0.0055, -0.0145, -0.0235, 0.1525, 0.0275]
+        elif self.samplingrate == 1:    # MT1 data logger
+            timedelays = [-0.1920, -0.2010, -0.2100, -0.2850, -0.2850]
+        elif self.samplingrate == 8:    # MT1 data logger
+            timedelays = [0.2455, 0.2365, 0.2275, 0.1525, 0.1525]
+        else:
+            sys.exit('Unknown sampling rate, please check!')
+
+        z1mag = []
+        p1mag = [-6.28319+1j*10.8825, -6.28319-1j*10.8825, -12.5664]
+        k1mag = 1984.31
+
+        # based on the NIMS hardware, we determine the filter characteristics.
+        if hardware == 'PC104':
+            z1ele = [0.0]
+            p1ele = [-3.333333E-05]
+            k1ele = 1.0
+        else:
+            z1ele = [0.0]
+            p1ele = [-1.666670E-04]
+            k1ele = 1.0
+
+        z2ele = []
+        p2ele = [-3.88301+1j*11.9519, -3.88301-1j*11.9519, -10.1662+1j*7.38651,
+                 -10.1662-1j*7.38651, -12.5664]
+        k2ele = 313384
+
+        # z: zero, p: pole, k:gain
+        self.zpk = dict.fromkeys(['FN', 'FE', 'FZ'], {'F1': {'z': z1mag, 'p': p1mag, 'k': k1mag}})
+
+        if backbone:   # no high pass filters
+            self.zpk.update(dict.fromkeys(['QN', 'QE'],
+                                          {'F1': {'z': z2ele, 'p': p2ele, 'k': k2ele}}))
+        else:
+            self.zpk.update(dict.fromkeys(['QN', 'QE'],
+                                          {'F1': {'z': z1ele, 'p': p1ele, 'k': k1ele},
+                                           'F2': {'z': z2ele, 'p': p2ele, 'k': k2ele}}))
+
+        self.timedelays = timedelays
+
 
 # ---------------------------------
 # 3d EarthScope Sites
@@ -97,6 +220,9 @@ class Site3d(Site):
         self.waveforms = None
         self.start_time = None
         self.end_time = None
+
+        self.runlist = []
+        self.runinfo = {}
 
     def _repr_html_(self):
         return f"<p style=\"font-size:22px; color:blue\"><b>Site 3d: {self.name}</b></p>" + \
@@ -243,18 +369,32 @@ class Site3d(Site):
 
         # Magnetic Field
         self.waveforms[["FE", "FN", "FZ"]] *= 0.01  # nT
-        # Electric voltage
-        self.waveforms[["QN", "QE"]] *= 2.44141221047903e-06  # mV
-        # Electric Field (set default length of dipole as 100m)
-        self.waveforms[["QN", "QE"]] *= (1000.0/100.0)  # mV/km
+        # Electric Field (assuming the dipole length as 100m)
+        self.waveforms[["QN", "QE"]] *= 2.44141221047903e-05  # mV/km
+        # Correcting electric Field with actual length of dipole
         for runid in self.runlist:
             try:
-                mask = ((self.waveforms.index>self.runinfo[runid]['Start']) & (self.waveforms.index<self.runinfo[runid]['End']))
-                self.waveforms["QN"].loc[mask] *= (1000.0/self.runinfo[runid]['Ex'])*(100.0/1000.0)  # mV/km
-                self.waveforms["QE"].loc[mask] *= (1000.0/self.runinfo[runid]['Ey'])*(100.0/1000.0)  # mV/km
+                mask = ((self.waveforms.index > self.runinfo[runid]['Start']) &
+                        (self.waveforms.index < self.runinfo[runid]['End']))
+                self.waveforms["QN"].loc[mask] *= (100.0/self.runinfo[runid]['Ex'])  # mV/km
+                self.waveforms["QE"].loc[mask] *= (100.0/self.runinfo[runid]['Ey'])  # mV/km
 
+            # If there's no info of length, then use default length.
             except KeyError:
                 pass
+
+        # Filtering waveforms by NIMS system response
+        for name in self.waveforms:   # loop for FE, FN, FZ, QN, QE
+            for filt in self.zpk[name]:   # loop for filter
+                zval = self.zpk[name][filt]['z']
+                pval = self.zpk[name][filt]['p']
+                kval = self.zpk[name][filt]['k']
+
+                # convert analog zpk to digital filter
+                zval, pval, kval = bilinear_zpk(zval, pval, kval, self.samplingrate)
+                b, a = zpk2tf(zval, pval, kval)
+
+                self.waveforms[name] = filtfilt(b, a, self.waveforms[name].interpolate())
 
         # Renaming
         self.waveforms.rename(columns={"FE": "BE", "FN": "BN", "FZ": "BZ",
