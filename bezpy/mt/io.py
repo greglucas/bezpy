@@ -123,6 +123,9 @@ def read_xml(fname):
     site.Z = np.vstack([site.data['z_zxx'], site.data['z_zxy'],
                         site.data['z_zyx'], site.data['z_zyy']])
 
+    site.runlist = get_text(xml_site, "RunList").split()
+    site.runinfo, site.nimsid, site.samplingrate = read_runinfo(root)
+
     try:
         site.Z_var = np.vstack([site.data['z.var_zxx'], site.data['z.var_zxy'],
                                 site.data['z.var_zyx'], site.data['z.var_zyy']])
@@ -131,6 +134,7 @@ def read_xml(fname):
         site.Z_var = None
 
     site.calc_resisitivity()
+    site.nim_sys_rsp()
     return site
 
 
@@ -189,3 +193,36 @@ def get_1d_site(name):
         return _SITES1D[newname]
 
     raise ValueError("No 1d site profile with the name: " + name)
+
+
+def read_runinfo(root):
+    """Returns the run info, if present."""
+    runinfo = {}
+
+    # Run through for each runid
+    for field in root.findall("FieldNotes"):
+        # runid of fieldnote
+        runid = field.attrib['run']
+        runinfo[runid] = {}
+
+        try:
+            nimsid = get_text(field.find('Instrument'), 'Id')
+            samplingrate = convert_float(field.find('SamplingRate').text)
+        except KeyError:
+            nimsid = None
+            samplingrate = 1.0
+
+        # Run through E component
+        for ecomp in field.findall("Dipole"):
+            # Electric component name
+            edir = ecomp.attrib['name']   # Ex or Ey
+            # Electric dipole length
+            runinfo[runid][edir] = convert_float(get_text(ecomp, "Length"))
+
+        # set start and end datetime
+        runinfo[runid]['Start'] = datetime.datetime.strptime(field.find('Start').text,
+                                                             '%Y-%m-%dT%H:%M:%S')
+        runinfo[runid]['End'] = datetime.datetime.strptime(field.find('End').text,
+                                                           '%Y-%m-%dT%H:%M:%S')
+
+    return runinfo, nimsid, samplingrate
