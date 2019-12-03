@@ -122,10 +122,6 @@ def read_xml(fname):
     site.periods = np.array(site.data.index)
     site.Z = np.vstack([site.data['z_zxx'], site.data['z_zxy'],
                         site.data['z_zyx'], site.data['z_zyy']])
-
-    site.runlist = get_text(xml_site, "RunList").split()
-    site.runinfo, site.nimsid, site.samplingrate = read_runinfo(root)
-
     try:
         site.Z_var = np.vstack([site.data['z.var_zxx'], site.data['z.var_zxy'],
                                 site.data['z.var_zyx'], site.data['z.var_zyy']])
@@ -133,8 +129,14 @@ def read_xml(fname):
         # No variance in the data fields
         site.Z_var = None
 
+    # NIMS stations have a RunList attribute in them
+    run_list = get_text(xml_site, "RunList")
+    if run_list is not None:
+        site.runlist = run_list.split()
+        site.runinfo, site.nimsid, site.samplingrate = read_runinfo(root)
+        site.nim_sys_rsp()
+
     site.calc_resisitivity()
-    site.nim_sys_rsp()
     return site
 
 
