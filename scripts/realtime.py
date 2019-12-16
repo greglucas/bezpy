@@ -43,7 +43,7 @@ import time
 # Numerical
 import numpy as np
 import pandas as pd
-from secs import SECS
+from pySECS import SECS
 import bezpy
 
 # Plotting libraries
