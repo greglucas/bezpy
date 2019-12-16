@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 import pkg_resources
 
-from . import Site1d, Site3d
+from .site import Site1d, Site3d
+from .datalogger import DataLogger
 
 DATA_PATH_1D = pkg_resources.resource_filename('bezpy', 'mt/data_1d') + "/"
 
@@ -97,6 +98,7 @@ def read_xml(fname):
     site = Site3d(name)
     # Store the parsed root xml element
     site.xml = root
+    site.product_id = get_text(root, "ProductId")
 
     loc = xml_site.find("Location")
     site.latitude = convert_float(get_text(loc, "Latitude"))
@@ -129,14 +131,21 @@ def read_xml(fname):
         # No variance in the data fields
         site.Z_var = None
 
-    # NIMS stations have a RunList attribute in them
-    run_list = get_text(xml_site, "RunList")
-    if run_list is not None:
-        site.runlist = run_list.split()
-        site.runinfo, site.nimsid, site.samplingrate = read_runinfo(root)
-        site.nim_sys_rsp()
-
     site.calc_resisitivity()
+
+    site.datalogger = DataLogger()
+    try:
+        runinfo, nimsid, samplingrate = read_logger_info(site.xml)
+        # No info about the nimsid from the logger read, so just return
+        # without updating any information about it.
+        if nimsid is None:
+            return site
+        site.datalogger.add_run_info(runinfo, nimsid, samplingrate)
+        # Fill out the NIM System Response
+        site.datalogger.nim_system_response()
+    except ValueError:
+        pass
+
     return site
 
 
@@ -197,9 +206,11 @@ def get_1d_site(name):
     raise ValueError("No 1d site profile with the name: " + name)
 
 
-def read_runinfo(root):
+def read_logger_info(root):
     """Returns the run info, if present."""
     runinfo = {}
+    nimsid = ""
+    samplingrate = 1.0
 
     # Run through for each runid
     for field in root.findall("FieldNotes"):
@@ -211,8 +222,7 @@ def read_runinfo(root):
             nimsid = get_text(field.find('Instrument'), 'Id')
             samplingrate = convert_float(field.find('SamplingRate').text)
         except KeyError:
-            nimsid = None
-            samplingrate = 1.0
+            pass
 
         # Run through E component
         for ecomp in field.findall("Dipole"):
