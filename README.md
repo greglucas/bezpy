@@ -1,5 +1,7 @@
 # Bezpy
 
+[![DOI](https://zenodo.org/badge/115665136.svg)](https://zenodo.org/badge/latestdoi/115665136)
+
 Bezpy is an open source library for analysis of magnetic (B), electric (E),
 and impedance (Z) data within a geophysical framework. This library contains
 routines for calculating the geoelectric field from the geomagnetic field in
