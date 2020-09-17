@@ -135,6 +135,12 @@ def read_xml(fname):
 
     site.datalogger = DataLogger()
     try:
+        site.datalogger.runlist = get_text(xml_site, "RunList").split()
+    except AttributeError:
+        # No RunList means no data
+        return site
+
+    try:
         runinfo, nimsid, samplingrate = read_logger_info(site.xml)
         # No info about the nimsid from the logger read, so just return
         # without updating any information about it.

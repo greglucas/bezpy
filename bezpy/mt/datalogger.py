@@ -34,13 +34,15 @@ class DataLogger:
             # pylint: disable=import-error,import-outside-toplevel
             from obspy.clients.fdsn import Client
             _IRIS_CLIENT = Client("IRIS")
+        from obspy.core import UTCDateTime
 
         # Download the stream
         # The channels are
         # E: LQN/LQE
         # B: LFN/LFE/LFZ
         stream = _IRIS_CLIENT.get_waveforms("EM", name, "*", "*",
-                                            start_time, end_time)
+                                            UTCDateTime(start_time),
+                                            UTCDateTime(end_time))
         # Convert the stream to a pandas DataFrame
         waveforms = _convert_stream_to_df(stream)
         # Channel conversion factors and renaming
