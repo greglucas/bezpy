@@ -120,6 +120,8 @@ def read_xml(fname):
 
     # Get all the data in a pandas dataframe
     site.data = parse_data(root.find("Data"))
+    # Sort the index so periods are increasing
+    site.data = site.data.sort_index()
 
     site.periods = np.array(site.data.index)
     site.Z = np.vstack([site.data['z_zxx'], site.data['z_zxy'],
