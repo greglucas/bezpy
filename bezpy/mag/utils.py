@@ -34,7 +34,7 @@ def read_iaga_header(fname):
     return header_records
 
 
-def read_iaga(fname, return_xyzf=True):
+def read_iaga(fname, return_xyzf=True, return_header=False):
     """Reads an IAGA-2002 data file and returns data in XYZF format."""
     # Get the header information
     header_records = read_iaga_header(fname)
@@ -79,7 +79,11 @@ def read_iaga(fname, return_xyzf=True):
         df["X"] = df["H"] * np.cos(np.deg2rad(df["D"]/60.))
         df["Y"] = df["H"] * np.sin(np.deg2rad(df["D"]/60.))
         del df["H"], df["D"]
-    return df
+    
+    if return_header:
+        return df, header_records
+    else:
+        return df
 
 
 def detrend_polynomial(data, deg=2):
