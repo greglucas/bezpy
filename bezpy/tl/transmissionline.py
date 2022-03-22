@@ -99,7 +99,7 @@ class TransmissionLine:
         # self.regions1d = np.array(joined_gdf.index_right.fillna(default_region).values,
         #     dtype=np.int)
 
-    def set_delaunay_weights(self, site_xys):
+    def set_delaunay_weights(self, site_xys, use_gnomic=True):
         """Sets the delaunay weights for the given sites for each point along the line."""
         # function takes data first, and then the interpolation locations
         # We are trying to go from the site_xys (data_xy) to our transmission line
@@ -108,33 +108,34 @@ class TransmissionLine:
         # Turn everything into radians
         xys = np.deg2rad(site_xys)
         pts = np.deg2rad(self.pts)
-        # then multiply by the cosine of latitude to adjust for the distances near the poles.
-        # xys[:,0] = xys[:,0]*np.abs(np.cos(xys[:,1]))
-        # pts[:,0] = pts[:,0]*np.abs(np.cos(pts[:,1]))
+        if use_gnomic:
+            # Use a gnomonic projection (every line is a great circle distance)
 
-        # Use a gnomonic projection (every line is a great circle distance)
+            # Make the middle lat/lon point be the mean of our data points
+            lon0 = np.mean(xys[:, 1])
+            lat0 = np.mean(xys[:, 0])
 
-        # Make the middle lat/lon point be the mean of our data points
-        lon0 = np.mean(xys[:, 1])
-        lat0 = np.mean(xys[:, 0])
+            # Calculate the x/y locations of the data points
+            lons = xys[:, 1]
+            lats = xys[:, 0]
 
-        # Calculate the x/y locations of the data points
-        lons = xys[:, 1]
-        lats = xys[:, 0]
+            cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
+            x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
+            y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))
+            xys[:, 0], xys[:, 1] = x, y
 
-        cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
-        x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
-        y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))
-        xys[:, 0], xys[:, 1] = x, y
+            # Now calculate the x/y locations of the interpolation points
+            lons = pts[:, 0]
+            lats = pts[:, 1]
 
-        # Now calculate the x/y locations of the interpolation points
-        lons = pts[:, 0]
-        lats = pts[:, 1]
-
-        cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
-        x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
-        y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))/cos_c
-        pts[:, 0], pts[:, 1] = x, y
+            cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
+            x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
+            y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))/cos_c
+            pts[:, 0], pts[:, 1] = x, y
+        else:
+            # multiply by the cosine of latitude to adjust for the distances near the poles.
+            xys[:, 0] = xys[:, 0]*np.abs(np.cos(xys[:, 1]))
+            pts[:, 0] = pts[:, 0]*np.abs(np.cos(pts[:, 1]))
 
         self.delaunay_vtx, self.delaunay_wts = fast_interp_weights(xys, pts)
 
