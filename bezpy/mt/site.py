@@ -127,7 +127,7 @@ class Site3d(Site):
             interp_periods = 1./np.asarray(freqs)
 
         # Output Z
-        Z_interp = np.zeros((ncomponents, len(interp_periods)), dtype=np.complex)
+        Z_interp = np.zeros((ncomponents, len(interp_periods)), dtype=complex)
 
         if logspace:
             periods = np.log10(self.periods)
@@ -285,13 +285,13 @@ class Site1d(Site):
         k = np.sqrt(1j*omega[np.newaxis, :]*MU/resistivities[:, np.newaxis])
 
         # eq. 6
-        Z = np.zeros(shape=(n, nfreq), dtype=np.complex)
+        Z = np.zeros(shape=(n, nfreq), dtype=complex)
         # DC frequency produces divide by zero errors
         with np.errstate(divide='ignore', invalid='ignore'):
             Z[-1, :] = complex_factor/k[-1, :]
 
             # eq. 7 (reflection coefficient at interface)
-            r = np.zeros(shape=(n, nfreq), dtype=np.complex)
+            r = np.zeros(shape=(n, nfreq), dtype=complex)
 
             for i in range(n-2, -1, -1):
                 r[i, :] = ((1-k[i, :]*Z[i+1, :]/complex_factor) /
@@ -304,7 +304,7 @@ class Site1d(Site):
             Z[:, 0] = 0.
 
         # Return a 3d impedance [0, Z; -Z, 0]
-        Z_output = np.zeros(shape=(4, nfreq), dtype=np.complex)
+        Z_output = np.zeros(shape=(4, nfreq), dtype=complex)
         # Only return the top layer impedance
         # Z_factor is conversion from H->B, 1.e-3/MU
         Z_output[1, :] = Z[0, :]*(1.e-3/MU)
