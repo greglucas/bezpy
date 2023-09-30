@@ -2,9 +2,9 @@
 
 [![DOI](https://zenodo.org/badge/115665136.svg)](https://zenodo.org/badge/latestdoi/115665136)
 
-Bezpy is an open source library for analysis of magnetic (B), electric (E),
-and impedance (Z) data within a geophysical framework. This library contains
-routines for calculating the geoelectric field from the geomagnetic field in
+Bezpy is an open source library for analysis of geomagnetic (B), geoelectric (E),
+and magnetotelluric impedance (Z) data within a geophysical framework.
+This library contains routines for calculating the geoelectric field from the geomagnetic field in
 multiple different ways.
 
 ## Features
@@ -24,28 +24,40 @@ Example scripts for command line use can be found in [scripts/](./scripts/)
 
 ## Install
 
-1. clone the git repository
+The easiest method to install bezpy is directly from PyPI using pip.
 
-    ```bash
-    git clone https://github.com/greglucas/bezpy
-    ```
+```bash
+pip install bezpy
+```
 
-2. Build and install the package
+If you want a local install to modify anything in the code, you
+can clone the git repository and install locally with these commands.
 
-    ```bash
-    python setup.py build
-    python setup.py install
-    ```
+```bash
+git clone https://github.com/greglucas/bezpy
+cd bezpy
+pip install .
+```
 
 ## License
 
-The code is released under a BSD-3 license
+The code is released under the MIT license
 [License described in LICENSE.md](./LICENSE.md)
 
 ## References
 
 This package has been developed from different publications. Please consider citing the papers
-that are relevant to the work you are doing if you are utilizing this code.
+that are relevant to the work you are doing if you are utilizing this code. The culmination of much of the work was contained in our paper
+"A 100-year geoelectric hazard analysis for the U.S. high-voltage power grid."
+
+[doi:10.1029/2019SW002329](https://doi.org/10.1029/2019SW002329)
+
+```bibtex
+Lucas, G., Love, J. J., Kelbert, A., Bedrosian, P. A., & Rigler, E. J. (2020).
+A 100-year geoelectric hazard analysis for the U.S. high-voltage power grid.
+Space Weather, 18, e2019SW002329.
+https://doi.org/10.1029/2019SW002329
+```
 
 ### Geoelectric field calculations
 
@@ -97,4 +109,5 @@ doi:10.17611/DP/EMTF.1.
 
 ## Additional Links
 
-- [USGS Geomagnetism Program Home Page](http://geomag.usgs.gov/)
+- [USGS Geomagnetism Program Home Page](https://geomag.usgs.gov/)
+- [Real-time geoelectric field plots using bezpy](https://swx-trec.com/geoelectric)

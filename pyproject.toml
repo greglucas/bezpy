@@ -1,0 +1,52 @@
+[build-system]
+requires = [
+    "setuptools >= 40.6.0",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bezpy"
+authors = [
+    {name = "Greg Lucas"},
+]
+description = "Geomagnetic field (B), Geoelectric field (E), and Magnetotelluric Impedance (Z) Python routines."
+readme = "README.md"
+requires-python = ">=3.9"
+keywords = ["geomagnetic", "geoelectric", "GIC", "hazard analysis"]
+license = {file = "LICENSE", name = "MIT"}
+classifiers = [
+    'Development Status :: 4 - Beta',
+    'Framework :: Matplotlib',
+    'License :: OSI Approved :: MIT License',
+    'Operating System :: MacOS :: MacOS X',
+    'Operating System :: Microsoft :: Windows',
+    'Operating System :: POSIX',
+    'Operating System :: POSIX :: AIX',
+    'Operating System :: POSIX :: Linux',
+    'Programming Language :: C++',
+    'Programming Language :: Python',
+    'Programming Language :: Python :: 3',
+    'Programming Language :: Python :: 3.9',
+    'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3 :: Only',
+    'Topic :: Scientific/Engineering',
+    'Topic :: Scientific/Engineering :: GIS',
+    'Topic :: Scientific/Engineering :: Visualization',
+]
+dependencies = [
+    "numpy>=1.21",
+    "pandas>=1.3",
+    "scipy>=1.7",
+    "shapely>=1.7",
+]
+version = "0.1.0"
+
+[project.optional-dependencies]
+plotting = ["matplotlib>=3.4"]
+
+[project.urls]
+homepage='https://github.com/greglucas/bezpy'
+
+[tool.setuptools.packages.find]
+where = ["bezpy"]
