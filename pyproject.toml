@@ -40,7 +40,7 @@ dependencies = [
     "scipy>=1.7",
     "shapely>=1.7",
 ]
-version = "0.1.0"
+version = "0.1.1"
 
 [project.optional-dependencies]
 plotting = ["matplotlib>=3.4"]
@@ -49,4 +49,5 @@ plotting = ["matplotlib>=3.4"]
 homepage='https://github.com/greglucas/bezpy'
 
 [tool.setuptools.packages.find]
-where = ["bezpy"]
+where = ["."]
+exclude = ["notebooks"]
