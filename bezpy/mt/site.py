@@ -7,10 +7,8 @@ __all__ = ["Site", "Site1d", "Site3d"]
 import numpy as np
 import pandas as pd
 import scipy.interpolate
-import matplotlib.pyplot as plt
 
 from .utils import apparent_resistivity
-from .plotting import plot_apparent_resistivity
 
 # ----------------------------
 # Constants
@@ -184,6 +182,8 @@ class Site3d(Site):
 
     def plot_apparent_resistivity(self, interp_freqs=None):
         """Plot the apparent resistivity and phase of the transfer function."""
+        # lazy-load this so we don't require matplotlib to be installed by default
+        from .plotting import plot_apparent_resistivity
         xlim = [10**np.floor(np.log10(np.min(self.periods))),
                 10**np.ceil(np.log10(np.max(self.periods)))]
         fig, ax_res, ax_phase = plot_apparent_resistivity(self.periods, self.Z, self.Z_var,
@@ -262,6 +262,8 @@ class Site1d(Site):
 
     def plot_depth(self, ax=None):
         """Plots the resistivity vs. depth profile."""
+        # lazy-load this so we don't require matplotlib to be installed by default
+        import matplotlib.pyplot as plt
         if ax is None:
             _, ax = plt.subplots()
         ax.step(self.resistivities, np.insert(self.depths, 0, 0)/1000., label=self.name)
@@ -313,6 +315,8 @@ class Site1d(Site):
 
     def plot_apparent_resistivity(self, interp_freqs=None):
         """Plots the apparent resistivity and phase for the site."""
+        # lazy-load this so we don't require matplotlib to be installed by default
+        from .plotting import plot_apparent_resistivity
         if interp_freqs is None:
             raise ValueError("Need interpolation frequencies to plot the resistivity at.")
 
