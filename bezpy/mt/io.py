@@ -99,7 +99,10 @@ def read_xml(fname):
     # Store the parsed root xml element
     site.xml = root
     site.product_id = get_text(root, "ProductId")
-
+    # Metadata url contains the network code
+    metadata_url = get_text(root.find("ExternalUrl"), "Url")
+    # http://www.iris.edu/mda/EM/VAQ58 -> EM
+    site.network_code = metadata_url.split("/")[-2]
     loc = xml_site.find("Location")
     site.latitude = convert_float(get_text(loc, "Latitude"))
     site.longitude = convert_float(get_text(loc, "Longitude"))
