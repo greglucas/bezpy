@@ -228,7 +228,8 @@ class Site3d(Site):
 
         self.waveforms = self.datalogger.download_iris_waveforms(self.name,
                                                                  self.start_time,
-                                                                 self.end_time)
+                                                                 self.end_time,
+                                                                 network_code=self.network_code)
 
     def load_waveforms(self, directory="./"):
         """Load the waveform data that has already been downloaded."""

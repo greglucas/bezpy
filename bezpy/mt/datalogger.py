@@ -23,7 +23,7 @@ class DataLogger:
         self.zpk = None
         self.timedelays = None
 
-    def download_iris_waveforms(self, name, start_time, end_time):
+    def download_iris_waveforms(self, name, start_time, end_time, network_code="EM"):
         """Download waveforms from the IRIS client."""
         # The only reason we are putting a global in here is because
         # of how long it takes to create the Client, and with multiple
@@ -40,7 +40,7 @@ class DataLogger:
         # The channels are
         # E: LQN/LQE
         # B: LFN/LFE/LFZ
-        stream = _IRIS_CLIENT.get_waveforms("EM", name, "*", "*",
+        stream = _IRIS_CLIENT.get_waveforms(network_code, name, "*", "*",
                                             UTCDateTime(start_time),
                                             UTCDateTime(end_time))
         # Convert the stream to a pandas DataFrame
