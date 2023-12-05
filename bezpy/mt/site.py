@@ -230,10 +230,14 @@ class Site3d(Site):
                                                                  self.start_time,
                                                                  self.end_time,
                                                                  network_code=self.network_code)
+        self._rotate_waveforms()
 
     def load_waveforms(self, directory="./"):
         """Load the waveform data that has already been downloaded."""
         self.waveforms = pd.read_hdf(directory + self.name + ".hdf", "waveforms")
+        if "Bx" not in self.waveforms.columns:
+            # Only rotate the waveforms if they haven't been rotated/don't exist yet
+            self._rotate_waveforms()
 
     def save_waveforms(self, directory="./"):
         """Save the waveform data to the specified file location."""
@@ -242,6 +246,24 @@ class Site3d(Site):
                              "\nYou can download waveforms from the IRIS database by calling " +
                              ".download_waveforms()")
         self.waveforms.to_hdf(directory + self.name + ".hdf", "waveforms")
+
+    def _rotate_waveforms(self):
+        """Rotate the waveforms to the geographic coordinate system.
+
+        This is added as an extra method to add the components to the in-memory
+        objects, rather than saving the transformed values to disk.
+        """
+        # Magnetic field components rotated by the channel orientation
+        self.waveforms["Bx"] = (self.waveforms["BN"] * np.cos(np.deg2rad(self.channel_orientation["Bx"]))
+                                + self.waveforms["BE"] * np.cos(np.deg2rad(self.channel_orientation["By"])))
+        self.waveforms["By"] = (self.waveforms["BN"] * np.sin(np.deg2rad(self.channel_orientation["Bx"]))
+                                + self.waveforms["BE"] * np.sin(np.deg2rad(self.channel_orientation["By"])))
+
+        # Electric field components rotated by the channel orientation
+        self.waveforms["Ex"] = (self.waveforms["EN"] * np.cos(np.deg2rad(self.channel_orientation["Ex"]))
+                                + self.waveforms["EE"] * np.cos(np.deg2rad(self.channel_orientation["Ey"])))
+        self.waveforms["Ey"] = (self.waveforms["EN"] * np.sin(np.deg2rad(self.channel_orientation["Ex"]))
+                                + self.waveforms["EE"] * np.sin(np.deg2rad(self.channel_orientation["Ey"])))
 
 
 class Site1d(Site):
