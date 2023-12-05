@@ -109,6 +109,17 @@ def read_xml(fname):
     site.elevation = convert_float(get_text(loc, "Elevation"))
     site.declination = convert_float(get_text(loc, "Declination"))
 
+    # Orientation of the channels to geographic north (angle in degrees)
+    site.channel_orientation = {}
+    channel_mapping = {"Hx": "Bx", "Hy": "By", "Hz": "Bz", "Ex": "Ex", "Ey": "Ey"}
+    site_layout = root.find("SiteLayout")
+    for input_output in site_layout:
+        # InputChannels or OutputChannels subelements
+        for channel in input_output:
+            # Individual channels within the subelement
+            channel_name_mapped = channel_mapping[channel.attrib["name"]]
+            site.channel_orientation[channel_name_mapped] = convert_float(channel.attrib["orientation"])
+
     site.start_time = convert_datetime(get_text(xml_site, "Start"))
     site.end_time = convert_datetime(get_text(xml_site, "End"))
 
