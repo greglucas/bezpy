@@ -2,7 +2,7 @@
 Magnetotelluric site classes.
 
 """
-__all__ = ["Site", "Site1d", "Site3d"]
+__all__ = ["Site", "Site1d", "Site3d", "SiteCollection", "ConductivityModel"]
 
 import numpy as np
 import pandas as pd
@@ -352,3 +352,116 @@ class Site1d(Site):
 
         fig.suptitle(r"1D Region: {name}".format(name=self.name), size=20)
         return fig
+
+class SiteCollection:
+    """Collection of MT sites
+    
+    Useful for calculating FFTs of all sites at once
+    rather than individually in a slower for-loop.
+
+    Parameters
+    ----------
+    sites : list of Site objects
+        List of MT sites to include in the collection.
+    """
+    def __init__(self, sites):
+        self.sites = sites
+        self._N0 = None
+
+    def convolve_fft(self, mag_x, mag_y, dt=60):
+        """Convolution in frequency space."""
+
+        N0 = len(mag_x)
+        # Round N to the next highest power of 2 (+1 (makes it 2) to prevent circular convolution)
+        N = 2**(int(np.log2(N0))+2)
+
+        freqs = np.fft.rfftfreq(N, d=dt)
+
+        if N0 != self._N0:
+            # Only recalculate the frequencies if the length of the input data has changed
+            self._N0 = N0
+            # Z needs to be organized as: xx, xy, yx, yy
+            # Z_interp final dimension is N frequencies
+            self._Z_interp = np.zeros((4, len(self.sites), len(freqs)), dtype=complex)
+            for i, site in enumerate(self.sites):
+                self._Z_interp[:, i, :] = site.calcZ(freqs)
+        Z_interp = self._Z_interp
+
+        mag_x_fft = np.fft.rfft(mag_x, n=N)
+        mag_y_fft = np.fft.rfft(mag_y, n=N)
+
+        Ex_fft = Z_interp[0, :, :]*mag_x_fft + Z_interp[1, :, :]*mag_y_fft
+        Ey_fft = Z_interp[2, :, :]*mag_x_fft + Z_interp[3, :, :]*mag_y_fft
+
+        Ex_t = np.real(np.fft.irfft(Ex_fft, axis=-1)[:, :N0])
+        Ey_t = np.real(np.fft.irfft(Ey_fft, axis=-1)[:, :N0])
+
+        return (Ex_t, Ey_t)
+
+
+class ConductivityModel(SiteCollection):
+    """Collection of MT sites from a conductivity model
+    
+    This reads in the ModEM model files and creates a SiteCollection
+
+    Parameters
+    ----------
+    fname : str or Path
+        Path to the model output file
+    """
+    def __init__(self, filename):
+        sites = []
+        with open(filename, 'r') as f:
+            while True:
+                line = f.readline()
+                if line.startswith(">"):
+                    break
+            for i in range(4):
+                # 5 ">" lines
+                f.readline()
+            # Now we are at the line with the number of periods
+            # which we need to keep track of so we know how big
+            # of an array we need to allocate
+            nperiods = int(f.readline().split()[1])
+
+            # Now start parsing the actual site content
+            prev_site_name = None
+            for line in f:
+                if line.startswith('#'):
+                    # Hit the TX / TY section which we don't need
+                    break
+                elements = line.split()
+                period = float(elements[0])
+                name = elements[1]
+                lat = float(elements[2])
+                lon = float(elements[3])
+                component = elements[7]
+                val = float(elements[8]) + float(elements[9])*1j
+
+                if name != prev_site_name:
+                    prev_site_name = name
+                    site = Site3d(name)
+                    sites.append(site)
+                    site.latitude = lat
+                    site.longitude = lon
+                    site.periods = np.zeros(nperiods)
+                    site.Z = np.zeros((4, nperiods), dtype=complex)
+                    old_period = 0.
+                    period_counter = -1
+
+                if period != old_period:
+                    period_counter += 1
+                    old_period = period
+                    site.periods[period_counter] = period
+
+                if component == 'ZXX':
+                    loc = 0
+                elif component == 'ZXY':
+                    loc = 1
+                elif component == 'ZYX':
+                    loc = 2
+                elif component == 'ZYY':
+                    loc = 3
+
+                site.Z[loc, period_counter] = val
+        super().__init__(sites)
