@@ -2,7 +2,7 @@
 Magnetotelluric site classes.
 
 """
-__all__ = ["Site", "Site1d", "Site3d"]
+__all__ = ["Site", "Site1d", "Site3d", "SiteCollection"]
 
 import numpy as np
 import pandas as pd
@@ -330,3 +330,48 @@ class Site1d(Site):
 
         fig.suptitle(r"1D Region: {name}".format(name=self.name), size=20)
         return fig
+
+class SiteCollection:
+    """Collection of MT sites
+    
+    Useful for calculating FFTs of all sites at once
+    rather than individually in a slower for-loop.
+
+    Parameters
+    ----------
+    sites : list of Site objects
+        List of MT sites to include in the collection.
+    """
+    def __init__(self, sites):
+        self.sites = sites
+        self._N0 = None
+
+    def convolve_fft(self, mag_x, mag_y, dt=60):
+        """Convolution in frequency space."""
+
+        N0 = len(mag_x)
+        # Round N to the next highest power of 2 (+1 (makes it 2) to prevent circular convolution)
+        N = 2**(int(np.log2(N0))+2)
+
+        freqs = np.fft.rfftfreq(N, d=dt)
+
+        if N0 != self._N0:
+            # Only recalculate the frequencies if the length of the input data has changed
+            self._N0 = N0
+            # Z needs to be organized as: xx, xy, yx, yy
+            # Z_interp final dimension is N frequencies
+            self._Z_interp = np.zeros((4, len(self.sites), len(freqs)), dtype=complex)
+            for i, site in enumerate(self.sites):
+                self._Z_interp[:, i, :] = site.calcZ(freqs)
+        Z_interp = self._Z_interp
+
+        mag_x_fft = np.fft.rfft(mag_x, n=N)
+        mag_y_fft = np.fft.rfft(mag_y, n=N)
+
+        Ex_fft = Z_interp[0, :, :]*mag_x_fft + Z_interp[1, :, :]*mag_y_fft
+        Ey_fft = Z_interp[2, :, :]*mag_x_fft + Z_interp[3, :, :]*mag_y_fft
+
+        Ex_t = np.real(np.fft.irfft(Ex_fft, axis=-1)[:, :N0])
+        Ey_t = np.real(np.fft.irfft(Ey_fft, axis=-1)[:, :N0])
+
+        return (Ex_t, Ey_t)
