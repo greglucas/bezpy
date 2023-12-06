@@ -2,7 +2,7 @@
 Magnetotelluric site classes.
 
 """
-__all__ = ["Site", "Site1d", "Site3d", "SiteCollection"]
+__all__ = ["Site", "Site1d", "Site3d", "SiteCollection", "ConductivityModel"]
 
 import numpy as np
 import pandas as pd
@@ -375,3 +375,71 @@ class SiteCollection:
         Ey_t = np.real(np.fft.irfft(Ey_fft, axis=-1)[:, :N0])
 
         return (Ex_t, Ey_t)
+
+
+class ConductivityModel(SiteCollection):
+    """Collection of MT sites from a conductivity model
+    
+    This reads in the ModEM model files and creates a SiteCollection
+
+    Parameters
+    ----------
+    fname : str or Path
+        Path to the model output file
+    """
+    def __init__(self, filename):
+        sites = []
+        with open(filename, 'r') as f:
+            while True:
+                line = f.readline()
+                if line.startswith(">"):
+                    break
+            for i in range(4):
+                # 5 ">" lines
+                f.readline()
+            # Now we are at the line with the number of periods
+            # which we need to keep track of so we know how big
+            # of an array we need to allocate
+            nperiods = int(f.readline().split()[1])
+
+            # Now start parsing the actual site content
+            prev_site_name = None
+            for line in f:
+                if line.startswith('#'):
+                    # Hit the TX / TY section which we don't need
+                    break
+                elements = line.split()
+                period = float(elements[0])
+                name = elements[1]
+                lat = float(elements[2])
+                lon = float(elements[3])
+                component = elements[7]
+                val = float(elements[8]) + float(elements[9])*1j
+
+                if name != prev_site_name:
+                    prev_site_name = name
+                    site = Site3d(name)
+                    sites.append(site)
+                    site.latitude = lat
+                    site.longitude = lon
+                    site.periods = np.zeros(nperiods)
+                    site.Z = np.zeros((4, nperiods), dtype=complex)
+                    old_period = 0.
+                    period_counter = -1
+
+                if period != old_period:
+                    period_counter += 1
+                    old_period = period
+                    site.periods[period_counter] = period
+
+                if component == 'ZXX':
+                    loc = 0
+                elif component == 'ZXY':
+                    loc = 1
+                elif component == 'ZYX':
+                    loc = 2
+                elif component == 'ZYY':
+                    loc = 3
+
+                site.Z[loc, period_counter] = val
+        super().__init__(sites)
