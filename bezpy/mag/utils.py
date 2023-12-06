@@ -63,7 +63,7 @@ def read_iaga(fname, return_xyzf=True, return_header=False):
 
     df = pd.read_csv(fname, header=header_records["header_length"],
                      delim_whitespace=True,
-                     parse_dates=[[0, 1]], infer_datetime_format=True,
+                     parse_dates=[[0, 1]],
                      index_col=0, usecols=[0, 1, 3, 4, 5, 6],
                      na_values=[99999.90, 99999.0, 88888.80, 88888.00],
                      names=["Date", "Time"] + column_names)
