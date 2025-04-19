@@ -7,9 +7,9 @@ import pandas as pd
 import numpy as np
 from scipy.signal import butter, filtfilt
 
-import pkg_resources
-IAGA_PATH = pkg_resources.resource_filename('bezpy', 'mag/data') + "/"
+from importlib.resources import files
 
+IAGA_PATH = str(files('bezpy.mag').joinpath('data')) + "/"
 
 def read_iaga_header(fname):
     """
@@ -61,13 +61,15 @@ def read_iaga(fname, return_xyzf=True, return_header=False):
         else:
             seen_count[col] = 1
 
-    df = pd.read_csv(fname, header=header_records["header_length"],
-                     delim_whitespace=True,
-                     parse_dates=[[0, 1]],
-                     index_col=0, usecols=[0, 1, 3, 4, 5, 6],
+    df = pd.read_csv(fname,
+                     header=header_records["header_length"],
+                     sep=r"\s+",  # whitespace
+                     usecols=[0, 1, 3, 4, 5, 6],
                      na_values=[99999.90, 99999.0, 88888.80, 88888.00],
                      names=["Date", "Time"] + column_names)
-    df.index.name = "Time"
+    df["Time"] = pd.to_datetime(df["Date"] + " " + df["Time"])
+    df = df.drop(columns=["Date"])
+    df = df.set_index("Time")
     if (return_xyzf and "X" not in column_names and "Y" not in column_names):
         # Convert the data to XYZF format
         # Only convert HD
@@ -78,7 +80,7 @@ def read_iaga(fname, return_xyzf=True, return_header=False):
         # IAGA-2002 D is reported in minutes of arc.
         df["X"] = df["H"] * np.cos(np.deg2rad(df["D"]/60.))
         df["Y"] = df["H"] * np.sin(np.deg2rad(df["D"]/60.))
-        del df["H"], df["D"]
+        df = df.drop(columns=["H", "D"])
     
     if return_header:
         return df, header_records

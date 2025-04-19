@@ -5,14 +5,15 @@ __all__ = ["read_xml", "read_1d_usgs_profile", "get_1d_site"]
 import glob
 import datetime
 import xml.etree.ElementTree as ET
+from importlib.resources import files
+
 import numpy as np
 import pandas as pd
-import pkg_resources
 
 from .site import Site1d, Site3d
 from .datalogger import DataLogger
 
-DATA_PATH_1D = pkg_resources.resource_filename('bezpy', 'mt/data_1d') + "/"
+DATA_PATH_1D = str(files('bezpy.mt').joinpath('data_1d')) + "/"
 
 
 ####################
