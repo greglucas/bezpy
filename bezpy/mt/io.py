@@ -118,7 +118,8 @@ def read_xml(fname):
         # InputChannels or OutputChannels subelements
         for channel in input_output:
             # Individual channels within the subelement
-            channel_name_mapped = channel_mapping[channel.attrib["name"]]
+            # Could be HX, Hx, hx, so standardize for the mapping above
+            channel_name_mapped = channel_mapping[channel.attrib["name"].capitalize()]
             site.channel_orientation[channel_name_mapped] = convert_float(channel.attrib["orientation"])
 
     site.start_time = convert_datetime(get_text(xml_site, "Start"))
