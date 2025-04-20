@@ -148,6 +148,17 @@ def read_xml(fname):
     try:
         site.Z_var = np.vstack([site.data['z.var_zxx'], site.data['z.var_zxy'],
                                 site.data['z.var_zyx'], site.data['z.var_zyy']])
+        
+        # NOTE: There are sometimes bad values in Z_var
+        # This removes periods with NaNs or zeros in their Z_var component
+        # We could look into setting them to inf or something else too,
+        # but this happens rarely and they seem like bad values from a quick
+        # spot check
+        bad_vals = np.any((site.Z_var == 0) | np.isnan(site.Z_var), axis=0)
+        # Filter out the bad periods
+        site.periods = site.periods[~bad_vals]
+        site.Z = site.Z[:, ~bad_vals]
+        site.Z_var = site.Z_var[:, ~bad_vals]
     except KeyError:
         # No variance in the data fields
         site.Z_var = None
