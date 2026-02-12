@@ -95,6 +95,11 @@ class Site3d(Site):
 
         self.datalogger = None
 
+        # Keep track of the previous calculated Z values
+        # to speed up multiple calls with the same frequency range
+        self._prev_freqs = None
+        self._prev_Z = None
+
     def _repr_html_(self):
         return f"<p style=\"font-size:22px; color:blue\"><b>Site 3d: {self.name}</b></p>" + \
                self.data._repr_html_()  # pylint: disable=protected-access
@@ -210,7 +215,13 @@ class Site3d(Site):
         """Calculates transfer function, Z, from the input frequencies."""
         # extrapolate=1: bandpass filter to only interpolate between data points
         #                (no extrapolation)
-        return self.spline_interp(freqs, logspace=True, extrapolate=1)
+        if not np.array_equal(freqs, self._prev_freqs):
+            # If the frequencies are different, then recalculate the Z values
+            # and store them for later use
+            self._prev_Z = self.spline_interp(freqs, logspace=True, extrapolate=1)
+            self._prev_freqs = freqs
+
+        return self._prev_Z
 
     def calc_resisitivity(self):
         """Calculate the apparent resistivity and phase of the transfer function."""
