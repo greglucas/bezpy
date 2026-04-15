@@ -35,7 +35,7 @@ import time
 # Numerical
 import numpy as np
 import pandas as pd
-from secs import SECS
+from pysecs import SECS
 import bezpy
 
 #------------------
@@ -79,13 +79,13 @@ class GeomagObservatory:
         self.update_data()
 
     def _update_times(self):
-        self.end_time = datetime.datetime.utcnow()
+        self.end_time = datetime.datetime.now(datetime.UTC)
         self.start_time = self.end_time - self.dt
 
     def update_data(self):
         self._update_times()
 
-        url = ("{server_url}/ws/edge/?format=json".format(server_url=SERVER_URL) +
+        url = ("{server_url}/ws/data/?format=json".format(server_url=SERVER_URL) +
                 "&id={name}".format(name=self.name) +
                 "&type={loc_code}".format(loc_code=self.loc_code) +
                 "&starttime={starttime}".format(starttime=self.start_time.strftime("%Y-%m-%dT%H:%M:%SZ")) +
@@ -100,9 +100,10 @@ class GeomagObservatory:
                      data={'X': data['values'][0]['values'],
                            'Y': data['values'][1]['values'],
                            'Z': data['values'][2]['values']},
-                     dtype=np.float).dropna()
+                     dtype=float).dropna()
 
             self.df['Direction'] = np.rad2deg(np.arctan2(self.df['X'], self.df['Y']))
+            print(f"Succesfully updated {self.name}")
         except:
             print(f"Failed to update {self.name}")
 
@@ -170,9 +171,9 @@ obs_lat_lon_r[:,0] = good_xy[:,1]
 obs_lat_lon_r[:,1] = good_xy[:,0]
 obs_lat_lon_r[:,2] = R_earth
 
-obs_var = np.ones(obs_lat_lon_r.shape)
+obs_var = np.ones(B_obs.shape)
 # Don't include Z component in fits for now
-obs_var[:,2] = np.inf
+obs_var[:,:,2] = np.inf
 
 gridded_lat_lon_r = np.zeros((len(gridded_xy), 3))
 gridded_lat_lon_r[:,0] = gridded_xy[:,1]
@@ -192,7 +193,7 @@ secs_lat_lon_r = np.hstack((lat.reshape(-1,1),
 #--------------
 secs = SECS(sec_df_loc=secs_lat_lon_r)
 secs.fit(obs_loc=obs_lat_lon_r, obs_B=B_obs,
-         obs_var=obs_var, epsilon=0.05)
+         obs_std=None, epsilon=0.05)
 
 B_gridded = secs.predict_B(gridded_lat_lon_r)
 
