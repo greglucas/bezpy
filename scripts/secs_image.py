@@ -77,7 +77,7 @@ def scale_vectors(x, y, scale=np.log10):
 # Load the most recent data
 #---------------------------
 
-data_load = np.load(args.infile)
+data_load = np.load(args.infile, allow_pickle=True)
 B_gridded = data_load['B_gridded']
 B_obs = data_load['B_obs']
 gridded_xy = data_load['gridded_xy']
@@ -162,8 +162,8 @@ Q_obs = ax.quiver(obs_xy[:,0], obs_xy[:,1],
                   scale_units='inches', scale=Bscale, width=arrow_width,
                   alpha=1., zorder=10)
 
-t = times[-1].astype(datetime.datetime)/1000000000
-time_string = datetime.datetime.fromtimestamp(t).strftime('%Y-%m-%d %H:%M')
+t = times[-1].to_pydatetime()
+time_string = t.strftime('%Y-%m-%d %H:%M')
 title = ax.set_title(f'SECS Magnetic Field\n{time_string}')
 
 fig.savefig(args.outdir + '/' + args.outfile, bbox_inches='tight')
