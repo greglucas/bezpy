@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: python -m pip install ruff
+      - name: Lint
+        run: ruff check bezpy tests
+
+  test:
+    name: Test (Python ${{ matrix.python-version }}, latest deps)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package with test extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .[test]
+      - name: Run tests
+        run: pytest -ra --cov=bezpy --cov-report=term-missing
+
+  oldest-deps:
+    name: Test (oldest supported deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # numpy 1.23 / pandas 1.5 / scipy 1.9 only ship wheels through 3.11.
+          python-version: "3.10"
+      - name: Install package pinned to the declared minimum versions
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            "numpy==1.23.*" "pandas==1.5.*" "scipy==1.9.*" "shapely==2.0.*" \
+            pytest
+          python -m pip install --no-deps .
+      - name: Run tests
+        run: pytest -ra
+
+  build:
+    name: Build & check distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+      - name: Check metadata
+        run: twine check dist/*
+      - name: Verify the wheel imports and ships its data files
+        run: |
+          python -m pip install dist/*.whl
+          python -c "import bezpy; print('bezpy', bezpy.__version__)"
+          python -c "import bezpy; bezpy.mt.get_1d_site('CP-1')"
