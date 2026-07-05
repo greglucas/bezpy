@@ -24,11 +24,22 @@ Example scripts for command line use can be found in [scripts/](./scripts/)
 
 ## Install
 
-The easiest method to install bezpy is directly from PyPI using pip.
+bezpy requires Python 3.10+ and the core scientific stack
+(NumPy, pandas, SciPy, Shapely). The easiest method to install bezpy is
+directly from PyPI using pip.
 
 ```bash
 pip install bezpy
 ```
+
+Optional features live behind extras so the base install stays lightweight:
+
+| Extra | Enables | Install |
+| --- | --- | --- |
+| `plotting` | apparent-resistivity / depth plots (matplotlib) | `pip install "bezpy[plotting]"` |
+| `waveforms` | reading/writing downloaded waveforms to HDF5 (PyTables) | `pip install "bezpy[waveforms]"` |
+| `iris` | downloading raw waveforms from the IRIS/EarthScope FDSN service (ObsPy) | `pip install "bezpy[iris]"` |
+| `scripts` | running the example command-line scripts in `scripts/` | `pip install "bezpy[scripts]"` |
 
 If you want a local install to modify anything in the code, you
 can clone the git repository and install locally with these commands.
@@ -36,13 +47,27 @@ can clone the git repository and install locally with these commands.
 ```bash
 git clone https://github.com/greglucas/bezpy
 cd bezpy
-pip install .
+pip install -e ".[test]"
 ```
+
+## Development and testing
+
+The test suite uses [pytest](https://docs.pytest.org/) and
+[ruff](https://docs.astral.sh/ruff/) for linting. After installing the `test`
+extra as shown above:
+
+```bash
+pytest          # run the test suite
+ruff check .    # lint the code
+```
+
+Continuous integration runs the tests across Python 3.10–3.13 (and against the
+oldest supported dependency versions) on every push and pull request.
 
 ## License
 
 The code is released under the MIT license
-[License described in LICENSE.md](./LICENSE.md)
+[described in LICENSE](./LICENSE)
 
 ## References
 

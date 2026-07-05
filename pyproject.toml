@@ -1,6 +1,7 @@
 [build-system]
 requires = [
-    "setuptools >= 40.6.0",
+    # 77.0 is the first release to understand the PEP 639 SPDX "license" field.
+    "setuptools >= 77.0",
 ]
 build-backend = "setuptools.build_meta"
 
@@ -11,22 +12,20 @@ authors = [
 ]
 description = "Geomagnetic field (B), Geoelectric field (E), and Magnetotelluric Impedance (Z) Python routines."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 keywords = ["geomagnetic", "geoelectric", "GIC", "hazard analysis"]
-license = {file = "LICENSE", name = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 classifiers = [
     'Development Status :: 4 - Beta',
     'Framework :: Matplotlib',
-    'License :: OSI Approved :: MIT License',
     'Operating System :: MacOS :: MacOS X',
     'Operating System :: Microsoft :: Windows',
     'Operating System :: POSIX',
     'Operating System :: POSIX :: AIX',
     'Operating System :: POSIX :: Linux',
-    'Programming Language :: C++',
     'Programming Language :: Python',
     'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: 3.12',
@@ -37,19 +36,52 @@ classifiers = [
     'Topic :: Scientific/Engineering :: Visualization',
 ]
 dependencies = [
-    "numpy>=1.21",
-    "pandas>=1.3",
-    "scipy>=1.7",
-    "shapely>=1.7",
+    "numpy>=1.23",
+    "pandas>=1.5",
+    "scipy>=1.9",
+    "shapely>=2.0",
 ]
-version = "0.1.1"
+dynamic = ["version"]
 
 [project.optional-dependencies]
-plotting = ["matplotlib>=3.4"]
+# Plotting routines (Site.plot_apparent_resistivity, mt.plotting)
+plotting = ["matplotlib>=3.5"]
+# Reading/writing downloaded IRIS waveforms to HDF5 (Site3d.save/load_waveforms)
+waveforms = ["tables>=3.7"]
+# Downloading raw waveforms from the IRIS/EarthScope FDSN service
+iris = ["obspy>=1.3"]
+# Everything needed to run the example command-line scripts in scripts/
+scripts = ["matplotlib>=3.5", "requests>=2.25", "pysecs>=0.1"]
+# Test and lint tooling
+test = ["pytest>=7.0", "pytest-cov", "ruff"]
 
 [project.urls]
-homepage='https://github.com/greglucas/bezpy'
+homepage = 'https://github.com/greglucas/bezpy'
+
+[tool.setuptools.dynamic]
+version = {attr = "bezpy.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["notebooks"]
+include = ["bezpy*"]
+exclude = ["notebooks", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, pyupgrade, numpy-specific rules
+select = ["E", "F", "I", "UP", "NPY"]
+ignore = [
+    "E741",  # ambiguous variable names (l, I) are common in the geophysics here
+    "E501",  # line length handled by the formatter/line-length above
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Star-imports are how the public API is assembled in the package __init__s.
+"bezpy/**/__init__.py" = ["F401", "F403"]
