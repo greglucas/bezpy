@@ -11,7 +11,7 @@ __all__ = ["TransmissionLine"]
 import numpy as np
 import shapely
 
-from .utils import haversine_distance, haversine_dl, fast_interp_weights
+from .utils import fast_interp_weights, haversine_distance, haversine_dl
 
 
 class TransmissionLine:
@@ -66,38 +66,31 @@ class TransmissionLine:
         self.nearest_sites = np.argmin(distances, axis=1)
 
     def set_1d_regions(self, region_polygons, default_region=18):
-        """Sets the 1d region that each point along the transmission line is in."""
-        # Start out with a default value of 18,
-        # so if there is no point in the polygon it goes there
-        # 18 is CP-1 in the conductivity 1D profiles currently
-        self.regions1d = np.ones(self.npts, dtype=np.int)*default_region
-        for i in range(self.npts):
-            point = shapely.geometry.Point(self.pts[i, :])
-            possible_polygons = [j for j, cond_poly in enumerate(region_polygons)
-                                 if point.within(cond_poly)]
-            if possible_polygons:
-                self.regions1d[i] = possible_polygons[0]
+        """Sets the 1d region that each point along the transmission line is in.
 
-            # for j, cond_poly in enumerate(region_polygons):
-            #     if p.within(cond_poly):
-            #         self.regions1d[i] = j
-            #         break # stops after the first within is satisfied
+        Each point is assigned the index of the first (lowest-index) polygon in
+        ``region_polygons`` that contains it, falling back to ``default_region``
+        for points outside all of the polygons.
 
-        # TODO: Use geopandas spatial joins instead
-        # line_gdf = gpd.GeoDataFrame(crs={'init': 'epsg:4326'},
-        #                     geometry=[shapely.geometry.Point(self.pts[i,:]) for i in
-        #                     range(len(self.pts))])
-        # now that we have a geodataframe of the points along the line
-        # we can do a spatial join
-        # After the spatial join, we need to groupby the index in case the point
-        # is within multiple regions, and only keep the first index
-        # joined_gdf = gpd.sjoin(
-        #    line_gdf, region_polygons, how='left', op='within').groupby(lambda x: x).first()
-        # There could be nans inside the joined gdf if the point was outside
-        # of a region
-        # index_right is which index it was in
-        # self.regions1d = np.array(joined_gdf.index_right.fillna(default_region).values,
-        #     dtype=np.int)
+        :param region_polygons: sequence of shapely Polygons, one per 1d region
+        :param default_region: index used for points outside every polygon.
+            The default of 18 is CP-1 in the current conductivity 1D profiles.
+        """
+        # Start every point at the default region, then fill in any matches.
+        self.regions1d = np.full(self.npts, default_region, dtype=int)
+
+        # Use a spatial index rather than an O(npts * npolygons) Python loop.
+        # tree.query returns the (point, polygon) index pairs whose bounding
+        # boxes overlap and that satisfy the "within" predicate.
+        tree = shapely.STRtree(region_polygons)
+        points = shapely.points(self.pts)
+        point_idx, poly_idx = tree.query(points, predicate="within")
+
+        # A point can fall within multiple polygons; match the original loop by
+        # keeping the lowest polygon index. Assigning in descending polygon-index
+        # order means the smallest index is written last and therefore wins.
+        order = np.argsort(poly_idx)[::-1]
+        self.regions1d[point_idx[order]] = poly_idx[order]
 
     def set_delaunay_weights(self, site_xys, use_gnomic=True):
         """Sets the delaunay weights for the given sites for each point along the line."""
@@ -192,7 +185,7 @@ class TransmissionLine:
         # Otherwise return the entire array of voltages, which is the
         # length of the final dimension of E input (ntimes)
         if len(voltages) == 1:
-            return float(voltages)
+            return float(voltages[0])
 
         return voltages
 

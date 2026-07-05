@@ -2,16 +2,17 @@
 
 __all__ = ["read_xml", "read_1d_usgs_profile", "get_1d_site"]
 
-import glob
 import datetime
+import glob
+import pathlib
 import xml.etree.ElementTree as ET
 from importlib.resources import files
 
 import numpy as np
 import pandas as pd
 
-from .site import Site1d, Site3d
 from .datalogger import DataLogger
+from .site import Site1d, Site3d
 
 DATA_PATH_1D = str(files('bezpy.mt').joinpath('data_1d')) + "/"
 
@@ -117,13 +118,19 @@ def read_xml(fname):
     site.channel_orientation = {}
     channel_mapping = {"Hx": "Bx", "Hy": "By", "Hz": "Bz", "Ex": "Ex", "Ey": "Ey"}
     site_layout = root.find("SiteLayout")
-    for input_output in site_layout:
-        # InputChannels or OutputChannels subelements
-        for channel in input_output:
-            # Individual channels within the subelement
-            # Could be HX, Hx, hx, so standardize for the mapping above
-            channel_name_mapped = channel_mapping[channel.attrib["name"].capitalize()]
-            site.channel_orientation[channel_name_mapped] = convert_float(channel.attrib["orientation"])
+    # Some (especially older) EMTF files omit the SiteLayout section entirely
+    if site_layout is not None:
+        for input_output in site_layout:
+            # InputChannels or OutputChannels subelements
+            for channel in input_output:
+                # Individual channels within the subelement
+                # Could be HX, Hx, hx, so standardize for the mapping above
+                # Skip any channels we don't have a mapping for (e.g. remote references)
+                channel_name_mapped = channel_mapping.get(channel.attrib["name"].capitalize())
+                if channel_name_mapped is None:
+                    continue
+                site.channel_orientation[channel_name_mapped] = \
+                    convert_float(channel.attrib["orientation"])
 
     site.start_time = convert_datetime(get_text(xml_site, "Start"))
     site.end_time = convert_datetime(get_text(xml_site, "End"))
@@ -135,7 +142,8 @@ def read_xml(fname):
 
     site.quality_flag = convert_int(get_text(xml_site, "DataQualityWarnings/Flag"))
 
-    site.sign_convention = -1 if "-" in get_text(root, "ProcessingInfo/SignConvention") else 1
+    sign_convention = get_text(root, "ProcessingInfo/SignConvention")
+    site.sign_convention = -1 if sign_convention is not None and "-" in sign_convention else 1
 
     # Get all the data in a pandas dataframe
     site.data = parse_data(root.find("Data"))
@@ -200,10 +208,10 @@ def read_1d_usgs_profile(fname):
 
     conductivities = []
     thicknesses = []
-    # Just keep the last part of the file name
-    profile_name = fname.strip(".txt").split("_")[-1]
+    # Just keep the last part of the file name (e.g. earth_model_AK1A.txt -> AK1A)
+    profile_name = pathlib.Path(fname).stem.split("_")[-1]
 
-    with open(fname, 'r') as f:
+    with open(fname) as f:
         for line in f:
             if line[0] == "*":
                 continue

@@ -3,11 +3,11 @@
 __all__ = ["read_iaga", "detrend_polynomial", "filter_signal", "write_iaga_2002",
            "get_iaga_observatory", "get_iaga_observatory_codes"]
 
-import pandas as pd
-import numpy as np
-from scipy.signal import butter, filtfilt
-
 from importlib.resources import files
+
+import numpy as np
+import pandas as pd
+from scipy.signal import butter, filtfilt
 
 IAGA_PATH = str(files('bezpy.mag').joinpath('data')) + "/"
 
@@ -22,7 +22,7 @@ def read_iaga_header(fname):
     """
     header_records = {"header_length": 0}
 
-    with open(fname, 'r') as openfile:
+    with open(fname) as openfile:
         for newline in openfile:
             if newline[0] == ' ':
                 header_records["header_length"] += 1
@@ -42,8 +42,8 @@ def read_iaga(fname, return_xyzf=True, return_header=False):
     # This contains 4 letters stating the reported values
     #  - XYZF, HDZF, etc...
     if len(header_records['reported']) % 4 != 0:
-        raise ValueError("The header record does not contain 4 values: {0}".format(
-            header_records['reported']))
+        raise ValueError(
+            f"The header record does not contain 4 values: {header_records['reported']}")
 
     record_length = len(header_records['reported']) // 4
 
@@ -169,8 +169,8 @@ def write_iaga_2002(df, fname):
                 formatters={"DOY": "    {0:03d}   ".format,
                             col1: "{0:9.2f}".format,
                             col2: "{0:9.2f}".format,
-                            col3: "{0:9.2f}".format(99999.0),
-                            col4: "{0:9.2f}".format(99999.0)},
+                            col3: "{0:9.2f}".format,
+                            col4: "{0:9.2f}".format},
                 na_rep=' 99999.00', header=False, index_names=False))
 
 
@@ -180,7 +180,7 @@ def write_iaga_2002(df, fname):
 # Format of the file:
 # IAGA	Name	Country	Colatitute	East Longitude	Institute	GIN
 _IAGA_SITES = {}
-with open(IAGA_PATH + "intermagnet_observatories.dat", 'r') as f:
+with open(IAGA_PATH + "intermagnet_observatories.dat") as f:
     f.readline()  # Read the header
     for line in f:
         elements = line.strip().split('\t')

@@ -85,7 +85,7 @@ class Site3d(Site):
 
     def __init__(self, name):
         # Call the base site class and initialize all those variables
-        super(Site3d, self).__init__(name)
+        super().__init__(name)
 
         self.xml = None
         self.product_id = None
@@ -203,10 +203,10 @@ class Site3d(Site):
                                       ax_res=ax_res, ax_phase=ax_phase, xlim=xlim)
 
         # Need to leave raw string out of newlines for latex
-        ax_res.set_title(r"{name}".format(name=self.name) +
+        ax_res.set_title(rf"{self.name}" +
                          "\n" +
-                         r"Longitude: {lon:4.1f}$^\circ$ ".format(lon=self.longitude) +
-                         r"Latitude: {lat:4.1f}$^\circ$".format(lat=self.latitude) +
+                         rf"Longitude: {self.longitude:4.1f}$^\circ$ " +
+                         rf"Latitude: {self.latitude:4.1f}$^\circ$" +
                          "\n" +
                          ax_res.get_title())
         return (fig, ax_res, ax_phase)
@@ -217,9 +217,10 @@ class Site3d(Site):
         #                (no extrapolation)
         if not np.array_equal(freqs, self._prev_freqs):
             # If the frequencies are different, then recalculate the Z values
-            # and store them for later use
+            # and store them for later use. Store a copy so that later in-place
+            # mutation of the caller's array can't silently invalidate the cache.
             self._prev_Z = self.spline_interp(freqs, logspace=True, extrapolate=1)
-            self._prev_freqs = freqs
+            self._prev_freqs = np.array(freqs)
 
         return self._prev_Z
 
@@ -245,7 +246,7 @@ class Site3d(Site):
 
     def load_waveforms(self, directory="./"):
         """Load the waveform data that has already been downloaded."""
-        self.waveforms = pd.read_hdf(directory + self.name + ".hdf", "waveforms")
+        self.waveforms = pd.read_hdf(directory + self.name + ".hdf", key="waveforms")
         if "Bx" not in self.waveforms.columns:
             # Only rotate the waveforms if they haven't been rotated/don't exist yet
             self._rotate_waveforms()
@@ -256,7 +257,7 @@ class Site3d(Site):
             raise ValueError("There are no waveforms to save for site: " + self.name +
                              "\nYou can download waveforms from the IRIS database by calling " +
                              ".download_waveforms()")
-        self.waveforms.to_hdf(directory + self.name + ".hdf", "waveforms")
+        self.waveforms.to_hdf(directory + self.name + ".hdf", key="waveforms")
 
     def _rotate_waveforms(self):
         """Rotate the waveforms to the geographic coordinate system.
@@ -281,7 +282,7 @@ class Site1d(Site):
     """MT class for a 1D Fernberg profile"""
     def __init__(self, name, thicknesses, resistivities):
         # Call the base site class and initialize all those variables
-        super(Site1d, self).__init__(name)
+        super().__init__(name)
 
         self.thicknesses = np.array(thicknesses)
         self.resistivities = np.array(resistivities)
@@ -292,7 +293,7 @@ class Site1d(Site):
         return np.cumsum(self.thicknesses)
 
     def _repr_html_(self):
-        return "<p style=\"font-size:22px; color:blue\"><b>1d Site: {0}</b></p>".format(self.name)
+        return f"<p style=\"font-size:22px; color:blue\"><b>1d Site: {self.name}</b></p>"
 
     def plot_depth(self, ax=None):
         """Plots the resistivity vs. depth profile."""
@@ -361,7 +362,7 @@ class Site1d(Site):
         xlim = [10**np.floor(np.log10(np.min(periods))), 10**np.ceil(np.log10(np.max(periods)))]
         fig, _, _ = plot_apparent_resistivity(periods, Z, xlim=xlim)
 
-        fig.suptitle(r"1D Region: {name}".format(name=self.name), size=20)
+        fig.suptitle(rf"1D Region: {self.name}", size=20)
         return fig
 
 class SiteCollection:
@@ -378,6 +379,7 @@ class SiteCollection:
     def __init__(self, sites):
         self.sites = sites
         self._N0 = None
+        self._dt = None
 
     def convolve_fft(self, mag_x, mag_y, dt=60):
         """Convolution in frequency space."""
@@ -388,9 +390,12 @@ class SiteCollection:
 
         freqs = np.fft.rfftfreq(N, d=dt)
 
-        if N0 != self._N0:
-            # Only recalculate the frequencies if the length of the input data has changed
+        if N0 != self._N0 or dt != self._dt:
+            # Only recalculate the interpolated impedances when the frequencies
+            # change, which happens when either the input length or the sampling
+            # interval (dt) changes.
             self._N0 = N0
+            self._dt = dt
             # Z needs to be organized as: xx, xy, yx, yy
             # Z_interp final dimension is N frequencies
             self._Z_interp = np.zeros((4, len(self.sites), len(freqs)), dtype=complex)
@@ -422,7 +427,7 @@ class ConductivityModel(SiteCollection):
     """
     def __init__(self, filename):
         sites = []
-        with open(filename, 'r') as f:
+        with open(filename) as f:
             while True:
                 line = f.readline()
                 if line.startswith(">"):

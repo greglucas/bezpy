@@ -3,7 +3,7 @@
 __all__ = ["haversine_distance", "haversine_dl", "fast_interp_weights", "fast_interpolate"]
 
 import numpy as np
-import scipy.spatial.qhull as qhull
+from scipy.spatial import Delaunay
 
 
 def haversine_distance(lon1, lat1, lon2, lat2):
@@ -64,9 +64,9 @@ def fast_interp_weights(xyz, uvw, deg=2):
     :param xyz: data locations
     :param uvw: interpolation locations
     """
-    tri = qhull.Delaunay(xyz)
+    tri = Delaunay(xyz)
     simplex = tri.find_simplex(uvw)
-    vertices = np.take(tri.simplices, simplex, axis=0)  # pylint: disable=no-member
+    vertices = np.take(tri.simplices, simplex, axis=0)
     temp = np.take(tri.transform, simplex, axis=0)
     delta = uvw - temp[:, deg]
     bary = np.einsum('njk,nk->nj', temp[:, :deg, :], delta)

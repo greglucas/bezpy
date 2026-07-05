@@ -8,7 +8,7 @@ import numpy as np
 def apparent_resistivity(periods, Z, Z_var=None):
     """Calculates the apparent resistivity for the given periods and Z."""
     if Z_var is None:
-        Z_var = np.ones((Z.shape)) + np.ones((Z.shape))*1j
+        Z_var = np.ones(Z.shape) + np.ones(Z.shape)*1j
 
     # Ignore warnings because of nan possibilities. Just push those through
     with np.errstate(divide='ignore', invalid='ignore'):

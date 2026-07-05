@@ -3,6 +3,7 @@
 __all__ = ["DTIR"]
 
 import time
+
 import numpy as np
 from scipy.linalg import toeplitz
 

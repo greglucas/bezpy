@@ -2,10 +2,11 @@
 
 __all__ = ["plot_apparent_resistivity"]
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib import container
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+
 from .utils import apparent_resistivity
 
 
@@ -43,13 +44,13 @@ def plot_apparent_resistivity(periods, Z, Z_var=None, fig=None,
             yerr = 2*resistivity_var[i, good_vals]
 
             ax_res.errorbar(x, y, yerr=yerr,
-                            label=labels[i], color=colors[i], marker='o', fmt='o',
+                            label=labels[i], color=colors[i], fmt='o',
                             markersize=markersize, alpha=alphas[i],
                             markerfacecolor=bg_color, markeredgecolor=colors[i], markeredgewidth=1)
             y = phase[i, good_vals]
             yerr = 2*phase_var[i, good_vals]
             ax_phase.errorbar(x, y, yerr=yerr,
-                              color=colors[i], marker='o', fmt='o', alpha=alphas[i],
+                              color=colors[i], fmt='o', alpha=alphas[i],
                               markersize=markersize, markerfacecolor=bg_color,
                               markeredgecolor=colors[i], markeredgewidth=1)
 

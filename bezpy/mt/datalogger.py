@@ -3,9 +3,10 @@ Magnetotelluric datalogger classes.
 
 """
 import datetime
+
 import numpy as np
 import pandas as pd
-from scipy.signal import zpk2tf, filtfilt, bilinear_zpk
+from scipy.signal import bilinear_zpk, filtfilt, zpk2tf
 
 # Putting this here, so we don't have to reinstantiate a client
 # every time we download waveforms
@@ -71,8 +72,8 @@ class DataLogger:
             try:
                 mask = ((waveforms.index > self.runinfo[runid]['Start']) &
                         (waveforms.index < self.runinfo[runid]['End']))
-                waveforms["QN"].loc[mask] *= (100.0/self.runinfo[runid]['Ex'])  # mV/km
-                waveforms["QE"].loc[mask] *= (100.0/self.runinfo[runid]['Ey'])  # mV/km
+                waveforms.loc[mask, "QN"] *= (100.0/self.runinfo[runid]['Ex'])  # mV/km
+                waveforms.loc[mask, "QE"] *= (100.0/self.runinfo[runid]['Ey'])  # mV/km
 
             # If there's no info about length, then use default length.
             except KeyError:
