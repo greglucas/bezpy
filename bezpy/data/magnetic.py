@@ -31,8 +31,8 @@ All times are handled in UTC.
 """
 __all__ = [
     "observatory_metadata", "fetch_observatory", "download_observatory",
-    "update_observatory", "load_observatory", "observatory_years",
-    "stored_partitions", "ingest_iaga",
+    "update_observatory", "load_observatory", "load_observatory_group",
+    "observatory_years", "stored_partitions", "ingest_iaga",
 ]
 
 import datetime
@@ -400,6 +400,29 @@ def load_observatory(code, level=BEST, source=None, prefer=None, start=None,
         return merged
     # Rebuild a dataset so the return type matches a single-level load.
     return frame_to_dataset(merged, code, merged_meta)
+
+
+def load_observatory_group(codes, start=None, end=None, **kwargs):
+    """Load several observatories onto one ``(time, obs)`` Dataset.
+
+    A thin composition of :func:`load_observatory` and
+    :func:`bezpy.mag.combine_observatories`, ready for the SECS interpolator
+    and the pipeline.
+
+    Parameters
+    ----------
+    codes : sequence of str
+        IAGA observatory codes.
+    start, end : datetime-like, optional
+        Restrict to this UTC interval.
+    **kwargs
+        Forwarded to :func:`load_observatory` (``level``, ``source``,
+        ``prefer``, ...).
+    """
+    from ..mag import combine_observatories
+    return combine_observatories(
+        {code: load_observatory(code, start=start, end=end, **kwargs)
+         for code in codes})
 
 
 def _apply_prefer(partitions, prefer):

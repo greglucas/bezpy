@@ -162,6 +162,39 @@ The cache location defaults to a per-user directory (via
 [pooch](https://www.fatiando.org/pooch/)) and can be overridden with the
 `BEZPY_DATA_DIR` environment variable or `bezpy.data.set_cache_dir(...)`.
 
+## From observatory B to hazard numbers (`bezpy.pipeline`)
+
+The pipeline composes the pieces below — data loading, preparation, SECS
+interpolation, batched FFT convolution, and voltage kernels — into two scan
+modes:
+
+```python
+sites = bezpy.data.load_mt_sites(bbox=(-110, 35, -100, 45), min_rating=3)
+b_obs = bezpy.data.load_observatory_group(["BOU", "FRD", "TUC"], start, end)
+
+# One storm window, explicitly
+e = bezpy.calc_geoelectric_field(b_obs, sites, interp="secs",
+                                 window=("2024-05-10", "2024-05-12"))
+v = bezpy.calc_voltages(lines, e)      # Level-1 kernels, one sparse matmul
+
+# The statistics path: scan the whole record in chunks with streaming
+# reducers -- no storm pre-selection, no index bias, bounded memory.
+result = bezpy.pipeline.scan(b_obs, sites, lines=lines, chunk="1Y",
+                             reduce=("max", "exceedances", "quantiles"),
+                             threshold={"E": 100., "V": 50.},
+                             out_path="scan.nc")   # resumable as it goes
+
+# The case-study path: explicit windows from a storm catalog
+catalog = bezpy.storms.find_storms(pd.concat([dst, kp], axis=1))
+maxima = bezpy.pipeline.storm_scan(catalog, b_obs, sites, lines=lines)
+```
+
+Chunk edges are protected by the convolution pad, so scan results are
+invariant to the chunk size; exceedances feed `bezpy.storms.find_events`
+(event catalogs) and peaks-over-threshold return-level statistics.
+`leave_one_out="BOU"` runs any scan with an observatory withheld from the
+SECS fit for validation.
+
 ## Preparing magnetic time series (`bezpy.mag.prepare`)
 
 The FFT-convolution workflow needs its input combined onto one time axis,

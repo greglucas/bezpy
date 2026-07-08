@@ -1,9 +1,41 @@
 """Helper functions"""
 
-__all__ = ["haversine_distance", "haversine_dl", "fast_interp_weights", "fast_interpolate"]
+__all__ = ["haversine_distance", "haversine_dl", "fast_interp_weights", "fast_interpolate",
+           "filter_bbox", "filter_polygon"]
 
 import numpy as np
+import shapely
 from scipy.spatial import Delaunay
+
+
+def filter_polygon(lines, polygon, predicate="intersects"):
+    """Select the transmission lines that intersect a polygon.
+
+    Uses a spatial index (STRtree) so large inventories filter quickly, with
+    no geopandas required.
+
+    :param lines: sequence of TransmissionLine objects
+    :param polygon: a shapely geometry (Polygon, MultiPolygon, ...)
+    :param predicate: spatial predicate to apply (``"intersects"`` default,
+        ``"within"`` for fully-contained lines, ...)
+    :return: list of the matching TransmissionLine objects
+    """
+    geometries = [shapely.LineString(line.pts) for line in lines]
+    tree = shapely.STRtree(geometries)
+    idx = np.sort(tree.query(polygon, predicate=predicate))
+    return [lines[i] for i in idx]
+
+
+def filter_bbox(lines, bbox, predicate="intersects"):
+    """Select the transmission lines that intersect a lon/lat bounding box.
+
+    :param lines: sequence of TransmissionLine objects
+    :param bbox: ``(west, south, east, north)`` in degrees
+    :return: list of the matching TransmissionLine objects
+    """
+    west, south, east, north = bbox
+    return filter_polygon(lines, shapely.box(west, south, east, north),
+                          predicate=predicate)
 
 
 def haversine_distance(lon1, lat1, lon2, lat2):

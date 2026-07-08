@@ -6,6 +6,7 @@ __all__ = ["Site", "Site1d", "Site3d", "SiteCollection", "ConductivityModel"]
 
 import numpy as np
 import pandas as pd
+import scipy.fft
 import scipy.interpolate
 
 from .utils import apparent_resistivity
@@ -421,37 +422,71 @@ class SiteCollection:
         self.sites = sites
         self._N0 = None
         self._dt = None
+        self._extrapolate = None
 
-    def convolve_fft(self, mag_x, mag_y, dt=60):
-        """Convolution in frequency space."""
+    def convolve_fft(self, mag_x, mag_y, dt=60, extrapolate="zeros"):
+        """Convolution in frequency space for all sites at once.
 
-        N0 = len(mag_x)
+        :param mag_x: northward magnetic field in nT; shape ``(ntimes,)``
+            applies the same (spatially uniform) field to every site, shape
+            ``(ntimes, nsites)`` gives each site its own local field (e.g.
+            SECS-interpolated)
+        :param mag_y: eastward magnetic field, same shape as ``mag_x``
+        :param dt: sample interval in seconds
+        :param extrapolate: band-edge handling passed through to each site's
+            ``calcZ`` where supported (see ``Site3d.calcZ``)
+        :return: ``(Ex, Ey)`` in mV/km, each with shape ``(nsites, ntimes)``
+        """
+        mag_x, mag_y = np.asarray(mag_x, dtype=float), np.asarray(mag_y, dtype=float)
+        if mag_x.shape != mag_y.shape:
+            raise ValueError("mag_x and mag_y must have the same shape")
+        if np.isnan(mag_x).any() or np.isnan(mag_y).any():
+            raise ValueError(
+                "magnetic field input contains NaNs, which would corrupt the "
+                "FFT; interpolate them (bezpy.mag.prepare(gaps='interpolate')) "
+                "or predict gap-free fields with SECS first")
+
+        N0 = mag_x.shape[0]
         # Round N to the next highest power of 2 (+1 (makes it 2) to prevent circular convolution)
         N = 2**(int(np.log2(N0))+2)
 
-        freqs = np.fft.rfftfreq(N, d=dt)
+        freqs = scipy.fft.rfftfreq(N, d=dt)
 
-        if N0 != self._N0 or dt != self._dt:
+        if N0 != self._N0 or dt != self._dt or extrapolate != self._extrapolate:
             # Only recalculate the interpolated impedances when the frequencies
-            # change, which happens when either the input length or the sampling
-            # interval (dt) changes.
+            # (or the band-edge policy) change.
             self._N0 = N0
             self._dt = dt
+            self._extrapolate = extrapolate
             # Z needs to be organized as: xx, xy, yx, yy
             # Z_interp final dimension is N frequencies
             self._Z_interp = np.zeros((4, len(self.sites), len(freqs)), dtype=complex)
             for i, site in enumerate(self.sites):
-                self._Z_interp[:, i, :] = site.calcZ(freqs)
+                try:
+                    self._Z_interp[:, i, :] = site.calcZ(freqs, extrapolate=extrapolate)
+                except TypeError:
+                    # Physical sites (Site1d) are valid at all frequencies
+                    self._Z_interp[:, i, :] = site.calcZ(freqs)
         Z_interp = self._Z_interp
 
-        mag_x_fft = np.fft.rfft(mag_x, n=N)
-        mag_y_fft = np.fft.rfft(mag_y, n=N)
+        if mag_x.ndim == 1:
+            # One shared field: fft shape (nfreqs,), broadcasts over sites
+            mag_x_fft = scipy.fft.rfft(mag_x, n=N, workers=-1)
+            mag_y_fft = scipy.fft.rfft(mag_y, n=N, workers=-1)
+        else:
+            if mag_x.shape[1] != len(self.sites):
+                raise ValueError(
+                    f"per-site input must be (ntimes, {len(self.sites)} sites); "
+                    f"got {mag_x.shape}")
+            # Per-site fields: batch the FFTs, then organize as (nsites, nfreqs)
+            mag_x_fft = scipy.fft.rfft(mag_x, n=N, axis=0, workers=-1).T
+            mag_y_fft = scipy.fft.rfft(mag_y, n=N, axis=0, workers=-1).T
 
         Ex_fft = Z_interp[0, :, :]*mag_x_fft + Z_interp[1, :, :]*mag_y_fft
         Ey_fft = Z_interp[2, :, :]*mag_x_fft + Z_interp[3, :, :]*mag_y_fft
 
-        Ex_t = np.real(np.fft.irfft(Ex_fft, axis=-1)[:, :N0])
-        Ey_t = np.real(np.fft.irfft(Ey_fft, axis=-1)[:, :N0])
+        Ex_t = np.real(scipy.fft.irfft(Ex_fft, axis=-1, workers=-1)[:, :N0])
+        Ey_t = np.real(scipy.fft.irfft(Ey_fft, axis=-1, workers=-1)[:, :N0])
 
         return (Ex_t, Ey_t)
 

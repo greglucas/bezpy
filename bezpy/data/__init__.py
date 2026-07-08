@@ -48,6 +48,7 @@ from .magnetic import (
     fetch_observatory,
     ingest_iaga,
     load_observatory,
+    load_observatory_group,
     observatory_metadata,
     observatory_years,
     stored_partitions,
@@ -73,7 +74,8 @@ __all__ = [
     "get_cache_dir", "set_cache_dir", "clear_cache",
     # magnetic field: fetch / store / update / load
     "fetch_observatory", "download_observatory", "update_observatory",
-    "load_observatory", "ingest_iaga", "observatory_metadata",
+    "load_observatory", "load_observatory_group", "ingest_iaga",
+    "observatory_metadata",
     "observatory_years", "stored_partitions",
     # magnetic inventory
     "observatory_inventory", "summarize_observatory",

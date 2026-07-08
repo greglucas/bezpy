@@ -186,7 +186,17 @@ catalog = bezpy.storms.find_events(series, threshold=..., decluster="runs")
 - Tests: synthetic series with known events for both; overlap merging;
   boundary behavior.
 
-### 3.4 `feature/pipeline` — nothing → E (→ V) with both scan modes
+### 3.4 `feature/pipeline` — nothing → E (→ V) with both scan modes ✅ DONE
+
+**Status (2026-07-08):** `bezpy.pipeline` landed: `calc_geoelectric_field`
+(prepare → SECS/uniform → batched `SiteCollection.convolve_fft`, which now
+accepts per-site B and threads D6 `extrapolate` — → trim), top-level
+`calc_voltages` on Level-1 kernels, `scan` (chunked, streaming max/
+exceedances/histogram-sketch quantiles, resumable netCDF, `leave_one_out`),
+`storm_scan`, `bezpy.data.load_observatory_group`, and `bezpy.tl.filter_bbox`
+/`filter_polygon` (STRtree). Tests: uniform-vs-manual exactness, kernel-vs-
+legacy voltage exactness, D4 index-invisible-event comparison, chunk-pad
+convergence, resume-after-crash equality.
 
 `bezpy.pipeline` composing 3.1–3.3 (ROADMAP P2):
 
