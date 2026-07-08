@@ -41,6 +41,7 @@ from ._webservice import (
     NRCAN_OBSERVATORIES,
     USGS_OBSERVATORIES,
 )
+from .indices import fetch_index
 from .inventory import observatory_inventory, summarize_observatory
 from .magnetic import (
     download_observatory,
@@ -76,6 +77,8 @@ __all__ = [
     "observatory_years", "stored_partitions",
     # magnetic inventory
     "observatory_inventory", "summarize_observatory",
+    # geomagnetic activity indices
+    "fetch_index",
     # magnetotelluric transfer functions (EMTF XML)
     "download_mt", "download_mt_spud", "ingest_mt_xml", "load_mt_site",
     "load_mt_sites", "mt_inventory", "stored_mt_surveys", "mt",

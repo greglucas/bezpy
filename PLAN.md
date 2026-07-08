@@ -159,7 +159,15 @@ e = bezpy.mag.trim_pad(e)                                      # pad tracked in 
 - Tests: pad round-trip; leakage of a synthetic long-period signal under
   median-vs-linear+taper (the D2 comparison); gap policies.
 
-### 3.3 `feature/storms` — storm catalogs and index data
+### 3.3 `feature/storms` — storm catalogs and index data ✅ DONE
+
+**Status (2026-07-08):** `bezpy.storms.find_storms` (Dst/Kp trigger + window
+expansion + overlap merging, legacy-compatible) and `find_events` (threshold
+exceedance + runs declustering on any series, the D4/3.6 primitive) landed as
+a top-level module; `bezpy.data.fetch_index` fetches Kp/ap (GFZ Potsdam) and
+Dst (OMNI2 yearly files) into the pooch cache. Parsers fixture-tested;
+catalogs tested on synthetic series incl. Kp-only (index-invisible-to-Dst)
+storms and overlap merging.
 
 `bezpy.storms` + `bezpy.data.fetch_index`:
 
