@@ -1,0 +1,78 @@
+ TRANSFER FUNCTIONS IN MEASUREMENT COORDINATES
+ ********** WITH FULL ERROR COVARIANCE **********
+ (test fixture: synthetic values, identity orientations)
+station    :TST01
+coordinate    40.000  -105.000 declination    10.00
+number of channels   5   number of frequencies   5
+ orientations and tilts of each channel
+    1     0.00     0.00 TST  Hx
+    2    90.00     0.00 TST  Hy
+    3     0.00     0.00 TST  Hz
+    4     0.00     0.00 TST  Ex
+    5    90.00     0.00 TST  Ey
+
+period :      10.000    decimation level   1    freq. band from   1 to   5
+number of data point   1000 sampling freq.   1.000 Hz
+ Transfer Functions
+  0.1000E+00  0.0000E+00  0.2000E+00  0.0000E+00
+  1.0000E+00  5.0000E-01  2.0000E+00  -5.0000E-01
+ -2.0000E+00  1.0000E-01 -1.0000E+00  2.0000E-01
+ Inverse Coherent Signal Power Matrix
+  0.1000E+01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.1000E+01  0.0000E+00
+ Residual Covariance
+  0.4000E-01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.9000E-01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.0000E+00  0.0000E+00  0.1600E+00  0.0000E+00
+period :      31.623    decimation level   2    freq. band from   1 to   5
+number of data point   1000 sampling freq.   1.000 Hz
+ Transfer Functions
+  0.1000E+00  0.0000E+00  0.2000E+00  0.0000E+00
+  5.0000E-01  2.5000E-01  1.0000E+00  -2.5000E-01
+ -1.0000E+00  5.0000E-02 -5.0000E-01  1.0000E-01
+ Inverse Coherent Signal Power Matrix
+  0.1000E+01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.1000E+01  0.0000E+00
+ Residual Covariance
+  0.4000E-01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.9000E-01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.0000E+00  0.0000E+00  0.1600E+00  0.0000E+00
+period :      100.00    decimation level   3    freq. band from   1 to   5
+number of data point   1000 sampling freq.   1.000 Hz
+ Transfer Functions
+  0.1000E+00  0.0000E+00  0.2000E+00  0.0000E+00
+  2.5000E-01  1.2500E-01  5.0000E-01  -1.2500E-01
+ -5.0000E-01  2.5000E-02 -2.5000E-01  5.0000E-02
+ Inverse Coherent Signal Power Matrix
+  0.1000E+01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.1000E+01  0.0000E+00
+ Residual Covariance
+  0.4000E-01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.9000E-01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.0000E+00  0.0000E+00  0.1600E+00  0.0000E+00
+period :      316.23    decimation level   4    freq. band from   1 to   5
+number of data point   1000 sampling freq.   1.000 Hz
+ Transfer Functions
+  0.1000E+00  0.0000E+00  0.2000E+00  0.0000E+00
+  1.2500E-01  6.2500E-02  2.5000E-01  -6.2500E-02
+ -2.5000E-01  1.2500E-02 -1.2500E-01  2.5000E-02
+ Inverse Coherent Signal Power Matrix
+  0.1000E+01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.1000E+01  0.0000E+00
+ Residual Covariance
+  0.4000E-01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.9000E-01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.0000E+00  0.0000E+00  0.1600E+00  0.0000E+00
+period :      1000.0    decimation level   5    freq. band from   1 to   5
+number of data point   1000 sampling freq.   1.000 Hz
+ Transfer Functions
+  0.1000E+00  0.0000E+00  0.2000E+00  0.0000E+00
+  6.2500E-02  3.1250E-02  1.2500E-01  -3.1250E-02
+ -1.2500E-01  6.2500E-03 -6.2500E-02  1.2500E-02
+ Inverse Coherent Signal Power Matrix
+  0.1000E+01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.1000E+01  0.0000E+00
+ Residual Covariance
+  0.4000E-01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.9000E-01  0.0000E+00
+  0.0000E+00  0.0000E+00  0.0000E+00  0.0000E+00  0.1600E+00  0.0000E+00

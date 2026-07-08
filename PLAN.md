@@ -294,7 +294,15 @@ The apparatus that keeps this plan honest — `benchmarks/` + `bezpy.validation`
 - Deliverable includes a short `VALIDATION.md` summarizing current
   method-comparison results — the evidence base for defaults.
 
-### 3.8 `feature/map-plotting` — optional plotting extra
+### 3.8 `feature/map-plotting` — optional plotting extra ✅ DONE
+
+**Status (2026-07-08):** `bezpy.plot` landed: `add_map_features` (cartopy,
+actionable error when absent), `scale_vectors`/`plot_vectors`
+(magnitude-preserving-angle log scaling), `plot_lines` (LineCollection,
+per-line coloring), `plot_hazard_map` (log-normed scatter + colorbar). Axes
+in, artists out; works on plain matplotlib axes, lon/lat transform added
+automatically on GeoAxes. Agg smoke tests; cartopy test skips when absent;
+matplotlib added to the test extra so CI exercises them.
 
 `bezpy.plot` (cartopy soft-imported): `add_map_features(ax)`,
 `plot_vectors(ax, latlons, vec, scale="log")` (magnitude-preserving-angle
@@ -302,7 +310,15 @@ scaling from the papers), `plot_lines(ax, lines, values)`,
 `plot_hazard_map(ax, latlons, values)`. Thin: axes in, artists out. Smoke
 tests on Agg; cartopy tests skipped when absent.
 
-### 3.9 `feature/legacy-mt-io` — Z-file and EDI readers (small)
+### 3.9 `feature/legacy-mt-io` — Z-file and EDI readers ✅ DONE
+
+**Status (2026-07-08):** `ZFile`/`EDIFile` ported from Anomalies1989 into
+`bezpy.mt.legacy` (modernized: warnings instead of prints, py3 file modes,
+vectorized rotations) with `read_zfile`/`read_edi` returning `Site3d` in
+bezpy conventions (Z as (xx, xy, yx, yy), periods ascending, Z_var from the
+covariance products, dropped when degenerate). Fixture-file tests including
+rotation invariants, tippers, an Hz-only file, and a legacy site running
+through `calcZ`/`convolve_fft`.
 
 Port `ZFile`/`EDIFile` from Anomalies1989's `data_readers.py` into
 `bezpy.mt.io` as `read_zfile`/`read_edi` returning `Site3d` (needed for
