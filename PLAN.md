@@ -135,7 +135,14 @@ b_pred = interp.predict(latlons)                   # xr.Dataset (time, loc): Bx,
   synthetic gappy data (the D1 comparison); Kalman ≥ lstsq on noisy input.
 - Rewrite `scripts/secs_data.py`/`realtime.py` on top of it.
 
-### 3.2 `feature/preprocessing` — own the boring-but-critical B prep
+### 3.2 `feature/preprocessing` — own the boring-but-critical B prep ✅ DONE
+
+**Status (2026-07-08):** `combine_observatories`/`prepare`/`trim_pad` landed
+in `bezpy.mag.processing`: union time axis with lat/lon coords (attrs or IAGA
+table), uniform-dt validation with actionable errors, D2 defaults (linear
+detrend + Tukey taper over the pad, `pad="auto"` = 3 x max impedance period)
+with legacy `detrend="median"`/explicit `pad="2D"`, D1 `gaps="mask"` default
+with legacy `"interpolate"` + `max_gap`. D2 leakage comparison test included.
 
 `bezpy.mag` functions used by the pipeline, usable standalone:
 

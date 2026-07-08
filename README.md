@@ -162,6 +162,24 @@ The cache location defaults to a per-user directory (via
 [pooch](https://www.fatiando.org/pooch/)) and can be overridden with the
 `BEZPY_DATA_DIR` environment variable or `bezpy.data.set_cache_dir(...)`.
 
+## Preparing magnetic time series (`bezpy.mag.prepare`)
+
+The FFT-convolution workflow needs its input combined onto one time axis,
+uniformly sampled, detrended, tapered, and padded so convolution edge effects
+never touch the interval of interest:
+
+```python
+b = bezpy.mag.combine_observatories({"BOU": ds_bou, "FRD": ds_frd})
+b = bezpy.mag.prepare(b, window=("2024-05-10", "2024-05-12"),
+                      pad="auto",         # derived from the impedance band (3 x 30,000 s)
+                      detrend="linear",   # legacy: "median"
+                      taper="tukey",      # cosine ramps over the pad region only
+                      gaps="mask")        # keep NaNs for per-sample weighting;
+                                          # legacy: "interpolate" (with max_gap=...)
+...                                       # SECS -> impedances -> E
+e = bezpy.mag.trim_pad(e)                 # pad bookkeeping travels in attrs
+```
+
 ## Interpolating magnetic fields between observatories (`bezpy.mag.SECSInterpolator`)
 
 Spherical Elementary Current Systems (SECS) interpolate the observatory
