@@ -2,7 +2,7 @@
 bezpy: Python module for processing and analyzing magnetic field (B),
        electric field (E), and impedance (Z) data.
 """
-from . import mag, mt, pipeline, stats, storms, tl, validation
+from . import mag, mt, pipeline, plot, stats, storms, tl, validation
 from .pipeline import calc_geoelectric_field, calc_voltages
 
 # The data-acquisition subpackage relies on optional dependencies (pooch,
