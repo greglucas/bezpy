@@ -14,6 +14,21 @@ import shapely
 from .utils import fast_interp_weights, haversine_distance, haversine_dl
 
 
+def _lonlat_to_unit_vectors(lonlat_deg):
+    """Convert (npts, 2) lon/lat degrees to (npts, 3) unit vectors."""
+    lons, lats = np.deg2rad(lonlat_deg[:, 0]), np.deg2rad(lonlat_deg[:, 1])
+    return np.column_stack([np.cos(lats)*np.cos(lons),
+                            np.cos(lats)*np.sin(lons),
+                            np.sin(lats)])
+
+
+def _unit_vectors_to_lonlat(vec):
+    """Convert (npts, 3) unit vectors to (npts, 2) lon/lat degrees."""
+    lons = np.arctan2(vec[:, 1], vec[:, 0])
+    lats = np.arctan2(vec[:, 2], np.hypot(vec[:, 0], vec[:, 1]))
+    return np.rad2deg(np.column_stack([lons, lats]))
+
+
 def _coords_of(line):
     """Extract an ``(npts, 2)`` lon/lat coordinate array from several inputs.
 
@@ -75,6 +90,46 @@ class TransmissionLine:
 
     def __len__(self):
         return len(self.pts)
+
+    def resampled(self, max_segment_km):
+        """Return a copy of this line with no segment longer than ``max_segment_km``.
+
+        Each segment is subdivided along its great circle, so the total line
+        length is preserved. Densifying at build time refines the quadrature
+        used by :meth:`calc_voltages` and the kernel builders in
+        :mod:`bezpy.tl.kernels` (Kelbert & Lucas, 2020, discretized lines at
+        1 km segments); interpolation weights must be (re)set on the new
+        object afterwards.
+
+        :param max_segment_km: maximum allowed segment length in km
+        :return: a new TransmissionLine sharing this line's metadata
+        """
+        seg_km = haversine_distance(self.pts[:-1, 0], self.pts[:-1, 1],
+                                    self.pts[1:, 0], self.pts[1:, 1])
+        # Subdivisions per segment (>= 1 so degenerate segments survive)
+        counts = np.maximum(np.ceil(seg_km / max_segment_km).astype(int), 1)
+
+        # Fractional positions along each parent segment: k/counts[i] for
+        # k = 0 .. counts[i]-1; the final endpoint is appended at the end.
+        seg_idx = np.repeat(np.arange(len(seg_km)), counts)
+        k = np.arange(counts.sum()) - np.repeat(np.cumsum(counts) - counts, counts)
+        t = k / counts[seg_idx]
+
+        # Spherical linear interpolation between the segment endpoints
+        vec = _lonlat_to_unit_vectors(self.pts)
+        v0, v1 = vec[seg_idx], vec[seg_idx + 1]
+        omega = np.arccos(np.clip(np.sum(v0*v1, axis=1), -1., 1.))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            w0 = np.sin((1 - t)*omega) / np.sin(omega)
+            w1 = np.sin(t*omega) / np.sin(omega)
+        # Degenerate (duplicate-point) segments: hold the first endpoint
+        degenerate = omega < 1e-12
+        w0[degenerate], w1[degenerate] = 1., 0.
+
+        new_pts = np.vstack([w0[:, None]*v0 + w1[:, None]*v1, vec[-1]])
+        new_pts /= np.linalg.norm(new_pts, axis=1, keepdims=True)
+        return TransmissionLine(_unit_vectors_to_lonlat(new_pts),
+                                metadata=self.metadata)
 
     def set_nearest_sites(self, site_xys):
         """Sets the nearest site to each point along the transmission line."""

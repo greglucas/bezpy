@@ -99,6 +99,7 @@ class Site3d(Site):
         # to speed up multiple calls with the same frequency range
         self._prev_freqs = None
         self._prev_Z = None
+        self._prev_extrapolate = None
 
     def _repr_html_(self):
         return f"<p style=\"font-size:22px; color:blue\"><b>Site 3d: {self.name}</b></p>" + \
@@ -211,18 +212,58 @@ class Site3d(Site):
                          ax_res.get_title())
         return (fig, ax_res, ax_phase)
 
-    def calcZ(self, freqs):
-        """Calculates transfer function, Z, from the input frequencies."""
-        # extrapolate=1: bandpass filter to only interpolate between data points
-        #                (no extrapolation)
-        if not np.array_equal(freqs, self._prev_freqs):
-            # If the frequencies are different, then recalculate the Z values
+    def calcZ(self, freqs, extrapolate="zeros"):
+        """Calculates transfer function, Z, from the input frequencies.
+
+        :param extrapolate: how to treat frequencies outside the measured
+            period band.
+
+            * ``"zeros"`` (default, the historical behavior): a hard band-stop,
+              Z = 0 outside the band.
+            * ``"asymptotic"``: physical band-edge continuation. |Z| follows
+              the half-space sqrt(omega) asymptote anchored at the band-edge
+              value (phase held at the edge), decaying to Z = 0 at DC on the
+              long-period side and growing as sqrt(f) on the short-period
+              side. This preserves the short-period content that dominates
+              dB/dt-driven E instead of truncating it.
+        """
+        if extrapolate not in ("zeros", "asymptotic"):
+            raise ValueError("extrapolate must be one of: zeros, asymptotic")
+        if not np.array_equal(freqs, self._prev_freqs) or extrapolate != self._prev_extrapolate:
+            # If the inputs are different, then recalculate the Z values
             # and store them for later use. Store a copy so that later in-place
             # mutation of the caller's array can't silently invalidate the cache.
-            self._prev_Z = self.spline_interp(freqs, logspace=True, extrapolate=1)
+            # ext=1 in the spline: zero outside the measured band, then
+            # optionally fill the out-of-band frequencies with the asymptote.
+            Z_interp = self.spline_interp(freqs, logspace=True, extrapolate=1)
+            if extrapolate == "asymptotic":
+                Z_interp = self._extrapolate_asymptotic(np.asarray(freqs, dtype=float), Z_interp)
+            self._prev_Z = Z_interp
             self._prev_freqs = np.array(freqs)
+            self._prev_extrapolate = extrapolate
 
         return self._prev_Z
+
+    def _extrapolate_asymptotic(self, freqs, Z_interp):
+        """Fill out-of-band frequencies with a sqrt(f) continuation of Z.
+
+        For a half space, |Z| grows exactly as sqrt(omega); anchoring that
+        asymptote at each component's band-edge value (keeping the edge phase)
+        is continuous at the edge and has the right DC limit (Z -> 0).
+        """
+        # pylint: disable=invalid-name
+        for i in range(Z_interp.shape[0]):
+            good_periods = self.periods[~np.isnan(self.Z[i, :])]
+            f_lo, f_hi = 1./np.max(good_periods), 1./np.min(good_periods)
+            # Evaluate the spline just inside the band so ext=1 can't zero it
+            Z_lo, Z_hi = self.spline_interp([f_lo*(1 + 1e-9), f_hi*(1 - 1e-9)],
+                                            logspace=True, extrapolate=1)[i]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                high = freqs > f_hi
+                Z_interp[i, high] = Z_hi * np.sqrt(freqs[high]/f_hi)
+                low = (freqs < f_lo) & (freqs > 0.)
+                Z_interp[i, low] = Z_lo * np.sqrt(freqs[low]/f_lo)
+        return Z_interp
 
     def calc_resisitivity(self):
         """Calculate the apparent resistivity and phase of the transfer function."""

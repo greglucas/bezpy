@@ -161,6 +161,49 @@ The cache location defaults to a per-user directory (via
 [pooch](https://www.fatiando.org/pooch/)) and can be overridden with the
 `BEZPY_DATA_DIR` environment variable or `bezpy.data.set_cache_dir(...)`.
 
+## Fast line voltages: kernels and telluric response functions (`bezpy.tl.kernels`)
+
+Every interpolation scheme in `TransmissionLine.calc_voltages` is a *linear*
+map from the per-site electric fields to a voltage, so the line geometry can
+be contracted out ahead of time instead of re-integrated at every time step.
+`bezpy.tl.kernels` provides two levels of this factorization:
+
+**Effective length vectors** reproduce `calc_voltages` exactly (the same sum,
+reassociated) with one sparse matrix multiply for all lines at once — about
+20× faster on the voltage stage for hundreds of lines:
+
+```python
+from bezpy.tl.kernels import voltage_matrix, apply_voltage_matrix
+
+L, valid = voltage_matrix(lines, len(sites), how="delaunay")
+V = apply_voltage_matrix(E, L, valid)   # (ntimes, nlines) volts from E in mV/km
+```
+
+**Telluric response functions** (Kelbert & Lucas, 2020) fold the MT
+impedances into the length vectors, giving per-line transfer functions
+`tau^N(ω), tau^E(ω)` so voltages come straight from the magnetic field
+spectra with no electric-field intermediate:
+
+```python
+from bezpy.tl.kernels import TelluricResponse
+
+tr = TelluricResponse.from_lines(
+    lines, sites, how="delaunay",
+    periods=periods,              # store tau at MT-native periods (bounded memory)
+    resample_km=1.0,              # densify line quadrature at build time
+    extrapolate="asymptotic",     # physical band-edge continuation instead of a band-stop
+)
+V = tr.calc_voltages(mag_x, mag_y, dt=60)   # (ntimes, nlines) volts from B in nT
+
+tr.to_netcdf("tau.nc")                       # tau is a small, shippable data product
+tr2 = TelluricResponse.from_netcdf("tau.nc") # ...usable with no geometry or MT sites
+```
+
+With `periods=None` the response is evaluated exactly on each run's FFT grid
+and reproduces the classic convolve-then-interpolate pipeline to rounding
+error. tau evaluated on the FFT grid is cached between equal-length chunks,
+so scanning a long record pays the construction cost once.
+
 ## Development and testing
 
 The test suite uses [pytest](https://docs.pytest.org/) and

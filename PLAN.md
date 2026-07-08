@@ -191,12 +191,19 @@ maxima = bezpy.pipeline.storm_scan(catalog, b_obs, sites, lines=None)
   synthetic record with an index-invisible local event** (the D4 comparison);
   chunk-boundary invariance (result identical for chunk="1Y" vs "6M"); resume.
 
-### 3.5 `feature/telluric-kernels` — productionize the prototype (branch exists)
+### 3.5 `feature/telluric-kernels` — productionize the prototype ✅ DONE
 
 Prototype validated (ARCHITECTURE.md §9: Level-1 exact, 23× voltage stage; τ
 ≈1e-8). Remaining: line resampling at build time (`resample_km=`), τ
 `to_netcdf/from_netcdf`, FFT-grid τ caching across equal-length chunks, D6
 band-edge option threaded through τ construction, docs.
+
+**Status (2026-07-08):** all remaining items landed — `TransmissionLine.resampled`
+(great-circle densification) + `resample_km=` in `from_lines`; τ
+`to_netcdf`/`from_netcdf` (geometry-free restore); FFT-grid τ cache keyed on
+(nfft, dt) with a memory budget; D6 `extrapolate="asymptotic"` implemented in
+`Site3d.calcZ` and threaded through both exact and master-grid τ (validated
+against an analytic half space); README section.
 
 ### 3.6 `feature/hazard-stats` — defensible tail statistics
 
