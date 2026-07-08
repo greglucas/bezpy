@@ -195,6 +195,23 @@ invariant to the chunk size; exceedances feed `bezpy.storms.find_events`
 `leave_one_out="BOU"` runs any scan with an observatory withheld from the
 SECS fit for validation.
 
+## Return levels with uncertainty (`bezpy.stats`)
+
+Hazard tail statistics, scipy-only, with the confidence interval built into
+the result — a return level without a CI is not a result:
+
+```python
+events = bezpy.storms.find_events(e_magnitude, threshold=100., gap="12h")
+rl = bezpy.stats.return_level(events["peak_value"], years_observed=31,
+                              return_period=100,
+                              method="gpd", ci="profile")   # default: POT + GPD tail
+print(rl)   # 100-year return level: 412.3 [318.2, 604.7] (95% CI, gpd)
+
+# The published 2019 workflow, by name, for reproduction/comparison
+rl = bezpy.stats.return_level(storm_maxima, years_observed=31,
+                              method="lognormal-2019", ci="bootstrap")
+```
+
 ## Preparing magnetic time series (`bezpy.mag.prepare`)
 
 The FFT-convolution workflow needs its input combined onto one time axis,

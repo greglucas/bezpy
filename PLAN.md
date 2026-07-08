@@ -238,7 +238,15 @@ band-edge option threaded through τ construction, docs.
 `Site3d.calcZ` and threaded through both exact and master-grid τ (validated
 against an analytic half space); README section.
 
-### 3.6 `feature/hazard-stats` — defensible tail statistics
+### 3.6 `feature/hazard-stats` — defensible tail statistics ✅ DONE
+
+**Status (2026-07-08):** `bezpy.stats.return_level` landed, scipy-only:
+GPD/POT default with profile-likelihood (Coles 4.3.3, rate fixed at its
+estimate) or bootstrap CIs; `method="lognormal-2019"` (bootstrap CI) and
+`method="gev"` by name; `ReturnLevel` dataclass carries value + CI + params.
+No `powerlaw` dependency. Tests: parameter recovery, profile-CI coverage on
+simulation, CI asymmetry, and a heavy-tail comparison where lognormal and
+GPD diverge (the D5 point). Directional hazard remains a follow-on.
 
 `bezpy.stats` (scipy-only core):
 
