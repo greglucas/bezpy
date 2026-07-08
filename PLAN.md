@@ -353,7 +353,16 @@ can land incrementally per-module.
 pathlib waveform I/O, `scipy.fft` workers, `Site3d` attrs in `__init__`, type
 hints on new API, `CITATION.cff`. Never mixed with feature PRs.
 
-### 3.12 `docs/site` — after 3.4 lands
+### 3.12 `docs/site` — after 3.4 lands ✅ DONE (initial)
+
+**Status (2026-07-08):** mkdocs-material site landed: index, units &
+conventions page (§4), four tutorials (storm B→E; storm catalogs +
+`find_events`; continuous scan → GPD return levels → hazard map, with the
+legacy lognormal method in a sidebar; line voltages via kernels incl. τ as a
+netCDF product), mkdocstrings API reference, VALIDATION.md included via
+snippet. `docs` extra; CI builds the site with `mkdocs build --strict`.
+**Open:** tutorials are prose + verified-API code, not CI-executed notebooks
+— executing them needs cached example data (a download/fixture decision).
 
 Sphinx/mkdocs-material + executed tutorials: (1) one storm B→E; (2) storm
 catalog + case study; (3) continuous scan → GPD return-level hazard map (the

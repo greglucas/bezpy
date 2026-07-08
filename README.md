@@ -304,6 +304,13 @@ pytest          # run the test suite
 ruff check .    # lint the code
 ```
 
+The documentation site (mkdocs-material) builds with the `docs` extra:
+
+```bash
+pip install -e ".[docs,data,secs]"
+mkdocs serve    # live-reload preview at http://127.0.0.1:8000
+```
+
 Continuous integration runs the tests across Python 3.10–3.13 (and against the
 oldest supported dependency versions) on every push and pull request.
 

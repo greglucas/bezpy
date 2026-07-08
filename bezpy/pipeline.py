@@ -70,7 +70,9 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
         added around it and trimmed from the result
     :param pad: pad duration per side; ``"auto"`` derives it from the longest
         site impedance period (see :func:`bezpy.mag.prepare`)
-    :param detrend, taper, gaps: passed to :func:`bezpy.mag.prepare`
+    :param detrend: passed to :func:`bezpy.mag.prepare`
+    :param taper: passed to :func:`bezpy.mag.prepare`
+    :param gaps: passed to :func:`bezpy.mag.prepare`
     :param extrapolate: impedance band-edge handling (``"zeros"`` or
         ``"asymptotic"``, see ``Site3d.calcZ``)
     :param secs: optionally a configured ``SECSInterpolator`` to use

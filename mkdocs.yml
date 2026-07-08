@@ -1,0 +1,54 @@
+site_name: bezpy
+site_description: >-
+  Magnetic field (B), Electric field (E), and Impedance (Z) analysis in Python
+repo_url: https://github.com/greglucas/bezpy
+repo_name: greglucas/bezpy
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.snippets
+  - tables
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: sphinx
+            show_source: false
+            members_order: source
+
+nav:
+  - Home: index.md
+  - Units and conventions: conventions.md
+  - Tutorials:
+      - One storm, B to E: tutorials/storm-to-e.md
+      - Storm catalogs and case studies: tutorials/storm-catalog.md
+      - Continuous scan to hazard map: tutorials/hazard-scan.md
+      - Line voltages via kernels: tutorials/line-voltages.md
+  - API reference: api.md
+  - Validation results: validation.md
