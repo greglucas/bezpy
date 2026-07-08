@@ -265,7 +265,18 @@ rl = bezpy.stats.return_level(storm_maxima, ..., method="lognormal-2019")  # rep
 - Tests: parameter recovery on synthetic GPD/lognormal draws; CI coverage on
   simulation; regression against a published 2019 return level where feasible.
 
-### 3.7 `feature/validation-harness` — where method choices get decided (new, D7/D8)
+### 3.7 `feature/validation-harness` — where method choices get decided ✅ DONE (initial)
+
+**Status (2026-07-08):** `bezpy.validation` landed: `leave_one_out` (RMSE/
+MAE/correlation + per-band coherence, inf-variance folds so the SEC grid is
+identical), `synthetic_scenario` (two-layer smoothly varying truth, uniform
+band-limited source, exact E/V references), `score_interpolation_methods`
+(D7) and `score_extrapolation` (D6); `benchmarks/validation_harness.py`
+prints the tables recorded in `VALIDATION.md`. First findings: asymptotic
+band-edge continuation cuts truncated-band E error ~10–20×; nn (local
+assignment) beats delaunay blending ~3× on the synthetic structure —
+defaults unchanged pending a real reference-storm comparison (listed in
+VALIDATION.md "Still to add").
 
 The apparatus that keeps this plan honest — `benchmarks/` + `bezpy.validation`:
 
