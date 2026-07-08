@@ -53,10 +53,12 @@ iris = ["obspy>=1.3"]
 # Data acquisition and caching (bezpy.data): download/store observatory data,
 # cache management, and the netCDF archive (h5netcdf is a pure-Python engine)
 data = ["pooch>=1.6", "xarray>=2023.1", "h5netcdf>=1.0", "h5py>=3.0", "requests>=2.25"]
+# SECS interpolation of observatory magnetic fields (bezpy.mag.SECSInterpolator)
+secs = ["pysecs>=0.3"]
 # Everything needed to run the example command-line scripts in scripts/
-scripts = ["matplotlib>=3.5", "requests>=2.25", "pysecs>=0.1"]
-# Test and lint tooling (pulls in the data stack so bezpy.data tests run)
-test = ["pytest>=7.0", "pytest-cov", "ruff", "bezpy[data]"]
+scripts = ["matplotlib>=3.5", "requests>=2.25", "pysecs>=0.3"]
+# Test and lint tooling (pulls in the data/secs stacks so their tests run)
+test = ["pytest>=7.0", "pytest-cov", "ruff", "bezpy[data]", "bezpy[secs]"]
 
 [project.urls]
 homepage = 'https://github.com/greglucas/bezpy'

@@ -43,7 +43,6 @@ import time
 # Numerical
 import numpy as np
 import pandas as pd
-from pysecs import SECS
 import bezpy
 
 # Plotting libraries
@@ -175,8 +174,8 @@ missing_xy = np.array(missing_xy)
 
 nobs = len(good_observatories)
 B = pd.concat([obs.df[['X', 'Y', 'Z']] for obs in good_observatories], axis=1)
-# Resample, then interpolate
-B = B.resample('15Min').median().interpolate(limit_direction='both')
+# Resample; gaps stay as NaN and are masked out of the SECS fit
+B = B.resample('15Min').median()
 # Detrend
 B = B - B.median()
 
@@ -212,36 +211,15 @@ xs = np.append((xs - delta_x/2), xs[-1] + delta_x/2)
 ys = np.append((ys - delta_y/2), ys[-1] + delta_y/2)
 yy_edges, xx_edges = np.meshgrid(ys, xs)
 
-obs_lat_lon_r = np.zeros((len(good_xy), 3))
-obs_lat_lon_r[:,0] = good_xy[:,1]
-obs_lat_lon_r[:,1] = good_xy[:,0]
-obs_lat_lon_r[:,2] = R_earth
-
-obs_var = np.ones(B_obs.shape)
-# Don't include Z component in fits for now
-obs_var[:,:,2] = np.inf
-
-gridded_lat_lon_r = np.zeros((len(gridded_xy), 3))
-gridded_lat_lon_r[:,0] = gridded_xy[:,1]
-gridded_lat_lon_r[:,1] = gridded_xy[:,0]
-gridded_lat_lon_r[:,2] = R_earth
-
-# specify the SECS grid
-lat, lon, r = np.meshgrid(np.linspace(15,85,36),
-                          np.linspace(-175,-25,76),
-                          R_earth+110000, indexing='ij')
-secs_lat_lon_r = np.hstack((lat.reshape(-1,1),
-                            lon.reshape(-1,1),
-                            r.reshape(-1,1)))
-
 #--------------
 # SECS
 #--------------
-secs = SECS(sec_df_loc=secs_lat_lon_r)
-secs.fit(obs_loc=obs_lat_lon_r, obs_B=B_obs,
-         obs_std=obs_var, epsilon=0.05)
+# SEC poles every 2 degrees over North America (Bz excluded, missing
+# samples masked with infinite variance -- no gap interpolation needed)
+interp = bezpy.mag.SECSInterpolator(grid=(-175, 15, -25, 85), spacing=2.0)
+interp.fit(B_obs, obs_latlons=good_xy[:, ::-1])
 
-B_gridded = secs.predict_B(gridded_lat_lon_r)
+B_gridded = interp.predict(gridded_xy[:, ::-1])
 
 if args.verbose:
     print("SECS Interpolation: {:.2f} s".format(time.time()-t0))
@@ -387,9 +365,8 @@ if args.movie:
     Q.remove()
 
     uniform_xy = proj_data.transform_points(projection, xy[:,0], xy[:,1])
-    uniform_xy[:,2] = R_earth
-    # Need to send lat/lon/r, so swap axis 0/1
-    B_uniform = secs.predict_B(uniform_xy[:,[1,0,2]])
+    # predict takes (lat, lon); transform_points returns (lon, lat, z)
+    B_uniform = interp.predict(uniform_xy[:,[1,0]])
 
     Bx = B_uniform[t,:,0]
     By = B_uniform[t,:,1]

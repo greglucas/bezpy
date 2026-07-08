@@ -104,7 +104,15 @@ Branch naming: `feature/<slug>`. Every item: code + tests + docstring examples.
 Do not combine items in one PR. Where an item implements a D-decision, the PR
 must include the legacy-vs-default comparison test.
 
-### 3.1 `feature/secs-interpolation` — the missing bridge (highest value)
+### 3.1 `feature/secs-interpolation` — the missing bridge ✅ DONE
+
+**Status (2026-07-08):** `bezpy.mag.SECSInterpolator` landed with D1 gap
+masking (per-sample inf variance; `gaps="drop"` legacy; `weight_gaps` edge
+inflation), auto/bbox/explicit grids, `loo_score()` for data-driven epsilon,
+xarray + bare-numpy paths, and pattern-sorted fitting (one SVD per unique
+variance pattern). `method="kalman"` reserved pending a pysecs release.
+Scripts rewritten on top of it. Tests: synthetic SEC-source recovery,
+mask-beats-drop (D1 comparison), xarray round trip.
 
 `bezpy.mag.SECSInterpolator` replacing the copy-pasted `calculate_SECS`:
 

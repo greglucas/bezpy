@@ -37,6 +37,7 @@ Optional features live behind extras so the base install stays lightweight:
 | Extra | Enables | Install |
 | --- | --- | --- |
 | `data` | downloading, caching, and storing observatory data (`bezpy.data`; pooch + xarray + netCDF) | `pip install "bezpy[data]"` |
+| `secs` | SECS interpolation of observatory magnetic fields (`bezpy.mag.SECSInterpolator`; pysecs) | `pip install "bezpy[secs]"` |
 | `plotting` | apparent-resistivity / depth plots (matplotlib) | `pip install "bezpy[plotting]"` |
 | `waveforms` | reading/writing downloaded waveforms to HDF5 (PyTables) | `pip install "bezpy[waveforms]"` |
 | `iris` | downloading raw waveforms from the IRIS/EarthScope FDSN service (ObsPy) | `pip install "bezpy[iris]"` |
@@ -160,6 +161,26 @@ lines = bezpy.data.load_transmission_lines()   # from cache
 The cache location defaults to a per-user directory (via
 [pooch](https://www.fatiando.org/pooch/)) and can be overridden with the
 `BEZPY_DATA_DIR` environment variable or `bezpy.data.set_cache_dir(...)`.
+
+## Interpolating magnetic fields between observatories (`bezpy.mag.SECSInterpolator`)
+
+Spherical Elementary Current Systems (SECS) interpolate the observatory
+magnetic field to arbitrary locations — e.g. onto MT site locations for
+geoelectric field calculations. The interpolator wraps
+[pysecs](https://github.com/greglucas/pysecs) with the configuration used in
+the published hazard studies as its baseline (110 km divergence-free shell,
+`epsilon=0.05`, Bz excluded), and keeps every valid sample: missing data are
+masked with infinite variance rather than interpolated over or causing whole
+observatories to be dropped.
+
+```python
+interp = bezpy.mag.SECSInterpolator(grid="auto")   # SEC poles from obs coverage
+interp.fit(b_obs)              # xr.Dataset (time, obs) or ndarray (ntimes, nobs, 3)
+b_pred = interp.predict(latlons)                   # Bx, By, Bz at new locations
+
+# Make the regularization choice data-driven instead of folklore:
+scores = interp.loo_score(b_obs, epsilon=0.02)     # leave-one-out RMSE per obs
+```
 
 ## Fast line voltages: kernels and telluric response functions (`bezpy.tl.kernels`)
 
