@@ -1,6 +1,6 @@
 """Input/output functions for IRIS magnetotelluric data."""
 
-__all__ = ["read_xml", "read_1d_usgs_profile", "get_1d_site"]
+__all__ = ["read_xml", "read_1d_usgs_profile", "get_1d_site", "list_1d_sites"]
 
 import datetime
 import glob
@@ -171,7 +171,7 @@ def read_xml(fname):
         # No variance in the data fields
         site.Z_var = None
 
-    site.calc_resisitivity()
+    site.calc_resistivity()
 
     site.datalogger = DataLogger()
     try:
@@ -250,6 +250,11 @@ def get_1d_site(name):
         return _SITES1D[newname]
 
     raise ValueError("No 1d site profile with the name: " + name)
+
+
+def list_1d_sites():
+    """List the names of the bundled 1D conductivity profiles."""
+    return sorted(_SITES1D)
 
 
 def read_logger_info(root):

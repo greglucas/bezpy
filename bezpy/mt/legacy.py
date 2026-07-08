@@ -309,7 +309,7 @@ def _to_site3d(parsed, angle):
     if not np.all(np.isfinite(site.Z_var)) or np.any(site.Z_var <= 0):
         # Unusable variance information (absent or degenerate)
         site.Z_var = None
-    site.calc_resisitivity()
+    site.calc_resistivity()
     return site
 
 

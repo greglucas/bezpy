@@ -330,7 +330,15 @@ pre-EMTF-era data like 1989). Fixture-file tests.
 unusable from a fresh install; resolve redistribution in the PR); SPUD bbox
 discovery (documented stub); refresh the INTERMAGNET table.
 
-### 3.11 `chore/api-polish` — opportunistic cleanups
+### 3.11 `chore/api-polish` — opportunistic cleanups ✅ DONE (mostly)
+
+**Status (2026-07-08):** `calc_resistivity` with deprecated
+`calc_resisitivity` alias (internal callers renamed), `list_1d_sites()`,
+pathlib waveform I/O, scipy.fft with workers in `Site.convolve_fft` (the
+collection path landed with 3.4), Site3d metadata attributes initialized in
+`__init__`, `CITATION.cff` (+ MANIFEST). Deferred: retrofitting type hints
+across the new modules — docstrings document parameter types; annotations
+can land incrementally per-module.
 
 `calc_resisitivity`→`calc_resistivity` (deprecated alias), `list_1d_sites()`,
 pathlib waveform I/O, `scipy.fft` workers, `Site3d` attrs in `__init__`, type

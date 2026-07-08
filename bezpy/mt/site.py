@@ -4,6 +4,9 @@ Magnetotelluric site classes.
 """
 __all__ = ["Site", "Site1d", "Site3d", "SiteCollection", "ConductivityModel"]
 
+import pathlib
+import warnings
+
 import numpy as np
 import pandas as pd
 import scipy.fft
@@ -58,18 +61,18 @@ class Site:
         # Round N to the next highest power of 2 (+1 (makes it 2) to prevent circular convolution)
         N = 2**(int(np.log2(N0))+2)
 
-        freqs = np.fft.rfftfreq(N, d=dt)
+        freqs = scipy.fft.rfftfreq(N, d=dt)
         # Z needs to be organized as: xx, xy, yx, yy
         Z_interp = self.calcZ(freqs)
 
-        mag_x_fft = np.fft.rfft(mag_x, n=N)
-        mag_y_fft = np.fft.rfft(mag_y, n=N)
+        mag_x_fft = scipy.fft.rfft(mag_x, n=N, workers=-1)
+        mag_y_fft = scipy.fft.rfft(mag_y, n=N, workers=-1)
 
         Ex_fft = Z_interp[0, :]*mag_x_fft + Z_interp[1, :]*mag_y_fft
         Ey_fft = Z_interp[2, :]*mag_x_fft + Z_interp[3, :]*mag_y_fft
 
-        Ex_t = np.real(np.fft.irfft(Ex_fft)[:N0])
-        Ey_t = np.real(np.fft.irfft(Ey_fft)[:N0])
+        Ex_t = np.real(scipy.fft.irfft(Ex_fft, workers=-1)[:N0])
+        Ey_t = np.real(scipy.fft.irfft(Ey_fft, workers=-1)[:N0])
 
         return (Ex_t, Ey_t)
 
@@ -93,6 +96,16 @@ class Site3d(Site):
         self.waveforms = None
         self.start_time = None
         self.end_time = None
+
+        # Metadata filled in by the readers (read_xml/read_zfile/read_edi);
+        # initialized here so every Site3d has a well-defined shape.
+        self.network_code = "EM"
+        self.elevation = None
+        self.declination = None
+        self.channel_orientation = {}
+        self.rating = None
+        self.quality_flag = None
+        self.sign_convention = 1
 
         self.datalogger = None
 
@@ -266,10 +279,16 @@ class Site3d(Site):
                 Z_interp[i, low] = Z_lo * np.sqrt(freqs[low]/f_lo)
         return Z_interp
 
-    def calc_resisitivity(self):
+    def calc_resistivity(self):
         """Calculate the apparent resistivity and phase of the transfer function."""
         self.resistivity, self.resistivity_var, self.phase, self.phase_var = \
             apparent_resistivity(self.periods, self.Z, self.Z_var)
+
+    def calc_resisitivity(self):
+        """Deprecated misspelling of :meth:`calc_resistivity`."""
+        warnings.warn("calc_resisitivity is deprecated (misspelling); "
+                      "use calc_resistivity", DeprecationWarning, stacklevel=2)
+        self.calc_resistivity()
 
     def download_waveforms(self):
         """Download the site's collected data 'waveforms' from the IRIS servers."""
@@ -286,20 +305,28 @@ class Site3d(Site):
                                                                  network_code=self.network_code)
         self._rotate_waveforms()
 
+    def _waveform_path(self, directory):
+        return pathlib.Path(directory) / f"{self.name}.hdf"
+
     def load_waveforms(self, directory="./"):
-        """Load the waveform data that has already been downloaded."""
-        self.waveforms = pd.read_hdf(directory + self.name + ".hdf", key="waveforms")
+        """Load the waveform data that has already been downloaded.
+
+        :param directory: directory (str or path-like) containing
+            ``<site name>.hdf``
+        """
+        self.waveforms = pd.read_hdf(self._waveform_path(directory),
+                                     key="waveforms")
         if "Bx" not in self.waveforms.columns:
             # Only rotate the waveforms if they haven't been rotated/don't exist yet
             self._rotate_waveforms()
 
     def save_waveforms(self, directory="./"):
-        """Save the waveform data to the specified file location."""
+        """Save the waveform data as ``<site name>.hdf`` in ``directory``."""
         if self.waveforms is None:
             raise ValueError("There are no waveforms to save for site: " + self.name +
                              "\nYou can download waveforms from the IRIS database by calling " +
                              ".download_waveforms()")
-        self.waveforms.to_hdf(directory + self.name + ".hdf", key="waveforms")
+        self.waveforms.to_hdf(self._waveform_path(directory), key="waveforms")
 
     def _rotate_waveforms(self):
         """Rotate the waveforms to the geographic coordinate system.

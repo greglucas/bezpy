@@ -1,5 +1,6 @@
 """Tests for Site3d interpolation/caching, convolution, and collections."""
 import numpy as np
+import pytest
 
 import bezpy
 
@@ -82,3 +83,20 @@ def test_dtir_runs_on_site(site3d):
     assert zn.shape[0] == 4
     assert len(ns) == zn.shape[1]
     assert np.isfinite(zn).all()
+
+
+def test_calc_resistivity_deprecated_alias(site3d):
+
+    site3d.calc_resistivity()
+    expected = site3d.resistivity.copy()
+    with pytest.warns(DeprecationWarning, match="calc_resistivity"):
+        site3d.calc_resisitivity()
+    np.testing.assert_array_equal(site3d.resistivity, expected)
+
+
+def test_list_1d_sites():
+    names = bezpy.mt.list_1d_sites()
+    assert "CP1" in names
+    assert names == sorted(names)
+    # Every listed name resolves
+    assert all(bezpy.mt.get_1d_site(name) is not None for name in names)

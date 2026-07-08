@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "bezpy: Magnetic field (B), Electric field (E), and Impedance (Z) analysis in Python"
+type: software
+authors:
+  - family-names: Lucas
+    given-names: Greg M.
+    orcid: "https://orcid.org/0000-0003-1331-1863"
+repository-code: "https://github.com/greglucas/bezpy"
+license: MIT
+keywords:
+  - geomagnetism
+  - magnetotellurics
+  - geoelectric field
+  - geomagnetically induced currents
+  - space weather
+preferred-citation:
+  type: article
+  title: "A 100-year geoelectric hazard analysis for the U.S. high-voltage power grid"
+  authors:
+    - family-names: Lucas
+      given-names: Greg M.
+    - family-names: Love
+      given-names: Jeffrey J.
+    - family-names: Kelbert
+      given-names: Anna
+    - family-names: Bedrosian
+      given-names: Paul A.
+    - family-names: Rigler
+      given-names: E. Joshua
+  journal: "Space Weather"
+  year: 2020
+  volume: 18
+  issue: 2
+  doi: "10.1029/2019SW002329"
