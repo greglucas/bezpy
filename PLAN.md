@@ -324,11 +324,20 @@ Port `ZFile`/`EDIFile` from Anomalies1989's `data_readers.py` into
 `bezpy.mt.io` as `read_zfile`/`read_edi` returning `Site3d` (needed for
 pre-EMTF-era data like 1989). Fixture-file tests.
 
-### 3.10 `chore/data-module-gaps` — finish `bezpy.data` (small)
+### 3.10 `chore/data-module-gaps` — finish `bezpy.data` ✅ DONE (one blocker)
 
 `fetch_index` (with 3.3); ship/fetch the **1D region polygons** (still
 unusable from a fresh install; resolve redistribution in the PR); SPUD bbox
 discovery (documented stub); refresh the INTERMAGNET table.
+
+**Status (2026-07-08):** `fetch_index` landed with 3.3; SPUD bbox discovery
+stub (`spud_search_url`, documented as intentionally thin) landed with the
+data module; INTERMAGNET table regenerated from the live BGS GIN
+GetCapabilities service (154 observatories incl. status, direct lat/lon
+columns; loader simplified). **Open:** the 1D region polygons — they appear
+in none of the public paper repos, so the redistribution source is a
+maintainer decision (digitize from Fernberg 2012? request from USGS?);
+`set_1d_regions` remains usable with user-supplied polygons.
 
 ### 3.11 `chore/api-polish` — opportunistic cleanups ✅ DONE (mostly)
 

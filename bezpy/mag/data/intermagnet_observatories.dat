@@ -1,151 +1,158 @@
-IAGA	Name	Country	Colatitute	East Longitude	Institute	GIN
-AAA	Alma Ata	Kazakhstan	46.8	76.9	IIRK	Edi
-AAE	Addis Ababa	Ethiopia	80.97 	38.77 	AAU, IPGP	Par
-ABG	Alibag	India	71.38	72.87	IIG	Kyo
-ABK	Abisko	Sweden	21.642	18.823	SGU	Edi
-AIA	Argentine Islands (Akademik Vernadsky base)	Antarctica	155.25	295.75	NASC	Ott
-ALE*	Alert	Canada	7.503	297.647	GSC	Ott
-AMS	Martin de Vivies-Amsterdam Island	French Southern and Antarctic Lands	127.8	77.57	EOST	Par
-API	Apia	Western Samoa	103.8	188.22	MNRE	Edi
-AQU*	L'Aquila	Italy	47.62	13.32	INGV	Par
-ARS	Arti	Russia	33.567	58.567	IG UB RAS, GCRAS	Edi
-ASC	Ascension Island	United Kingdom	97.95	345.62	BGS	Edi
-ASP	Alice Springs	Australia	113.77	133.88	GA	Edi
-BDV	Budkov	Czech Republic	40.92	14.02	ASCR	Edi
-BEL	Belsk	Poland	38.16	20.79	PAS	Edi
-BFE*	Brorfelde	Denmark	34.375	11.672	DTU	Kyo
-BFO	Black Forest	Germany	41.669	8.325	GGUKS	Edi
-BLC	Baker Lake	Canada	25.682	263.988	GSC	Ott
-BMT	Beijing Ming Tombs	China	49.7	116.2	IGGCAS	Kyo
-BNG*	Bangui	Central African Republic	85.67	18.57	IRD	Par
-BOU	Boulder	United States of America	49.86	254.76	USGS	Gol
-BOX	Borok	Russia	31.93	38.23	GCRAS, IPGP	Par
-BRD	Brandon	Canada	40.13	260.0261	GSC	Ott
-BRW	Barrow	United States of America	18.68	203.38	USGS	Gol
-BSL	Stennis Space Center	United States of America	59.65	270.36	USGS	Gol
-CBB	Cambridge Bay	Canada	20.877	254.969	GSC	Ott
-CKI	Cocos-Keeling Islands	Australia	102.1875	96.8336	GA	Edi
-CLF	Chambon la Foret	France	41.98	2.27	IPGP	Par
-CMO	College	United States of America	25.13	212.14	USGS	Gol
-CNB	Canberra	Australia	125.32	149.36	GA	Edi
-CNH	Changchun	China	45.92	124.86	CEA	Edi
-CSY	Casey Station	Antarctica	156.283	110.533	GA	Edi
-CTA	Charters Towers	Australia	110.1	146.3	GA	Edi
-CYG	Cheongyang	Republic of Korea	53.63	126.854	KMA	Kyo
-CZT	Port Alfred	French Southern and Antarctic Lands	136.43	51.87	EOST	Par
-DED	Deadhorse	United States of America	19.64	211.21	USGS	Gol
-DLR*	Del Rio	United States of America	60.5	259.08	USGS	Gol
-DLT	Dalat	Vietnam	78.06	108.48	VAST, IPGP	Par
-DMC	Dome C	Antarctica	165.25	124.167	EOST, INGV	Par
-DOU	Dourbes	Belgium	39.9	4.6	RMIB	Edi
-DRV	Dumont d'Urville	Antarctica	156.67	140.01	EOST	Par
-DUR	Duronia	Italy	48.61	14.28	INGV	Par
-EBR	Ebro	Spain	49.043	0.333	OEB	Par
-ESK	Eskdalemuir	United Kingdom	34.68	356.8	BGS	Edi
-EYR	Eyrewell	New Zealand	133.474	172.393	GNS	Edi
-FCC	Fort Churchill	Canada	31.241	265.912	GSC	Ott
-FRD	Fredericksburg	United States of America	51.8	282.63	USGS	Gol
-FRN	Fresno	United States of America	52.91	240.28	USGS	Gol
-FUR	Furstenfeldbruck	Germany	41.83	11.28	LMU	Edi
-GAN	Gan	Maldives	89.3054	73.1537	ETH	Edi
-GCK	Grocka	Serbia	45.4	20.8	GIG	Edi
-GDH	Qeqertarsuaq (Godhavn)	Greenland	20.748	306.467	DTU	Kyo
-GLN*	Glenlea	Canada	40.355	262.880	GSC	Ott
-GNA*	Gnangara	Australia	121.8	116.0	GA	Edi
-GNG	Gingin	Australia	121.356	115.715	GA	Edi
-GUA	Guam	United States of America	76.41	144.87	USGS	Gol
-GUI	Guimar-Tenerife	Spain	61.68	343.57	IGNS	Par
-GZH	Zhaoqing	China	67	112.5	CEA	Edi
-HAD	Hartland	United Kingdom	39	355.52	BGS	Edi
-HBK	Hartebeesthoek	South Africa	115.88	27.71	SANSA	Edi
-HER	Hermanus	South Africa	124.43	19.23	SANSA	Edi
-HLP	Hel	Poland	35.39	18.82	PAS	Edi
-HON	Honolulu	United States of America	68.68	202.0	USGS	Gol
-HRB	Hurbanovo	Slovakia	42.14	18.19	SAS	Par
-HRN	Hornsund	Norway	13	15.37	PAS	Edi
-HUA	Huancayo	Peru	102.05	284.67	IGP	Edi
-HYB	Hyderabad	India	72.6	78.6	NGRI, GFZ	Edi
-IPM	Isla de Pascua Mataveri (Easter Island)	Chile	117.2	250.58	DMC, IPGP	Par
-IQA	Iqaluit	Canada	26.247	291.482	GSC	Ott
-IRT	Irkutsk	Russia	37.73	104.45	ISTP SB RAS	Edi
-ISK*	Kandilli	Turkey	48.9	29.1	KEORI	Edi
-IZN	Iznik	Turkey	49.5	29.72	KEORI	Edi
-JAI	Jaipur	India	63.08	75.80	IIG	Kyo
-JCO	Jim Carrigan Observatory	United States of America	19.644	211.201	HAL, BGS	Edi
-KAK	Kakioka	Japan	53.77	140.18	JMA	Kyo
-KDU	Kakadu	Australia	102.69	132.47	GA	Edi
-KEP	King Edward Point	South Georgia and the South Sandwich Islands	144.2821	323.5071	BGS	Edi
-KHB	Khabarovsk	Russia	42.39	134.69	IKIR	Edi
-KIV	Kiev	Ukraine	39.28	30.3	NASU	Edi
-KMH	Keetmanshoop	Namibia	116.54	18.110	SANSA, GFZ	Edi
-KNY	Kanoya	Japan	58.58	130.88	JMA	Kyo
-KOU	Kourou	French Guiana	84.79	307.27	IPGP	Par
-LER	Lerwick	United Kingdom	29.87	358.82	BGS	Edi
-LNP*	Lunping	Taiwan	65	121.2	DGT	Kyo
-LON	Lonjsko Polje	Croatia	44.5919	16.6592	UNIZG	Edi
-LOV*	Lovoe	Sweden	30.66	17.82	SGU	Edi
-LRM	Learmonth	Australia	112.22	114.1	GA	Edi
-LVV	Lviv	Ukraine	40.1	23.75	NASU	Edi
-LYC	Lycksele	Sweden	25.4	18.8	SGU	Edi
-LZH	Lanzhou	China	53.9	103.84	CEA, IPGP	Par
-MAB	Manhay	Belgium	39.702	5.682	RMIB	Edi
-MAW	Mawson	Antarctica	157.6	62.88	GA	Edi
-MBC*	Mould Bay	Canada	13.685	240.638	GSC	Ott
-MBO	Mbour	Senegal	75.62	343.03	IPGP, IRD	Par
-MCQ	Macquarie Island	Australia	144.5	158.95	GA	Edi
-MEA	Meanook	Canada	35.384	246.653	GSC	Ott
-MGD	Magadan	Russia	29.949	150.728	IKIR	Edi
-MID*	Midway Island	United States of America	61.79	182.62	USGS	Gol
-MMB	Memambetsu	Japan	46.09	144.19	JMA	Kyo
-NAQ	Narsarsuaq	Greenland	28.84	314.558	DTU	Kyo
-NCK	Nagycenk	Hungary	42.37	16.72	HAS	Edi
-NEW	Newport	United States of America	41.73	242.88	USGS	Gol
-NGK	Niemegk	Germany	37.93	12.68	GFZ	Edi
-NUR	Nurmijarvi	Finland	29.49	24.66	FMI	Edi
-NVS	Novosibirsk	Russia	35.15	83.23	ASB GS SB RAS	Edi
-ORC	Orcadas	Argentina	150.737	315.26	SMN	Edi
-OTT	Ottawa	Canada	44.597	284.448	GSC	Ott
-PAF	Port-aux-Francais	French Southern and Antarctic Lands	139.35	70.26	EOST	Par
-PAG	Panagjurishte	Bulgaria	47.5	24.2	NIGGG-BAS, GFZ	Edi
-PBQ*	Poste-de-la-Baleine	Canada	34.723	282.255	GSC	Ott
-PEG	Pedeli	Greece	51.9	23.9	IGME	Edi
-PET	Paratunka	Russia	37.029	158.248	IKIR	Edi
-PHU	Phuthuy	Vietnam	68.97	105.95	VAST, IPGP	Par
-PIL	Pilar	Argentina	121.4	296.12	SMN	Edi
-PPT	Pamatai	French Polynesia	107.57	210.42	IPGP	Par
-PST	Port Stanley	Falkland Islands	141.7	302.11	BGS	Edi
-QSB*	Qsaybeh	Lebanon	56.1	35.6	NCGR, IPGP	Par
-RES	Resolute Bay	Canada	15.31	265.105	GSC	Ott
-SBA	Scott Base	Antarctica	167.85	166.78	GNS	Edi
-SBL	Sable Island	Canada	46.0679	299.9905	BGS	Edi
-SFS	San Fernando	Spain	53.333	354.055	RIOA	Par
-SHU	Shumagin	United States of America	34.65	199.54	USGS	Gol
-SIT	Sitka	United States of America	32.94	224.67	USGS	Gol
-SJG	San Juan	United States of America	71.89	293.85	USGS	Gol
-SOD	Sodankyla	Finland	22.63	26.63	SOD	Edi
-SON	Sonmiani	Pakistan	64.8832	66.4487	SUPARCO	Edi
-SPG	Saint Petersburg	Russia	29.458	29.716	GCRAS	Par
-SPT	San Pablo-Toledo	Spain	50.45	355.65	IGNS	Par
-STJ	St John's	Canada	42.405	307.323	GSC	Ott
-SUA	Surlari	Romania	45.32	26.25	GIR, GFZ	Par
-TAM	Tamanrasset	Algeria	67.21	5.53	CRAAG, IPGP	Par
-TAN*	Antananarivo	Madagascar	108.917	47.552	IOGA, EOST	Par
-TDC	Tristan da Cunha	Tristan da Cunha	127.067	347.685	GFZ, DTU	Kyo
-TEO*	Teoloyucan	Mexico	70.25	260.81	IG/UNAM	Edi
-THL	Qaanaaq (Thule)	Greenland	12.53	290.773	DTU	Kyo
-THY	Tihany	Hungary	43.1	17.89	MFGI	Edi
-TIK*	Tixie Bay	Russia	18.4	129.0	IZMIRAN	NA
-TRW	Trelew	Argentina	133.3	294.7	UNLP, RMIB	Edi
-TSU	Tsumeb	Namibia	109.202	17.584	SANSA	Edi
-TUC	Tucson	United States of America	57.82	249.27	USGS	Gol
-UPS	Uppsala	Sweden	30.097	17.353	SGU	Edi
-VAL	Valentia	Ireland	38.067	349.75	IMS	Edi
-VIC	Victoria	Canada	41.48	236.580	GSC	Ott
-VNA	Neumayer Station Ⅲ	Antarctica	160.683	-8.283	AWI, GFZ	Kyo
-VOS	Vostok	Antarctica	168.464	106.835	AARI	Kyo
-VSS	Vassouras	Brazil	112.4	316.35	ON, GFZ	Par
-WIC	Conrad Observatory	Austria	42.0695	15.8657	ZAMG	Edi
-WMQ	Urumqi	China	46.19	87.71	CEA	Edi
-WNG	Wingst	Germany	36.26	9.07	GFZ	Edi
-YAK	Yakutsk	Russia	28.04	129.66	IKFIA, GFZ	Edi
-YKC	Yellowknife	Canada	27.52	245.518	GSC	Ott
+# INTERMAGNET observatories, from the BGS GIN GetCapabilities service
+# (https://imag-data.bgs.ac.uk/GIN_V1/GINServices) on 2026-07-08.
+# Country/Institute/GIN carried over from the 2017 table where known.
+IAGA	Name	Country	Latitude	Longitude	Institute	GIN	Status
+AAE	Addis Ababa	Ethiopia	9.035	38.770	AAU, IPGP	Par	closed
+ABG	Alibag	India	18.638	72.872	IIG	Kyo	open
+ABK	Abisko	Sweden	68.358	18.823	SGU	Edi	open
+AIA	Vernadsky	Antarctica	-65.245	295.742	NASC	Ott	open
+ALE	Alert	Canada	82.497	297.647	GSC	Ott	closed
+AMS	Martin de Vivies	French Southern and Antarctic Lands	-37.800	77.570	EOST	Par	open
+API	Apia	Western Samoa	-13.816	188.219	MNRE	Edi	open
+AQU	L'Aquila	Italy	42.380	13.320	INGV	Par	closed
+ARS	Arti	Russia	56.433	58.567	IG UB RAS, GCRAS	Edi	open
+ASC	Ascension Island	United Kingdom	-7.950	345.620	BGS	Edi	open
+ASP	Alice Springs	Australia	-23.762	133.883	GA	Edi	open
+BDV	Budkov	Czech Republic	49.080	14.020	ASCR	Edi	open
+BEL	Belsk	Poland	51.836	20.789	PAS	Edi	open
+BFE	Brorfelde	Denmark	55.625	11.672	DTU	Kyo	open
+BFO	Black Forest Observatory	Germany	48.331	8.325	GGUKS	Edi	open
+BLC	Baker Lake	Canada	64.318	263.988	GSC	Ott	open
+BMT	Beijing Ming Tombs	China	40.300	116.200	IGGCAS	Kyo	open
+BNG	Bangui	Central African Republic	4.330	18.570	IRD	Par	closed
+BOU	Boulder	United States of America	40.140	254.767	USGS	Gol	open
+BOX	Borok	Russia	58.070	38.230	GCRAS, IPGP	Par	open
+BRD	Brandon	Canada	49.870	260.026	GSC	Ott	open
+BRW	Barrow	United States of America	71.320	203.380	USGS	Gol	open
+BSL	Stennis Space Center	United States of America	30.350	270.360	USGS	Gol	open
+CBB	Cambridge Bay	Canada	69.123	254.969	GSC	Ott	open
+CKI	Cokos (Keeling) Islands	Australia	-12.188	96.834	GA	Edi	open
+CLF	Chambon la Foret	France	48.025	2.260	IPGP	Par	open
+CMO	College	United States of America	64.870	212.140	USGS	Gol	open
+CNB	Canberra	Australia	-35.320	149.360	GA	Edi	open
+CNH	Changchun	China	44.080	124.860	CEA	Edi	open
+CPL	Choutuppal	India	17.294	78.919			open
+CSY	Casey	Antarctica	-66.283	110.533	GA	Edi	open
+CTA	Charters Towers	Australia	-20.090	146.264	GA	Edi	open
+CYG	Cheongyang	Republic of Korea	36.370	126.854	KMA	Kyo	open
+CZT	Port Alfred	French Southern and Antarctic Lands	-46.430	51.860	EOST	Par	open
+DED	Deadhorse	United States of America	70.360	211.210	USGS	Gol	open
+DLR	Del Rio	United States of America	29.490	259.083	USGS	Gol	closed
+DLT	Dalat	Vietnam	11.950	108.480	VAST, IPGP	Par	open
+DMC	Dome Concordia	Antarctica	-75.250	124.167	EOST, INGV	Par	open
+DOU	Dourbes	Belgium	50.100	4.600	RMIB	Edi	open
+DRV	Dumont d'Urville	Antarctica	-66.670	140.010	EOST	Par	open
+DUR	Duronia	Italy	41.650	14.470	INGV	Par	open
+EBR	Ebro	Spain	40.957	0.333	OEB	Par	open
+ESK	Eskdalemuir	United Kingdom	55.314	356.794	BGS	Edi	open
+EYR	Eyrewell	New Zealand	-43.474	172.393	GNS	Edi	open
+FCC	Fort Churchill	Canada	58.759	265.912	GSC	Ott	open
+FRD	Fredericksburg	United States of America	38.210	282.633	USGS	Gol	open
+FRN	Fresno	United States of America	37.090	240.280	USGS	Gol	open
+FUR	Furstenfeldenbruck	Germany	48.170	11.280	LMU	Edi	open
+GAN	Gan Int. Airpt, Addu Atoll	Maldives	-0.695	73.154	ETH	Edi	open
+GCK	Grocka	Serbia	44.633	20.767	GIG	Edi	open
+GDH	Qeqertarsuaq (Godhavn)	Greenland	69.252	306.467	DTU	Kyo	open
+GLN	Glenlea	Canada	49.645	262.880	GSC	Ott	closed
+GNA	Gnangara	Australia	-31.780	115.947	GA	Edi	open
+GNG	Gingin	Australia	-31.356	115.715	GA	Edi	open
+GUA	Guam	United States of America	13.590	144.870	USGS	Gol	open
+GUI	Guimar-Tenerife	Spain	28.321	343.559	IGNS	Par	open
+GZH	Guangzhou	China	23.970	112.450	CEA	Edi	open
+HAD	Hartland	United Kingdom	51.000	355.520	BGS	Edi	open
+HBK	Hartebeesthoek	South Africa	-25.880	27.710	SANSA	Edi	open
+HER	Hermanus	South Africa	-34.430	19.230	SANSA	Edi	open
+HLP	Hel Observatory	Poland	54.603	18.811	PAS	Edi	open
+HON	Honolulu	United States of America	21.320	202.000	USGS	Gol	open
+HRB	Hurbanovo	Slovakia	47.873	18.190	SAS	Par	open
+HRN	Hornsund	Norway	77.000	15.550	PAS	Edi	open
+HUA	Huancayo	Peru	-12.050	284.670	IGP	Edi	open
+HYB	Hyderabad	India	17.420	78.550	NGRI, GFZ	Edi	open
+IPM	Isal de Pascua	Chile	-27.171	250.580	DMC, IPGP	Par	open
+IQA	Iqaluit	Canada	63.753	291.482	GSC	Ott	open
+IRT	Irkutsk (Patrony)	Russia	52.170	104.450	ISTP SB RAS	Edi	open
+ISK	Istanbul-Kandili	Turkey	41.063	29.062	KEORI	Edi	open
+IZN	Iznik	Turkey	40.500	29.720	KEORI	Edi	open
+JAI	Jaipur	India	26.920	75.800	IIG	Kyo	open
+JCO	Jim Carrigan Observatory	United States of America	70.356	211.201	HAL, BGS	Edi	open
+KAK	Kakioka	Japan	36.232	140.186	JMA	Kyo	open
+KDU	Kakadu	Australia	-12.690	132.470	GA	Edi	open
+KEP	King Edward Point	South Georgia and the South Sandwich Islands	-54.282	323.507	BGS	Edi	open
+KHB	Khabarovsk	Russia	47.610	134.690	IKIR	Edi	open
+KIR	Kiruna	Sweden	67.843	20.420			open
+KIV	Kiev Dymer	Ukraine	50.720	30.300	NASU	Edi	open
+KMH	Keetsmanshoop	Namibia	-26.540	18.110	SANSA, GFZ	Edi	open
+KNY	Kanoya	Japan	31.420	130.880	JMA	Kyo	open
+KOU	Kourou, Guyana	French Guiana	5.210	307.270	IPGP	Par	open
+LER	Lerwick	United Kingdom	60.138	358.817	BGS	Edi	open
+LNP	Lunping	Taiwan	25.000	121.167	DGT	Kyo	closed
+LON	Lonjsko Polje	Croatia	45.408	16.659	UNIZG	Edi	open
+LOV	Lovo	Sweden	59.340	17.820	SGU	Edi	closed
+LRM	Learmonth	Australia	-22.220	114.100	GA	Edi	open
+LVV	Lviv	Ukraine	49.900	23.750	NASU	Edi	open
+LYC	Lycksele	Sweden	64.612	18.748	SGU	Edi	open
+LZH	Lanzhou	China	36.087	103.845	CEA, IPGP	Par	closed
+MAB	Manhay	Belgium	50.298	5.682	RMIB	Edi	open
+MAW	Mawson	Antarctica	-67.600	62.880	GA	Edi	open
+MBC	Mould Bay	Canada	76.315	240.638	GSC	Ott	closed
+MBO	Mbour	Senegal	14.390	343.040	IPGP, IRD	Par	closed
+MCQ	Macquarie Island	Australia	-54.500	158.950	GA	Edi	open
+MEA	Meanook	Canada	54.616	246.653	GSC	Ott	open
+MGD	Magadan	Russia	60.051	150.728	IKIR	Edi	open
+MID	Midway Island	United States of America	28.210	182.620	USGS	Gol	closed
+MLT	Misallat	Egypt	29.515	30.892			closed
+MMB	Memambetsu	Japan	43.910	144.190	JMA	Kyo	open
+MZL	Manzhouli	China (no longer IMO)	49.600	117.400			open
+NAQ	Narsarsuaq	Greenland	61.167	314.567	DTU	Kyo	open
+NCK	Nagycenk	Hungary	47.630	16.720	HAS	Edi	open
+NEW	Newport	United States of America	48.270	242.880	USGS	Gol	open
+NGK	Niemegk	Germany	52.070	12.680	GFZ	Edi	open
+NUR	Nurmijarvi	Finland	60.510	24.660	FMI	Edi	open
+NVS	Novosibirsk	Russia	54.850	83.230	ASB GS SB RAS	Edi	open
+ORC	Base Orcadas	Argentina	-60.737	315.263	SMN	Edi	open
+OTT	Ottawa	Canada	45.403	284.448	GSC	Ott	open
+PAF	Port-aux-Francais	French Southern and Antarctic Lands	-49.350	70.260	EOST	Par	open
+PAG	Panagjurishte	Bulgaria	42.515	24.177	NIGGG-BAS, GFZ	Edi	open
+PBQ	Poste-de-la-Baleine	Canada	55.277	282.255	GSC	Ott	closed
+PEG	Pedeli	Greece	38.100	23.900	IGME	Edi	open
+PET	Paratunka	Russia	52.971	158.248	IKIR	Edi	open
+PHU	Phuthuy	Vietnam	21.030	105.960	VAST, IPGP	Par	open
+PIL	Pilar	Argentina	-31.667	296.119	SMN	Edi	open
+PPT	Pamatai, Tahiti	French Polynesia	-17.567	210.426	IPGP	Par	open
+PST	Port Stanley	Falkland Islands	-51.700	302.110	BGS	Edi	open
+QSB	Qsaybeh	Lebanon	33.871	35.644	NCGR, IPGP	Par	open
+RES	Resolute Bay	Canada	74.690	265.105	GSC	Ott	open
+REU	La Reunion Island	France	-21.206	55.576			open
+SBA	Scott Base	Antarctica	-77.829	166.671	GNS	Edi	open
+SBL	Sable Island	Canada	43.932	299.990	BGS	Edi	open
+SFS	San Fernando	Spain	36.667	354.055	RIOA	Par	open
+SHE	Saint Helena	Saint Helena	-15.961	354.253			open
+SHU	Shumagin	United States of America	55.350	199.540	USGS	Gol	open
+SIT	Sitka	United States of America	57.060	224.670	USGS	Gol	open
+SJG	San Juan	United States of America	18.110	293.850	USGS	Gol	open
+SOD	Sodankyla	Finland	67.370	26.630	SOD	Edi	open
+SPG	Saint Petersburg	Russia	60.542	29.716	GCRAS	Par	open
+SPT	San Pablo-Toledo	Spain	39.550	355.650	IGNS	Par	open
+STJ	St John's	Canada	47.595	307.323	GSC	Ott	open
+STT	Sao Teotonio	Portugal	37.547	351.272			open
+SUA	Surlari	Romania	44.680	26.250	GIR, GFZ	Par	open
+TAM	Tamanrasset	Algeria	22.790	5.530	CRAAG, IPGP	Par	open
+TAN	Antananarivo	Madagascar	-18.917	47.552	IOGA, EOST	Par	closed
+TDC	Tristan da Cunha	Tristan da Cunha	-37.067	347.684	GFZ, DTU	Kyo	open
+THL	Qaanaaq (Thule)	Greenland	77.470	290.773	DTU	Kyo	open
+THY	Tihany	Hungary	46.900	17.890	MFGI	Edi	open
+TIK	Tiksi	Russia	71.580	129.000	IZMIRAN	NA	closed
+TSU	Tsumeb	Namibia	-19.202	17.584	SANSA	Edi	open
+TTB	Tatuoca	Brazil	-1.205	311.487			open
+TUC	Tucson	United States of America	32.170	249.270	USGS	Gol	open
+UPS	Uppsala	Sweden	59.903	17.353	SGU	Edi	open
+VAL	Valentia	Ireland	51.933	349.750	IMS	Edi	open
+VIC	Victoria	Canada	48.520	236.580	GSC	Ott	open
+VNA	Neumayer Station	Antarctica	-70.683	351.718	AWI, GFZ	Kyo	open
+VOS	Vostok	Antarctica	-78.464	106.835	AARI	Kyo	open
+VSS	Vassouras	Brazil	-22.400	316.350	ON, GFZ	Par	open
+WIC	Conrad	Austria	47.931	15.866	ZAMG	Edi	open
+WMQ	Urumqi	China	43.810	87.710	CEA	Edi	open
+WNG	Wingst	Germany	53.725	9.053	GFZ	Edi	open
+YAK	Yakutsk	Russia	61.960	129.660	IKFIA, GFZ	Edi	open
+YKC	Yellowknife	Canada	62.480	245.518	GSC	Ott	open

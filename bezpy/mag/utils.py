@@ -174,23 +174,24 @@ def write_iaga_2002(df, fname):
                 na_rep=' 99999.00', header=False, index_names=False))
 
 
-# Reading in IAGA codes and getting observatory information
-# This file was downloaded from: http://www.intermagnet.org/imos/imotblobs-eng.php
-# on 11/25/2017
-# Format of the file:
-# IAGA	Name	Country	Colatitute	East Longitude	Institute	GIN
+# Reading in IAGA codes and getting observatory information.
+# The bundled table is generated from the BGS GIN GetCapabilities service
+# (see the file header for source and date); tab-separated columns:
+# IAGA  Name  Country  Latitude  Longitude  Institute  GIN  Status
 _IAGA_SITES = {}
 with open(IAGA_PATH + "intermagnet_observatories.dat") as f:
-    f.readline()  # Read the header
     for line in f:
-        elements = line.strip().split('\t')
-        latitude = 90. - float(elements[3][:-1])
-        longitude = float(elements[4][:-1])
+        if line.startswith("#") or line.startswith("IAGA"):
+            continue
+        elements = line.rstrip("\n").split('\t')
+        longitude = float(elements[4])
         if longitude > 180:
             longitude -= 360
         _IAGA_SITES[elements[0][:3]] = {"name": elements[1], "country": elements[2],
-                                        "latitude": latitude, "longitude": longitude,
-                                        "institute": elements[5], "GIN": elements[6]}
+                                        "latitude": float(elements[3]),
+                                        "longitude": longitude,
+                                        "institute": elements[5], "GIN": elements[6],
+                                        "status": elements[7]}
 
 
 def get_iaga_observatory_codes():
