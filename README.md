@@ -36,6 +36,7 @@ Optional features live behind extras so the base install stays lightweight:
 
 | Extra | Enables | Install |
 | --- | --- | --- |
+| `data` | downloading, caching, and storing observatory data (`bezpy.data`; pooch + xarray + netCDF) | `pip install "bezpy[data]"` |
 | `plotting` | apparent-resistivity / depth plots (matplotlib) | `pip install "bezpy[plotting]"` |
 | `waveforms` | reading/writing downloaded waveforms to HDF5 (PyTables) | `pip install "bezpy[waveforms]"` |
 | `iris` | downloading raw waveforms from the IRIS/EarthScope FDSN service (ObsPy) | `pip install "bezpy[iris]"` |
@@ -49,6 +50,116 @@ git clone https://github.com/greglucas/bezpy
 cd bezpy
 pip install -e ".[test]"
 ```
+
+## Downloading and storing data (`bezpy.data`)
+
+The `bezpy.data` subpackage (install with `pip install "bezpy[data]"`) takes
+care of finding, downloading, caching, and organizing input data so you don't
+have to hunt for files or manage them by hand. It covers all three inputs the
+geoelectric/GIC workflow needs: geomagnetic observatory field data,
+magnetotelluric (MT) transfer functions, and transmission-line geometries.
+
+### Magnetic-field data
+
+Observatory data can be downloaded from three sources:
+
+- **`usgs`** / **`nrcan`** — the USGS web service (USGS observatories and
+  relayed NRCan observatories; selected automatically by observatory code).
+- **`intermagnet`** — the INTERMAGNET GIN, the global network of ~150
+  observatories (pass `source="intermagnet"`).
+
+Data is stored as **CF-style netCDF, one file per observatory per year**, in a
+directory layout that records its *provenance* — both the source and the data
+quality **level**:
+
+```
+<cache>/magnetic/<source>/<level>/<CODE>/<CODE>_<YEAR>.nc
+```
+
+Levels run from `variation` (real-time, available immediately) through
+`provisional` and `quasi-definitive` up to `definitive` (final, baseline-
+corrected, but published a year or more later). Keeping them in separate files
+means slow-to-arrive definitive data never overwrites the real-time series you
+already have, and the original un-culled real-time data stays available. On
+load, levels are merged into a single **best-available** series: higher-quality
+data wins, and lower levels backfill any gaps — including points that
+definitive processing may have removed.
+
+```python
+import bezpy.data
+
+# Real-time download of a storm interval (level="variation" by default).
+bezpy.data.download_observatory("BOU", "2024-05-10", "2024-05-12")
+
+# Later, top the real-time archive up to the present.
+bezpy.data.update_observatory("BOU")
+
+# When definitive data is published, download it alongside — it is stored
+# separately and does not overwrite the real-time series.
+bezpy.data.download_observatory("BOU", "2024-05-10", "2024-05-12",
+                                level="definitive")
+
+# The global network via INTERMAGNET.
+bezpy.data.download_observatory("ESK", "2024-05-10", "2024-05-12",
+                                source="intermagnet", level="definitive")
+
+# Load the best available merge (xarray.Dataset), or a specific level/source.
+ds = bezpy.data.load_observatory("BOU")                       # best available
+definitive = bezpy.data.load_observatory("BOU", level="definitive")
+df = bezpy.data.load_observatory("BOU", as_dataframe=True)
+
+# By default higher quality wins the merge; override to let real-time data
+# take precedence (e.g. to recover points definitive processing removed).
+raw_first = bezpy.data.load_observatory("BOU", prefer="variation")
+
+# See what you have, by source/level/year, and how complete it is.
+print(bezpy.data.observatory_inventory(detailed=True))
+
+# Already have IAGA-2002 files? Convert them into the fast netCDF archive.
+bezpy.data.ingest_iaga("bou20240510.min", level="definitive")
+```
+
+### Magnetotelluric transfer functions
+
+MT transfer functions (EMTF XML from the IRIS/EarthScope SPUD archive) are
+stored hierarchically by **survey** — the field campaign a station belongs to:
+
+```
+<cache>/mt/<survey>/<CODE>.xml
+```
+
+```python
+# Download from a SPUD EMTF page id (ds.iris.edu/spud/emtf/<id>) — bezpy
+# resolves the bundle's XML attachment automatically.
+bezpy.data.download_mt_spud(13283146)
+
+# ...or from any direct EMTF-XML URL, or organize files you already have.
+bezpy.data.download_mt("https://ds.iris.edu/spudservice/data/<xml_id>")
+bezpy.data.ingest_mt_xml("TEST01.xml")
+
+# List what you have, and load sites (optionally by survey / bbox / quality).
+print(bezpy.data.mt_inventory())
+site = bezpy.data.load_mt_site("WVO55")                        # -> bezpy.mt.Site3d
+sites = bezpy.data.load_mt_sites(bbox=(-110, 35, -100, 45), min_rating=4)
+```
+
+### Transmission line geometries
+
+High-voltage transmission line geometries (from the HIFLD Electric Power
+Transmission Lines feature service) can be downloaded for a region and cached as
+GeoJSON, returning ready-to-use `bezpy.tl.TransmissionLine` objects:
+
+```python
+lines = bezpy.data.download_transmission_lines(
+    bbox=(-110, 35, -100, 45),   # west, south, east, north
+    min_voltage=345,             # kV
+)
+lines = bezpy.data.load_transmission_lines()   # from cache
+```
+
+The cache location defaults to a per-user directory (via
+[pooch](https://www.fatiando.org/pooch/)) and can be overridden with the
+`BEZPY_DATA_DIR` environment variable or `bezpy.data.set_cache_dir(...)`.
 
 ## Development and testing
 
