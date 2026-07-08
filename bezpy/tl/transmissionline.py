@@ -14,15 +14,35 @@ import shapely
 from .utils import fast_interp_weights, haversine_distance, haversine_dl
 
 
-class TransmissionLine:
-    """A high voltage transmission line object."""
+def _coords_of(line):
+    """Extract an ``(npts, 2)`` lon/lat coordinate array from several inputs.
 
-    def __init__(self, line):
-        # Shapely LineString object as input
-        # shape: npts x 2
-        # The points are stored in longitude/latitude order
-        # Everything else is stored opposite with x == North, y == East
-        self.pts = np.array(line.geometry.coords)
+    Accepts a shapely ``LineString``, an object with a ``.geometry`` that has
+    ``.coords`` (e.g. a GeoDataFrame row), or a raw array-like of coordinates.
+    """
+    # GeoDataFrame row (or anything exposing a .geometry geometry).
+    geometry = getattr(line, "geometry", line)
+    coords = getattr(geometry, "coords", geometry)
+    return np.asarray(coords, dtype=float)
+
+
+class TransmissionLine:
+    """A high voltage transmission line object.
+
+    Parameters
+    ----------
+    line : shapely.LineString, GeoDataFrame row, or (npts, 2) array-like
+        The line geometry, with points in longitude/latitude order. Everything
+        else on the object is stored opposite, with x == North, y == East.
+    metadata : dict, optional
+        Arbitrary attributes to attach (e.g. voltage, owner, id). Stored on
+        ``self.metadata``.
+    """
+
+    def __init__(self, line, metadata=None):
+        # shape: npts x 2, stored in longitude/latitude order.
+        self.pts = _coords_of(line)
+        self.metadata = dict(metadata) if metadata else {}
 
         # Calculate the length of the line in km
         # calculate the distance between each successive points and then sum that
