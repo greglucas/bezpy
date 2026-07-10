@@ -2,5 +2,6 @@
 from .impulse import *
 from .io import *
 from .legacy import *
+from .modem import *
 from .site import *
 from .utils import *
