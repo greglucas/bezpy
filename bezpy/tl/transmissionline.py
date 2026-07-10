@@ -189,7 +189,7 @@ class TransmissionLine:
 
             cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
             x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
-            y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))
+            y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))/cos_c
             xys[:, 0], xys[:, 1] = x, y
 
             # Now calculate the x/y locations of the interpolation points
@@ -201,7 +201,10 @@ class TransmissionLine:
             y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))/cos_c
             pts[:, 0], pts[:, 1] = x, y
         else:
-            # multiply by the cosine of latitude to adjust for the distances near the poles.
+            # site_xys is (lat, lon) but self.pts is (lon, lat); put both in
+            # (lon, lat) axis order, then shrink longitudes by cos(latitude)
+            # to adjust for the distances near the poles.
+            xys = xys[:, ::-1].copy()
             xys[:, 0] = xys[:, 0]*np.abs(np.cos(xys[:, 1]))
             pts[:, 0] = pts[:, 0]*np.abs(np.cos(pts[:, 1]))
 

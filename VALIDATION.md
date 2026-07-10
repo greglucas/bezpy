@@ -14,7 +14,7 @@ point is an exact frequency-domain product with the local layered impedance,
 and the true V along a line is a dense (1 km) local quadrature of that
 field — no method assumptions in the reference.
 
-Last run: 2026-07-08, seed 0, ntimes = 8192, dt = 60 s, 5×5 site grid,
+Last run: 2026-07-09, seed 0, ntimes = 8192, dt = 60 s, 5×5 site grid,
 three lines (~80 / ~500 / ~900 km).
 
 ## D6 — impedance band-edge handling (`extrapolate=`)
@@ -49,26 +49,32 @@ Voltages via each interpolation scheme vs the exact quadrature:
 
 | how | resample_km | rel RMS voltage error |
 | --- | --- | --- |
-| nn | — | **0.040** |
+| nn | — | 0.040 |
 | nn | 5 km | 0.050 |
 | nn | 1 km | 0.049 |
-| delaunay | — | 0.154 |
-| delaunay | 5 km | 0.135 |
-| delaunay | 1 km | 0.135 |
+| delaunay | — | 0.108 |
+| delaunay | 5 km | 0.039 |
+| delaunay | 1 km | **0.037** |
 
-**Reading:** on this smoothly-varying structure, nearest-neighbor (local
-assignment) beats Delaunay blending of E by ~3× — consistent with
-THEORY.md §2's argument that E is a *local* response and blending it across
-conductivity contrasts is the wrong smoothness assumption. Build-time
-resampling converges each scheme to its own ideal (it is not guaranteed to
-reduce error against truth — for `nn` the coarse quadrature was accidentally
-closer here).
+**Reading (revised 2026-07-09):** an earlier run of this table showed
+nearest-neighbor beating Delaunay by ~3×. Most of that gap was a
+longstanding bug, present since the original package: the gnomonic
+projection used to build the Delaunay weights divided the line points by
+cos(c) but not the sites, skewing the barycentric weights everywhere except
+the projection center (fixed in `TransmissionLine.set_delaunay_weights`;
+regression test `test_tl.py::test_delaunay_vertex_at_site_gets_full_weight`).
+With the projection consistent, Delaunay blending plus build-time
+resampling is the best scheme measured (0.037), and resampling now behaves
+as theory predicts — it converges the quadrature toward the true line
+integral instead of toward a bug. Note this bug was live in the published
+delaunay-based workflows, so exact reproduction of paper voltages requires
+the *old* weights; the difference is at the few-percent level.
 
-**Default:** `how="delaunay"` retained for now (single synthetic scenario;
-`nn` produces discontinuous E maps and the paper workflows are
-delaunay-based), but this table is the standing challenge to it. The
-`secs+local-z` scheme (interpolate B, assign Z locally) is the anticipated
-winner and lands with the multi-input kernels.
+**Default:** `how="delaunay"` retained, now with evidence rather than
+tradition; pair it with `resample_km≈5` when building kernels. The
+`secs+local-z` scheme (interpolate B, assign Z locally) may still improve
+on it across sharp conductivity contrasts and lands with the multi-input
+kernels.
 
 ## D1 / D2 / D4 / D5 — covered by comparison tests
 

@@ -129,3 +129,20 @@ def test_calc_voltages_delaunay():
     E = np.random.default_rng(0).standard_normal((4, len(site_xys), 2))
     v = tl.calc_voltages(E, how="delaunay")
     assert v.shape == (4,)
+
+
+@pytest.mark.parametrize("use_gnomic", [True, False])
+def test_delaunay_vertex_at_site_gets_full_weight(use_gnomic):
+    """A line vertex coinciding with a site must interpolate to exactly that
+    site's field. Regression test for the gnomonic projection applying
+    1/cos(c) to the line points but not the sites (and, in the plain
+    cos-latitude branch, mismatched lat/lon axis orders), which skewed the
+    barycentric weights for networks away from the projection center."""
+    # Deliberately far from the network centroid so cos(c) != 1
+    site_xys = np.array([[35.0, -110.0], [35.0, -95.0], [48.0, -110.0],
+                         [48.0, -95.0], [42.0, -102.0], [45.0, -98.0]])
+    tl = make_line([(-98.0, 45.0), (-101.0, 43.0)])  # first vertex == site 5
+    tl.set_delaunay_weights(site_xys, use_gnomic=use_gnomic)
+
+    weight_on_site = tl.delaunay_wts[0][tl.delaunay_vtx[0] == 5].sum()
+    assert weight_on_site == pytest.approx(1.0, abs=1e-9)
