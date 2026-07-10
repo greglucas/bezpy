@@ -282,7 +282,11 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
         if os.path.exists(out_path):
             with xr.open_dataset(out_path) as existing:
                 existing.load()
-            done_until = pd.Timestamp(existing.attrs.get("scan_done_until"))
+            if "scan_done_until" not in existing.attrs:
+                raise ValueError(
+                    f"{out_path} exists but is not a scan result (no "
+                    "scan_done_until attribute); refusing to overwrite it")
+            done_until = pd.Timestamp(existing.attrs["scan_done_until"])
             _restore_reducers(existing, site_reducer, line_reducer)
 
     for c0, c1 in chunks:
@@ -397,8 +401,11 @@ def storm_scan(catalog, b_obs, sites, lines=None, how="delaunay",
         e_max.append(np.nanmax(magnitude, axis=0))
         if lines is not None:
             v = calc_voltages(lines, e, how=how)
-            with np.errstate(all="ignore"):
-                v_max.append(np.nanmax(np.abs(v.values), axis=0))
+            # Lines outside the site coverage are all-NaN; keep them NaN
+            # without the all-NaN-slice RuntimeWarning
+            av = np.abs(v.values)
+            filled = np.where(np.isnan(av), -np.inf, av).max(axis=0)
+            v_max.append(np.where(np.isfinite(filled), filled, np.nan))
 
     latlons = _site_latlons(sites)
     ds = xr.Dataset(
