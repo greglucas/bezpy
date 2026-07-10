@@ -161,9 +161,98 @@ def test_loo_score(synthetic):
     assert np.mean(list(bad.values())) > np.mean(list(scores.values()))
 
 
-def test_kalman_reserved():
-    with pytest.raises(NotImplementedError, match="kalman"):
-        SECSInterpolator(method="kalman")
+def test_kalman_beats_lstsq_on_noisy_gappy_data(synthetic):
+    """The 3.1 promise: the temporal filter/smoother must beat independent
+    snapshot fits when the observations are noisy and gappy."""
+    B_obs, B_true = synthetic
+    rng = np.random.default_rng(11)
+    # Noise at ~40% of the (few-nT) synthetic field scale
+    noisy = B_obs + rng.normal(0., 1.5, B_obs.shape)
+    noisy[18:22, 7, :] = np.nan  # a dropout on top of the noise
+    times = np.arange(len(B_obs))*60.  # 1-minute cadence, seconds
+
+    errs = {}
+    for method in ("lstsq", "kalman"):
+        interp = SECSInterpolator(method=method, tau=600.)
+        interp.fit(noisy, obs_latlons=OBS_LATLONS, times=times)
+        B_pred = interp.predict(TEST_LATLONS)
+        errs[method] = np.sqrt(np.mean((B_pred[:, :, :2] - B_true[:, :, :2])**2))
+
+    assert errs["kalman"] < errs["lstsq"]
+
+
+def test_kalman_needs_times():
+    interp = SECSInterpolator(method="kalman")
+    with pytest.raises(ValueError, match="times"):
+        interp.fit(np.zeros((5, 4, 3)), obs_latlons=OBS_LATLONS[:4])
+
+
+def test_kalman_xarray_uses_dataset_times(synthetic):
+    xr = pytest.importorskip("xarray")
+    B_obs, B_true = synthetic
+    times = (np.datetime64("2024-05-10")
+             + np.arange(len(B_obs))*np.timedelta64(60, "s"))
+    ds = xr.Dataset(
+        {name: (("time", "obs"), B_obs[:, :, i]) for i, name in
+         enumerate(("Bx", "By", "Bz"))},
+        coords={"time": times, "obs": [f"OB{i}" for i in range(len(OBS_LATLONS))],
+                "latitude": ("obs", OBS_LATLONS[:, 0]),
+                "longitude": ("obs", OBS_LATLONS[:, 1])})
+    interp = SECSInterpolator(method="kalman", tau=600.)
+    interp.fit(ds)
+    out = interp.predict(TEST_LATLONS, return_var=True)
+    assert {"Bx", "By", "Bz", "Bx_var", "By_var", "Bz_var"} <= set(out.data_vars)
+    scale = np.sqrt(np.mean(B_true[:, :, :2]**2))
+    err = np.sqrt(np.mean(
+        (np.stack([out["Bx"].values, out["By"].values], axis=-1)
+         - B_true[:, :, :2])**2))
+    assert err < 0.2 * scale
+    assert (out["Bx_var"].values > 0).all()
+
+
+def test_robust_rejects_single_station_spike(synthetic):
+    """IRLS must downweight a localized artifact that ordinary least
+    squares would spread across the whole solution."""
+    B_obs, B_true = synthetic
+    spiked = B_obs.copy()
+    spiked[12:15, 20, :2] += 400.  # gross baseline jump at one station
+
+    errs = {}
+    for robust in (None, "bisquare"):
+        interp = SECSInterpolator(robust=robust)
+        interp.fit(spiked, obs_latlons=OBS_LATLONS)
+        B_pred = interp.predict(TEST_LATLONS)
+        errs[robust] = np.sqrt(np.mean(
+            (B_pred[12:15, :, :2] - B_true[12:15, :, :2])**2))
+
+    assert errs["bisquare"] < 0.5 * errs[None]
+
+
+def test_robust_requires_lstsq():
+    with pytest.raises(ValueError, match="gate_sigma"):
+        SECSInterpolator(method="kalman", robust="huber")
+
+
+def test_prediction_variance(synthetic):
+    """Variances must be positive and follow the linear-Gaussian scaling:
+    doubling every observation's standard error quadruples them."""
+    B_obs, _ = synthetic
+    interp = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS)
+    B, var = interp.predict(TEST_LATLONS, return_var=True)
+    assert B.shape == var.shape == (len(B_obs), len(TEST_LATLONS), 3)
+    assert (var[:, :, :2] > 0).all()
+
+    doubled = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS, obs_std=2.)
+    _, var2 = doubled.predict(TEST_LATLONS, return_var=True)
+    np.testing.assert_allclose(var2[:, :, :2], 4.*var[:, :, :2], rtol=1e-8)
+
+
+def test_predict_single_time_step():
+    """A one-sample fit must keep the (ntimes, nloc, 3) prediction shape."""
+    B = RNG.normal(0., 50., (1, len(OBS_LATLONS), 3))
+    interp = SECSInterpolator().fit(B, obs_latlons=OBS_LATLONS)
+    out = interp.predict(TEST_LATLONS)
+    assert out.shape == (1, len(TEST_LATLONS), 3)
 
 
 def test_predict_before_fit_raises():

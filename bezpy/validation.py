@@ -15,7 +15,8 @@ Two tools:
 """
 
 __all__ = ["leave_one_out", "synthetic_scenario",
-           "score_interpolation_methods", "score_extrapolation"]
+           "score_interpolation_methods", "score_extrapolation",
+           "score_fitting_methods"]
 
 import numpy as np
 import pandas as pd
@@ -83,9 +84,9 @@ def leave_one_out(b_obs, interp=None, metrics=("rmse", "mae", "correlation"),
     }
     rows = []
     names = []
-    trial = SECSInterpolator(grid=interp.grid, spacing=interp.spacing,
-                             pad=interp.pad, altitude_km=interp.altitude_km,
-                             epsilon=interp.epsilon, fit_bz=interp.fit_bz)
+    trial = SECSInterpolator(**interp._config())
+    if times is not None:
+        fit_kwargs.setdefault("times", times)
     for i in range(len(latlons)):
         std = np.ones(B.shape)
         std[:, i, :] = np.inf
@@ -235,6 +236,68 @@ def score_interpolation_methods(scenario, lines, how=("nn", "delaunay"),
             rows.append({"how": method, "resample_km": spacing,
                          "rel_rms_error": _relative_rms(v, truth)})
     return pd.DataFrame(rows).set_index(["how", "resample_km"])
+
+
+def score_fitting_methods(seed=0, ntimes=240, dt=60., noise=1.5,
+                          tau=600., gate_sigma=4.):
+    """Score SECS fitting methods against a synthetic SEC source (3.1).
+
+    A smoothly time-varying SEC source generates the true field at a 6x6
+    observatory network and at held-out locations. The observations are
+    corrupted three ways -- white noise everywhere, a station dropout, and
+    a single-station baseline jump -- and each fitting method is scored on
+    the RMSE of its held-out predictions against the noise-free truth.
+
+    :param noise: white-noise standard deviation in nT (the synthetic field
+        scale is a few nT, so the default is a substantial ~40%)
+    :param tau: Kalman temporal correlation time in seconds
+    :param gate_sigma: innovation gate for the gated Kalman row
+    :return: DataFrame indexed by method with ``rmse_nT``
+    """
+    from .mag.secs import R_EARTH, _require_pysecs
+    pysecs = _require_pysecs()
+    rng = np.random.default_rng(seed)
+
+    obs_latlons = np.array([[lat, lon]
+                            for lat in np.linspace(34, 46, 6)
+                            for lon in np.linspace(-110, -96, 6)])
+    test_latlons = np.array([[38.7, -104.1], [41.3, -101.5], [39.9, -106.2],
+                             [43.5, -99.0], [36.2, -108.5]])
+    poles = np.array([[lat, lon, R_EARTH + 110e3]
+                      for lat in np.linspace(30, 50, 4)
+                      for lon in np.linspace(-115, -90, 5)])
+    source = pysecs.SECS(sec_df_loc=poles)
+    t = np.linspace(0, 6*np.pi, ntimes)[:, None]
+    source.sec_amps = (1e13 * np.sin(t + rng.uniform(0, 2*np.pi, len(poles)))
+                       * rng.uniform(0.5, 1.5, len(poles)))
+
+    def truth(latlons):
+        return source.predict(
+            np.column_stack([latlons, np.full(len(latlons), R_EARTH)]))
+
+    b_obs = truth(obs_latlons) + rng.normal(0., noise, (ntimes, len(obs_latlons), 3))
+    b_obs[ntimes//3:ntimes//3 + 20, 7, :] = np.nan          # station dropout
+    b_obs[ntimes//2:, 20, :2] += 8.*noise                   # baseline jump
+    b_true = truth(test_latlons)
+    times = np.arange(ntimes)*dt
+
+    configs = {
+        "lstsq": {},
+        "lstsq robust=huber": {"robust": "huber"},
+        "lstsq robust=bisquare": {"robust": "bisquare"},
+        "kalman": {"method": "kalman", "tau": tau},
+        "kalman gated": {"method": "kalman", "tau": tau,
+                         "gate_sigma": gate_sigma},
+    }
+    rows = []
+    for name, kwargs in configs.items():
+        interp = SECSInterpolator(**kwargs)
+        interp.fit(b_obs, obs_latlons=obs_latlons, times=times)
+        predicted = interp.predict(test_latlons)[:, :, :2]
+        rows.append({"method": name,
+                     "rmse_nT": float(np.sqrt(np.mean(
+                         (predicted - b_true[:, :, :2])**2)))})
+    return pd.DataFrame(rows).set_index("method")
 
 
 def score_extrapolation(scenario, periods=None):

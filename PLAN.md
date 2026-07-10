@@ -114,6 +114,19 @@ variance pattern). `method="kalman"` reserved pending a pysecs release.
 Scripts rewritten on top of it. Tests: synthetic SEC-source recovery,
 mask-beats-drop (D1 comparison), xarray round trip.
 
+**Status (2026-07-09):** pysecs 0.4 adopted (dependency now `pysecs>=0.4`):
+`method="kalman"` (filter + RTS smoother; `tau`, `prior_std`, `gate_sigma`,
+`smoother=False` for causal/real-time), `robust="huber"/"bisquare"` IRLS on
+the snapshot fit, `predict(return_var=True)` prediction variances, and
+`grid="auto"` delegated to `pysecs.make_grid` (cos-latitude-scaled lon
+spacing, station-informed spacing via `spacing=None`, pole-proximity nudge).
+The local pattern-sorting workaround was removed — pysecs 0.4 groups
+uncertainty patterns internally, and the old post-fit amplitude permutation
+would have corrupted the variance bookkeeping. Fitting-method evidence in
+VALIDATION.md §3.1 (`score_fitting_methods`): kalman ~30% better held-out
+RMSE on noisy/gappy synthetic data; default stays `lstsq` pending a
+real-storm run (kalman stores an ntimes x npoles^2 covariance).
+
 `bezpy.mag.SECSInterpolator` replacing the copy-pasted `calculate_SECS`:
 
 ```python
@@ -410,7 +423,52 @@ rewriting numpy internals to xarray; multi-input (SECS-weighted) τ kernels and
 uncertainty propagation — they follow 3.1 + 3.5 and the harness, not precede
 them; directional hazard statistics (API room left in 3.6).
 
-## 6. Suggested sequence
+## 6. Open questions from the 2026-07-09 deep review (with recommendations)
+
+A full-package review alongside the pysecs 0.4 adoption. Fixed outright:
+the gnomonic-projection inconsistency in `set_delaunay_weights` (line
+points divided by cos(c), sites not — skewed Delaunay weights since the
+original package; its correction flips the D7 table, see VALIDATION.md),
+the mismatched axis orders in the non-gnomonic branch, a shape bug for
+single-time-step `SECSInterpolator.predict`, `leave_one_out` silently
+dropping the interpolator's method configuration, `scan` double-counting
+reducer state when resuming onto a foreign netCDF file, and an all-NaN
+warning in `storm_scan`. Questions that need a maintainer decision:
+
+- **Q1. Gridded conductivity/impedance input (the stated goal).** Everything
+  downstream consumes a plain list of sites, so gridded products only need a
+  reader that yields sites. Recommendation: define one xarray convention —
+  dims `(site, period)`, variables `Z_real`/`Z_imag` (`(site, 4, period)`,
+  (xx, xy, yx, yy) order) or `thickness`/`resistivity` for 1D columns,
+  coords `latitude`/`longitude`/`period` — with
+  `bezpy.mt.sites_from_dataset(ds)` / `sites_to_dataset(sites)` as the
+  round-trip pair, then thin per-format adapters (ModEM model files, the
+  gridded CONUS impedance products) that emit that convention. A flattened
+  grid is just a site list; `filter_bbox`-style selection works unchanged.
+  Needs: which source formats actually matter first (recommend: the netCDF
+  gridded impedance product you use most; ModEM rho files second).
+- **Q2. Kalman/robust defaults.** Evidence (VALIDATION.md §3.1) says kalman
+  wins on synthetic noise but costs `8*ntimes*npoles^2` bytes of covariance.
+  Recommendation: keep `lstsq` default; revisit after the reference-storm
+  harness entry exists. `tau` default (3600 s) is folklore until tuned with
+  `loo_score` on real data.
+- **Q3. `extrapolate="asymptotic"` default (D6).** Harness says 10-20x
+  better on truncated bands; still opt-in. Recommendation: switch the
+  default after one real-storm comparison, as already planned.
+- **Q4. Paper-reproduction mode for the Delaunay fix.** The projection bug
+  was live in the published workflows; exact reproduction of paper voltages
+  now requires the old weights (few-percent differences). Recommendation:
+  do *not* add a legacy switch (it was a bug, not a method), and note the
+  fix in release notes instead.
+- **Q5. Minor polish, take anytime:** thread `extrapolate=` through
+  single-site `Site.convolve_fft` (SiteCollection already has it);
+  `TransmissionLine.calc_voltages` returns a float for single-time input
+  (inconsistent, kept for compat); `_Reducers` quantile sketch loops
+  per-site per-chunk (fine now, vectorize if site counts grow 10x);
+  `realtime.py` could use `method="kalman", smoother=False` — the causal
+  filter is exactly the real-time use case — after Q2's tau tuning.
+
+## 7. Suggested sequence
 
 ```
 3.5 kernels merge ──┐              (branch exists; close it out first)

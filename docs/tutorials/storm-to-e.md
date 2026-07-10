@@ -80,6 +80,15 @@ plt.show()
   observatory is dropped.
 - **Regularization**: tune `epsilon` on your own network with
   `interp.loo_score(b, epsilon=...)` instead of trusting the default.
+- **Noisy or gappy networks**: `SECSInterpolator(method="kalman", tau=...)`
+  couples the time steps with pysecs' Kalman filter/smoother — it averages
+  noise across time and rides through station dropouts (~30% better on the
+  synthetic benchmark, see [validation results](../validation.md)); pass it
+  to `calc_geoelectric_field(..., secs=interp)`. `robust="huber"` /
+  `"bisquare"` downweight single-station spikes in the default snapshot fit.
+- **Uncertainty**: `interp.predict(latlons, return_var=True)` adds
+  `Bx_var`/`By_var`/`Bz_var`, propagated from the fit's posterior
+  covariance.
 - **Band edges**: pass `extrapolate="asymptotic"` to
   `calc_geoelectric_field` to continue the impedances physically past the
   measured band instead of hard band-stopping (see

@@ -9,6 +9,7 @@ import shapely.geometry
 from bezpy.tl import TransmissionLine
 from bezpy.validation import (
     score_extrapolation,
+    score_fitting_methods,
     score_interpolation_methods,
     synthetic_scenario,
 )
@@ -46,6 +47,11 @@ def main():
               f"(source band 120-28800 s):")
         print(result.to_string(float_format=lambda v: f"{v:.4f}"))
         print()
+
+    print("=== 3.1: SECS fitting method vs synthetic SEC-source truth "
+          "(held-out RMSE, noisy + dropout + baseline jump) ===")
+    table = score_fitting_methods(seed=0)
+    print(table.to_string(float_format=lambda v: f"{v:.3f}"))
 
 
 if __name__ == "__main__":

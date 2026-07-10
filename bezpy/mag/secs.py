@@ -6,6 +6,10 @@ hazard studies (divergence-free SEC shell at 110 km, epsilon = 0.05, Bz
 excluded from the fit) as the baseline, and gap handling that keeps every
 sample: missing data are masked with infinite variance instead of being
 interpolated over or causing whole observatories to be discarded.
+
+Requires pysecs >= 0.4, which provides the temporal Kalman filter/smoother
+(``method="kalman"``), robust IRLS fitting (``robust=``), station-informed
+grid generation, and prediction variances (``predict(return_var=True)``).
 """
 
 __all__ = ["SECSInterpolator"]
@@ -22,6 +26,11 @@ def _require_pysecs():
         raise ImportError(
             "SECSInterpolator requires pysecs; install it with "
             "`pip install pysecs` (or the bezpy[secs] extra).") from None
+    if not hasattr(pysecs, "KalmanSECS"):
+        raise ImportError(
+            "SECSInterpolator requires pysecs >= 0.4 "
+            "(KalmanSECS, robust fitting, prediction variances); "
+            "upgrade with `pip install -U pysecs`.")
     return pysecs
 
 
@@ -110,10 +119,15 @@ class SECSInterpolator:
     ----------
     grid : "auto", (west, south, east, north), or (n, 2) array
         SEC pole locations. ``"auto"`` builds a regular grid covering the
-        observatories padded by ``pad`` degrees; a 4-tuple gives the grid
-        bounding box explicitly; an array gives (lat, lon) poles directly.
-    spacing : float
-        Grid spacing in degrees for constructed grids (default 2).
+        observatories with ``pysecs.make_grid`` (padding beyond the
+        network, longitude spacing scaled by 1/cos(latitude) so cells
+        stay roughly square); a 4-tuple gives the grid bounding box
+        explicitly; an array gives (lat, lon) poles directly.
+    spacing : float or None
+        Grid spacing in degrees for constructed grids (default 2, the
+        paper configuration). None with ``grid="auto"`` uses the
+        station-informed pysecs default (median nearest-neighbor
+        separation of the observatories).
     pad : float
         Padding in degrees beyond the observatory bounding box for
         ``grid="auto"`` (default 5).
@@ -125,9 +139,41 @@ class SECSInterpolator:
     fit_bz : bool
         Include the vertical component in the fit (default False, as in
         the published workflows).
-    method : {"lstsq"}
-        Fitting method. ``"kalman"`` is reserved for pysecs' Kalman
-        filter once released.
+    method : {"lstsq", "kalman"}
+        Fitting method. ``"lstsq"`` (default) fits every time step
+        independently with a truncated-SVD least squares.
+        ``"kalman"`` couples the time steps with pysecs' Kalman filter
+        and Rauch-Tung-Striebel smoother: amplitudes evolve as an AR(1)
+        process with correlation time ``tau``, which suppresses the
+        step-to-step flicker of independent snapshot fits and rides
+        through station dropouts. Note the smoother stores the full
+        amplitude covariance, ``8 * ntimes * npoles**2`` bytes -- size
+        the grid and analysis window accordingly.
+    tau : float
+        ``method="kalman"`` only: temporal correlation time of the SEC
+        amplitudes in seconds (default 3600). Tune with
+        :meth:`loo_score` rather than trusting the default.
+    prior_std : float, optional
+        ``method="kalman"`` only: stationary prior standard deviation of
+        the amplitudes in amperes; the temporal analogue of ``epsilon``.
+        Default None estimates it from a snapshot fit.
+    gate_sigma : float, optional
+        ``method="kalman"`` only: innovation gating threshold in
+        standard deviations; observations inconsistent with the forecast
+        (single-station spikes) are downweighted before they can steer
+        the solution. None (default) disables gating.
+    smoother : bool
+        ``method="kalman"`` only: run the backward smoother (non-causal,
+        recommended for post-processing; default True). False gives a
+        purely causal filter for real-time use.
+    robust : {None, "huber", "bisquare"}
+        ``method="lstsq"`` only: iteratively reweighted least squares.
+        Localized single-station artifacts (spikes, baseline jumps) are
+        inconsistent with any smooth current system, so they show up as
+        large residuals and are automatically downweighted ("huber") or
+        fully rejected ("bisquare"). Costs roughly ``robust_maxiter``
+        ordinary fits. For ``method="kalman"``, use ``gate_sigma``
+        instead.
 
     Examples
     --------
@@ -137,13 +183,15 @@ class SECSInterpolator:
     """
 
     def __init__(self, grid="auto", spacing=2.0, pad=5.0, altitude_km=110.,
-                 epsilon=0.05, fit_bz=False, method="lstsq"):
-        if method == "kalman":
-            raise NotImplementedError(
-                "method='kalman' requires a pysecs release with KalmanSECS; "
-                "use method='lstsq'")
-        if method != "lstsq":
+                 epsilon=0.05, fit_bz=False, method="lstsq", tau=3600.,
+                 prior_std=None, gate_sigma=None, smoother=True, robust=None):
+        if method not in ("lstsq", "kalman"):
             raise ValueError("method must be one of: lstsq, kalman")
+        if robust not in (None, "huber", "bisquare"):
+            raise ValueError("robust must be one of: None, huber, bisquare")
+        if robust is not None and method == "kalman":
+            raise ValueError("robust= applies to method='lstsq'; for "
+                             "method='kalman' use gate_sigma= instead")
         self.grid = grid
         self.spacing = spacing
         self.pad = pad
@@ -151,31 +199,49 @@ class SECSInterpolator:
         self.epsilon = epsilon
         self.fit_bz = fit_bz
         self.method = method
+        self.tau = tau
+        self.prior_std = prior_std
+        self.gate_sigma = gate_sigma
+        self.smoother = smoother
+        self.robust = robust
 
         self._secs = None
+        self._kalman = None
         self._times = None
         self._is_xarray_fit = False
 
+    def _config(self):
+        """Constructor arguments reproducing this interpolator's setup."""
+        return {name: getattr(self, name) for name in
+                ("grid", "spacing", "pad", "altitude_km", "epsilon", "fit_bz",
+                 "method", "tau", "prior_std", "gate_sigma", "smoother",
+                 "robust")}
+
     def _grid_latlonr(self, obs_latlons):
         """SEC pole locations (npoles, 3 [lat, lon, r]) for the fit."""
+        pysecs = _require_pysecs()
+        r_shell = R_EARTH + self.altitude_km*1e3
         if isinstance(self.grid, str) and self.grid == "auto":
-            south, north = obs_latlons[:, 0].min() - self.pad, obs_latlons[:, 0].max() + self.pad
-            west, east = obs_latlons[:, 1].min() - self.pad, obs_latlons[:, 1].max() + self.pad
-        elif np.ndim(self.grid) == 1 and len(self.grid) == 4:
+            obs_loc = np.column_stack(
+                [obs_latlons, np.full(len(obs_latlons), R_EARTH)])
+            return pysecs.make_grid(obs_loc, r_shell, spacing=self.spacing,
+                                    padding=self.pad)
+        if np.ndim(self.grid) == 1 and len(self.grid) == 4:
+            if self.spacing is None:
+                raise ValueError("spacing=None (station-informed) is only "
+                                 "available with grid='auto'; give a numeric "
+                                 "spacing with an explicit bounding box")
             west, south, east, north = self.grid
-        else:
-            poles = np.atleast_2d(np.asarray(self.grid, dtype=float))
-            return np.column_stack([poles, np.full(len(poles),
-                                                   R_EARTH + self.altitude_km*1e3)])
-        south, north = max(south, -90.), min(north, 90.)
-        lats = np.arange(south, north + self.spacing/2, self.spacing)
-        lons = np.arange(west, east + self.spacing/2, self.spacing)
-        lat, lon = map(np.ravel, np.meshgrid(lats, lons, indexing="ij"))
-        return np.column_stack([lat, lon,
-                                np.full(lat.size, R_EARTH + self.altitude_km*1e3)])
+            south, north = max(south, -90.), min(north, 90.)
+            lats = np.arange(south, north + self.spacing/2, self.spacing)
+            lons = np.arange(west, east + self.spacing/2, self.spacing)
+            lat, lon = map(np.ravel, np.meshgrid(lats, lons, indexing="ij"))
+            return np.column_stack([lat, lon, np.full(lat.size, r_shell)])
+        poles = np.atleast_2d(np.asarray(self.grid, dtype=float))
+        return np.column_stack([poles, np.full(len(poles), r_shell)])
 
-    def fit(self, b_obs, obs_latlons=None, obs_std=None, gaps="mask",
-            weight_gaps=False, gap_inflation=10., gap_window=60):
+    def fit(self, b_obs, obs_latlons=None, obs_std=None, times=None,
+            gaps="mask", weight_gaps=False, gap_inflation=10., gap_window=60):
         """Fit the SEC amplitudes to observed magnetic fields.
 
         :param b_obs: xarray Dataset with ``Bx``/``By``[/``Bz``] (or
@@ -186,6 +252,9 @@ class SECSInterpolator:
             bare-array input.
         :param obs_std: optional standard error, broadcastable to
             (ntimes, nobs, 3), used to weight the observations.
+        :param times: observation times for ``method="kalman"`` with
+            bare-array input -- datetime64 or float seconds, strictly
+            increasing. Dataset input carries its own time axis.
         :param gaps: how to treat missing (NaN) samples.
 
             * ``"mask"`` (default): give them infinite variance -- they drop
@@ -203,8 +272,9 @@ class SECSInterpolator:
         :return: self
         """
         pysecs = _require_pysecs()
-        B, latlons, self._times, obs_names = _extract_b(b_obs, obs_latlons)
-        self._is_xarray_fit = self._times is not None
+        B, latlons, ds_times, obs_names = _extract_b(b_obs, obs_latlons)
+        self._is_xarray_fit = ds_times is not None
+        self._times = ds_times if ds_times is not None else times
 
         std = np.ones(B.shape) * (np.asarray(obs_std, dtype=float)
                                   if obs_std is not None else 1.)
@@ -237,68 +307,91 @@ class SECSInterpolator:
         self.obs_names_ = obs_names
         obs_loc = np.column_stack([latlons, np.full(len(latlons), R_EARTH)])
         self._secs = pysecs.SECS(sec_df_loc=self._grid_latlonr(latlons))
+        self._kalman = None
 
-        # pysecs recomputes the (expensive) SVD whenever consecutive time
-        # steps have different variance patterns. Gappy data alternates
-        # patterns constantly, so fit in pattern-sorted time order (one SVD
-        # per unique pattern) and un-permute the amplitudes afterwards.
-        order = np.lexsort(std.reshape(len(B), -1).T)
-        self._secs.fit(obs_loc=obs_loc, obs_B=B[order], obs_std=std[order],
-                       epsilon=self.epsilon)
-        inverse = np.argsort(order)
-        self._secs.sec_amps = self._secs.sec_amps[inverse]
-        self._secs.sec_amps_var = self._secs.sec_amps_var[inverse]
+        if self.method == "kalman":
+            if self._times is None:
+                raise ValueError("method='kalman' needs the observation "
+                                 "times: fit with a Dataset or pass times=")
+            self._kalman = pysecs.KalmanSECS(
+                self._secs, tau=self.tau, prior_std=self.prior_std,
+                gate_sigma=self.gate_sigma, smoother=self.smoother,
+                epsilon=self.epsilon)
+            self._kalman.fit(obs_loc, B, np.asarray(self._times), obs_std=std)
+        else:
+            self._secs.fit(obs_loc=obs_loc, obs_B=B, obs_std=std,
+                           epsilon=self.epsilon, robust=self.robust)
         return self
 
-    def predict(self, locations):
+    def predict(self, locations, return_var=False):
         """Predict the magnetic field at new locations.
 
         :param locations: (n, 2) [latitude, longitude] array, a sequence of
             objects with ``.latitude``/``.longitude`` (e.g. MT sites), or an
             xarray object with latitude/longitude coordinates.
+        :param return_var: also return the prediction variance, propagated
+            from the posterior covariance of the fitted amplitudes (treating
+            ``obs_std`` as 1-sigma errors of independent observations).
         :return: if the interpolator was fit with a Dataset, an xarray
-            Dataset with ``Bx``/``By``/``Bz`` (time, loc) and location
-            coordinates; otherwise an ndarray (ntimes, n, 3 [Bx, By, Bz]).
+            Dataset with ``Bx``/``By``/``Bz`` (time, loc), location
+            coordinates, and ``Bx_var``/``By_var``/``Bz_var`` when
+            ``return_var``; otherwise an ndarray (ntimes, n, 3 [Bx, By, Bz])
+            (a ``(B, var)`` tuple when ``return_var``).
         """
         if self._secs is None:
             raise ValueError("Interpolator has not been fit yet; call .fit(b_obs)")
         latlons = _extract_latlons(locations)
         pred_loc = np.column_stack([latlons, np.full(len(latlons), R_EARTH)])
-        B = self._secs.predict(pred_loc)
-        # pysecs squeezes single-location predictions; keep (ntimes, n, 3)
-        B = B.reshape(B.shape[0], len(latlons), 3)
+        model = self._kalman if self._kalman is not None else self._secs
+        if return_var:
+            B, var = model.predict(pred_loc, return_var=True)
+        else:
+            B, var = model.predict(pred_loc), None
+        # pysecs squeezes single-location/-time predictions; keep (ntimes, n, 3)
+        B = B.reshape(-1, len(latlons), 3)
+        if var is not None:
+            var = var.reshape(-1, len(latlons), 3)
 
         if not self._is_xarray_fit:
-            return B
+            return (B, var) if return_var else B
         import xarray as xr
         coords = {"time": self._times,
                   "latitude": ("loc", latlons[:, 0]),
                   "longitude": ("loc", latlons[:, 1])}
-        return xr.Dataset(
+        out = xr.Dataset(
             {name: (("time", "loc"), B[:, :, i], {"units": "nT"})
              for i, name in enumerate(("Bx", "By", "Bz"))},
             coords=coords)
+        if var is not None:
+            for i, name in enumerate(("Bx", "By", "Bz")):
+                out[f"{name}_var"] = (("time", "loc"), var[:, :, i],
+                                      {"units": "nT2"})
+        return out
 
-    def loo_score(self, b_obs, obs_latlons=None, epsilon=None, metric="rmse",
-                  **fit_kwargs):
-        """Leave-one-out observatory skill score, for tuning ``epsilon``.
+    def loo_score(self, b_obs, obs_latlons=None, metric="rmse", **overrides):
+        """Leave-one-out observatory skill score, for tuning the setup.
 
         Each observatory in turn is removed from the fit (via infinite
         variance, so the SEC grid stays identical) and predicted from the
         others; the score compares prediction with observation over the
         horizontal components at samples where data exist.
 
-        :param epsilon: regularization to evaluate (default: the
-            interpolator's own). Loop over candidate values and pick the
-            minimizer to make the choice data-driven.
         :param metric: ``"rmse"`` (nT) or ``"mae"`` (nT).
+        :param overrides: any constructor argument (``epsilon``, ``tau``,
+            ``robust``, ``method``, ...) to evaluate instead of this
+            interpolator's own -- loop over candidate values and pick the
+            minimizer to make the choice data-driven -- plus any
+            :meth:`fit` keyword (``gaps``, ``times``, ...).
         :return: dict mapping observatory (name if known, else index) to score
         """
-        B, latlons, _, obs_names = _extract_b(b_obs, obs_latlons)
-        trial = SECSInterpolator(grid=self.grid, spacing=self.spacing,
-                                 pad=self.pad, altitude_km=self.altitude_km,
-                                 epsilon=self.epsilon if epsilon is None else epsilon,
-                                 fit_bz=self.fit_bz, method=self.method)
+        B, latlons, times, obs_names = _extract_b(b_obs, obs_latlons)
+        config = self._config()
+        fit_kwargs = {key: overrides.pop(key) for key in list(overrides)
+                      if key not in config}
+        config.update(overrides)
+        trial = SECSInterpolator(**config)
+        if times is not None:
+            fit_kwargs.setdefault("times", times)
         reducer = {"rmse": lambda err: np.sqrt(np.nanmean(err**2)),
                    "mae": lambda err: np.nanmean(np.abs(err))}[metric]
 

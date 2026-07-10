@@ -76,6 +76,40 @@ tradition; pair it with `resample_km≈5` when building kernels. The
 on it across sharp conductivity contrasts and lands with the multi-input
 kernels.
 
+## 3.1 — SECS fitting method (`method=`, `robust=`)
+
+pysecs 0.4 unblocked the temporal Kalman filter/smoother and robust IRLS
+fitting. Scored by `bezpy.validation.score_fitting_methods`: a smooth
+SEC-source truth at a 6×6 network, observations corrupted with ~40% white
+noise, a 20-sample station dropout, and a persistent single-station
+baseline jump; held-out prediction RMSE in nT (240 steps at 60 s,
+tau = 600 s, gate 4σ):
+
+| method | held-out RMSE (nT) |
+| --- | --- |
+| lstsq (default) | 1.315 |
+| lstsq robust=huber | 1.309 |
+| lstsq robust=bisquare | 1.341 |
+| kalman | **0.946** |
+| kalman gated (4σ) | 1.110 |
+
+**Reading:** temporal coupling is worth ~30% here — the AR(1) prior
+averages the noise across time steps the way independent snapshot fits
+cannot, and it rides through the dropout. Robust IRLS is a wash on this
+scenario: the corruption budget is dominated by dense white noise (which
+IRLS rightly leaves alone), not by the one outlying station. Innovation
+gating does not help against a *persistent* baseline jump — after the
+first few steps the jump is absorbed into the forecast and stops looking
+like an innovation; gating is for transient spikes.
+
+**Default:** `method="lstsq"` retained — the Kalman smoother stores the
+full amplitude covariance (`8·ntimes·npoles²` bytes), which is a real
+constraint for multi-decade scans, and the noise regime of real
+1-minute observatory data should be measured before switching. Use
+`method="kalman"` explicitly for storm case studies on noisy/gappy
+networks (see `test_secs.py::test_kalman_beats_lstsq_on_noisy_gappy_data`),
+and `smoother=False` for causal real-time filtering.
+
 ## D1 / D2 / D4 / D5 — covered by comparison tests
 
 These decisions are exercised directly in the test suite rather than the
@@ -100,5 +134,5 @@ harness tables:
 
 - Reference-storm comparison on real data (May 2024 or Halloween 2003)
   under all method combinations, with a persisted results table.
-- `epsilon` tuning curves via `SECSInterpolator.loo_score` on a real storm.
-- Kalman vs lstsq SECS fitting, when pysecs ships KalmanSECS.
+- `epsilon` and `tau` tuning curves via `SECSInterpolator.loo_score` on a
+  real storm (the Kalman-vs-lstsq call above is synthetic-only so far).

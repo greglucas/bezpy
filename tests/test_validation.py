@@ -101,3 +101,10 @@ def test_leave_one_out_coherence_bands():
     coherence_column = [c for c in scores.columns if c.startswith("coherence")]
     assert len(coherence_column) == 1
     assert scores[coherence_column[0]].median() > 0.9
+
+
+def test_score_fitting_methods_smoke():
+    from bezpy.validation import score_fitting_methods
+    table = score_fitting_methods(seed=0, ntimes=48)
+    assert set(table.index) >= {"lstsq", "kalman"}
+    assert (table["rmse_nT"] > 0).all() and np.isfinite(table["rmse_nT"]).all()
