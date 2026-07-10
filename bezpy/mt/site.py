@@ -2,7 +2,8 @@
 Magnetotelluric site classes.
 
 """
-__all__ = ["Site", "Site1d", "Site3d", "SiteCollection", "ConductivityModel"]
+__all__ = ["Site", "Site1d", "Site3d", "SiteCollection", "ConductivityModel",
+           "sites_to_dataset", "sites_from_dataset"]
 
 import pathlib
 import warnings
@@ -85,9 +86,20 @@ class Site:
 # 3d EarthScope Sites
 # ---------------------------------
 class Site3d(Site):
-    """EarthScope USArray Site"""
+    """EarthScope USArray Site
 
-    def __init__(self, name):
+    :param name: site name
+    :param latitude: site latitude in degrees (optional)
+    :param longitude: site longitude in degrees (optional)
+    :param periods: periods of the impedance tensor in seconds, ascending (optional)
+    :param Z: complex impedance tensor in (mV/km)/nT, organized
+        (xx, xy, yx, yy) along the first axis; shape ``(4, nperiods)`` (optional)
+    :param Z_var: variance of the impedance tensor, same shape as ``Z`` (optional)
+    """
+
+    # pylint: disable=too-many-arguments
+    def __init__(self, name, latitude=None, longitude=None,
+                 periods=None, Z=None, Z_var=None):
         # Call the base site class and initialize all those variables
         super().__init__(name)
 
@@ -114,6 +126,16 @@ class Site3d(Site):
         self._prev_freqs = None
         self._prev_Z = None
         self._prev_extrapolate = None
+
+        # Optional keyword data, filling in what the readers would otherwise set
+        self.latitude = latitude
+        self.longitude = longitude
+        if periods is not None:
+            self.periods = np.asarray(periods, dtype=float)
+        if Z is not None:
+            self.Z = np.asarray(Z, dtype=complex)
+        if Z_var is not None:
+            self.Z_var = np.asarray(Z_var, dtype=float)
 
     def _repr_html_(self):
         return f"<p style=\"font-size:22px; color:blue\"><b>Site 3d: {self.name}</b></p>" + \
@@ -451,6 +473,62 @@ class SiteCollection:
         self._dt = None
         self._extrapolate = None
 
+    def __len__(self):
+        return len(self.sites)
+
+    def __iter__(self):
+        return iter(self.sites)
+
+    def __getitem__(self, key):
+        """Integer indexing returns a site; slicing returns a new SiteCollection."""
+        if isinstance(key, slice):
+            return SiteCollection(self.sites[key])
+        return self.sites[key]
+
+    def __repr__(self):
+        counts = {}
+        for site in self.sites:
+            cls = type(site).__name__
+            counts[cls] = counts.get(cls, 0) + 1
+        breakdown = ", ".join(f"{n} {cls}" for cls, n in sorted(counts.items()))
+        return f"SiteCollection({len(self.sites)} sites: {breakdown})"
+
+    @property
+    def latitudes(self):
+        """Site latitudes as a float array (NaN where a site has none)."""
+        return np.array([np.nan if site.latitude is None else site.latitude
+                         for site in self.sites], dtype=float)
+
+    @property
+    def longitudes(self):
+        """Site longitudes as a float array (NaN where a site has none)."""
+        return np.array([np.nan if site.longitude is None else site.longitude
+                         for site in self.sites], dtype=float)
+
+    def to_dataset(self):
+        """Convert the collection to the canonical xarray Dataset.
+
+        See :func:`sites_to_dataset` for the dataset convention.
+        """
+        return sites_to_dataset(self.sites)
+
+    def to_netcdf(self, path):
+        """Save the collection to a netCDF file (see :func:`sites_to_dataset`)."""
+        self.to_dataset().to_netcdf(path)
+
+    @classmethod
+    def from_dataset(cls, ds):
+        """Build a collection from a canonical dataset (see :func:`sites_from_dataset`)."""
+        return cls(sites_from_dataset(ds))
+
+    @classmethod
+    def from_netcdf(cls, path):
+        """Load a collection saved by :meth:`to_netcdf`."""
+        import xarray as xr
+        with xr.open_dataset(path) as ds:
+            ds.load()
+        return cls.from_dataset(ds)
+
     def convolve_fft(self, mag_x, mag_y, dt=60, extrapolate="zeros"):
         """Convolution in frequency space for all sites at once.
 
@@ -584,3 +662,147 @@ class ConductivityModel(SiteCollection):
 
                 site.Z[loc, period_counter] = val
         super().__init__(sites)
+
+
+# ---------------------------------
+# Canonical dataset representation
+# ---------------------------------
+COMPONENTS = ["xx", "xy", "yx", "yy"]
+
+
+def sites_to_dataset(sites):
+    """Convert MT sites to the canonical xarray Dataset.
+
+    This is the package-wide interface convention for site collections:
+
+    * dims: ``site``, ``component`` (length 4), and ``period`` for 3D
+      impedance sites; ``site`` and ``layer`` for 1D layered sites.
+    * coords: ``site`` = site names (str), ``latitude(site)`` and
+      ``longitude(site)`` floats (NaN when a site has none), ``period`` =
+      float seconds ascending with attrs ``{"units": "s"}``, ``component`` =
+      ``["xx", "xy", "yx", "yy"]`` (x = North, y = East).
+    * 3D (:class:`Site3d`) variables: ``Z_real`` and ``Z_imag``, dims
+      ``("site", "component", "period")``, units (mV/km)/nT; ``Z_var``
+      (real, same dims) is included only if at least one site has a
+      non-None ``Z_var`` (NaN rows for sites without one).
+    * 1D (:class:`Site1d`) variables: ``thickness`` and ``resistivity``,
+      dims ``("site", "layer")``, units m and ohm-m, NaN-padded to the
+      deepest profile.
+    * Dataset attrs: ``{"title": "bezpy MT site collection",
+      "site_type": "3d" or "1d"}``.
+
+    Sites with different period grids share the sorted union of all periods
+    on the ``period`` axis; a site's missing periods are NaN in
+    ``Z_real``/``Z_imag``/``Z_var``. This is safe downstream because
+    :meth:`Site3d.spline_interp` drops NaN Z values per component.
+
+    Requires xarray (install the ``bezpy[data]`` extra).
+
+    :param sites: iterable of :class:`Site3d` or :class:`Site1d` objects;
+        a single dataset cannot mix the two site types
+    :return: ``xarray.Dataset`` following the convention above
+    :raises ValueError: for an empty collection or mixed 1D/3D site types
+    """
+    import xarray as xr
+    sites = list(sites)
+    if not sites:
+        raise ValueError("Cannot build a dataset from an empty site collection.")
+    n_3d = sum(isinstance(site, Site3d) for site in sites)
+    n_1d = sum(isinstance(site, Site1d) for site in sites)
+    if n_3d and n_1d:
+        raise ValueError(
+            f"Cannot mix Site1d and Site3d objects in one dataset (got {n_3d} "
+            f"Site3d and {n_1d} Site1d); split the collection by site type first.")
+    if n_3d + n_1d != len(sites):
+        raise ValueError("All sites must be Site3d or Site1d objects.")
+
+    coords = {"site": [site.name for site in sites],
+              "latitude": ("site", np.array([np.nan if site.latitude is None else site.latitude
+                                             for site in sites], dtype=float)),
+              "longitude": ("site", np.array([np.nan if site.longitude is None else site.longitude
+                                              for site in sites], dtype=float))}
+
+    if n_3d:
+        # Sorted union of every site's period grid; per-site gaps stay NaN
+        periods = np.unique(np.concatenate([np.asarray(site.periods, dtype=float)
+                                            for site in sites]))
+        Z = np.full((len(sites), 4, len(periods)), np.nan + 1j*np.nan, dtype=complex)
+        Z_var = np.full((len(sites), 4, len(periods)), np.nan)
+        any_var = False
+        for i, site in enumerate(sites):
+            idx = np.searchsorted(periods, site.periods)
+            Z[i][:, idx] = site.Z
+            if site.Z_var is not None:
+                any_var = True
+                Z_var[i][:, idx] = site.Z_var
+        z_attrs = {"units": "(mV/km)/nT"}
+        data_vars = {"Z_real": (("site", "component", "period"), Z.real, z_attrs),
+                     "Z_imag": (("site", "component", "period"), Z.imag, z_attrs)}
+        if any_var:
+            data_vars["Z_var"] = (("site", "component", "period"), Z_var,
+                                  {"units": "((mV/km)/nT)^2"})
+        coords["period"] = ("period", periods, {"units": "s"})
+        coords["component"] = COMPONENTS
+        site_type = "3d"
+    else:
+        nlayers = max(len(site.resistivities) for site in sites)
+        thickness = np.full((len(sites), nlayers), np.nan)
+        resistivity = np.full((len(sites), nlayers), np.nan)
+        for i, site in enumerate(sites):
+            thickness[i, :len(site.thicknesses)] = site.thicknesses
+            resistivity[i, :len(site.resistivities)] = site.resistivities
+        data_vars = {"thickness": (("site", "layer"), thickness, {"units": "m"}),
+                     "resistivity": (("site", "layer"), resistivity, {"units": "ohm-m"})}
+        site_type = "1d"
+
+    return xr.Dataset(data_vars, coords=coords,
+                      attrs={"title": "bezpy MT site collection", "site_type": site_type})
+
+
+def sites_from_dataset(ds):
+    """Rebuild MT site objects from a canonical dataset.
+
+    Inverts :func:`sites_to_dataset` (see there for the convention):
+
+    * 3D sites get ``periods`` equal to the dataset's (union) period axis,
+      with NaN Z entries preserved; ``Z_var`` is None for a site whose
+      variance is all-NaN or when the ``Z_var`` variable is absent.
+    * 1D sites have the NaN layer padding stripped.
+    * NaN ``latitude``/``longitude`` become None on the site.
+
+    :param ds: ``xarray.Dataset`` following the :func:`sites_to_dataset`
+        convention
+    :return: list of :class:`Site3d` or :class:`Site1d` objects
+    :raises ValueError: if the dataset has neither 3D nor 1D site variables
+    """
+    names = [str(name) for name in ds["site"].values]
+    latitudes = np.asarray(ds["latitude"].values, dtype=float)
+    longitudes = np.asarray(ds["longitude"].values, dtype=float)
+    latitudes = [None if np.isnan(lat) else float(lat) for lat in latitudes]
+    longitudes = [None if np.isnan(lon) else float(lon) for lon in longitudes]
+
+    sites = []
+    if "Z_real" in ds:
+        periods = np.asarray(ds["period"].values, dtype=float)
+        Z = ds["Z_real"].values + 1j*ds["Z_imag"].values
+        Z_var = ds["Z_var"].values if "Z_var" in ds else None
+        for i, name in enumerate(names):
+            site_var = None
+            if Z_var is not None and not np.isnan(Z_var[i]).all():
+                site_var = Z_var[i]
+            sites.append(Site3d(name, latitude=latitudes[i], longitude=longitudes[i],
+                                periods=periods, Z=Z[i], Z_var=site_var))
+    elif "thickness" in ds:
+        thickness = np.asarray(ds["thickness"].values, dtype=float)
+        resistivity = np.asarray(ds["resistivity"].values, dtype=float)
+        for i, name in enumerate(names):
+            keep = ~np.isnan(thickness[i])
+            site = Site1d(name, thickness[i][keep], resistivity[i][keep])
+            site.latitude = latitudes[i]
+            site.longitude = longitudes[i]
+            sites.append(site)
+    else:
+        raise ValueError(
+            "Dataset does not follow the bezpy site convention: expected "
+            "Z_real/Z_imag (3d) or thickness/resistivity (1d) variables.")
+    return sites
