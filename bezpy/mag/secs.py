@@ -210,6 +210,30 @@ class SECSInterpolator:
         self._times = None
         self._is_xarray_fit = False
 
+    def __repr__(self):
+        if isinstance(self.grid, str):
+            grid = repr(self.grid)
+        elif np.ndim(self.grid) == 1:
+            grid = repr(tuple(self.grid))
+        else:
+            grid = f"<{len(self.grid)} poles>"
+        parts = [f"grid={grid}", f"spacing={self.spacing}",
+                 f"pad={self.pad}", f"altitude_km={self.altitude_km}",
+                 f"epsilon={self.epsilon}", f"method={self.method!r}"]
+        if self.fit_bz:
+            parts.append("fit_bz=True")
+        if self.method == "kalman":
+            parts.append(f"tau={self.tau}")
+            if self.gate_sigma is not None:
+                parts.append(f"gate_sigma={self.gate_sigma}")
+            if not self.smoother:
+                parts.append("smoother=False")
+        if self.robust is not None:
+            parts.append(f"robust={self.robust!r}")
+        state = (f"fitted: {len(self.obs_latlons_)} obs"
+                 if self._secs is not None else "unfitted")
+        return f"SECSInterpolator({', '.join(parts)}, {state})"
+
     def _config(self):
         """Constructor arguments reproducing this interpolator's setup."""
         return {name: getattr(self, name) for name in
@@ -338,19 +362,8 @@ class SECSInterpolator:
             ``return_var``; otherwise an ndarray (ntimes, n, 3 [Bx, By, Bz])
             (a ``(B, var)`` tuple when ``return_var``).
         """
-        if self._secs is None:
-            raise ValueError("Interpolator has not been fit yet; call .fit(b_obs)")
         latlons = _extract_latlons(locations)
-        pred_loc = np.column_stack([latlons, np.full(len(latlons), R_EARTH)])
-        model = self._kalman if self._kalman is not None else self._secs
-        if return_var:
-            B, var = model.predict(pred_loc, return_var=True)
-        else:
-            B, var = model.predict(pred_loc), None
-        # pysecs squeezes single-location/-time predictions; keep (ntimes, n, 3)
-        B = B.reshape(-1, len(latlons), 3)
-        if var is not None:
-            var = var.reshape(-1, len(latlons), 3)
+        B, var = self._predict_arrays(latlons, return_var)
 
         if not self._is_xarray_fit:
             return (B, var) if return_var else B
@@ -366,6 +379,71 @@ class SECSInterpolator:
             for i, name in enumerate(("Bx", "By", "Bz")):
                 out[f"{name}_var"] = (("time", "loc"), var[:, :, i],
                                       {"units": "nT2"})
+        return out
+
+    def _predict_arrays(self, latlons, return_var):
+        """``(B (ntimes, n, 3), var or None)`` at (n, 2) [lat, lon] points."""
+        if self._secs is None:
+            raise ValueError("Interpolator has not been fit yet; call .fit(b_obs)")
+        pred_loc = np.column_stack([latlons, np.full(len(latlons), R_EARTH)])
+        model = self._kalman if self._kalman is not None else self._secs
+        if return_var:
+            B, var = model.predict(pred_loc, return_var=True)
+        else:
+            B, var = model.predict(pred_loc), None
+        # pysecs squeezes single-location/-time predictions; keep (ntimes, n, 3)
+        B = B.reshape(-1, len(latlons), 3)
+        if var is not None:
+            var = var.reshape(-1, len(latlons), 3)
+        return B, var
+
+    def predict_grid(self, lats, lons, return_var=False):
+        """Predict the magnetic field on a regular latitude/longitude grid.
+
+        Convenience wrapper for map and grid products (live maps, movies,
+        gridded data files): builds the meshgrid from the axis values,
+        predicts at every grid point, and reshapes the result back to
+        (time, latitude, longitude). :meth:`predict` is the general
+        point-set path; both produce identical numbers at the same points.
+
+        :param lats: 1-D array of grid latitudes in degrees (the grid-axis
+            values, not a meshgridded array).
+        :param lons: 1-D array of grid longitudes in degrees.
+        :param return_var: also return the prediction variance, propagated
+            from the posterior covariance of the fitted amplitudes (treating
+            ``obs_std`` as 1-sigma errors of independent observations).
+        :return: if the interpolator was fit with a Dataset, an xarray
+            Dataset with ``Bx``/``By``/``Bz`` (time, latitude, longitude),
+            1-D latitude/longitude coordinates, and
+            ``Bx_var``/``By_var``/``Bz_var`` when ``return_var``; otherwise
+            an ndarray (ntimes, nlat, nlon, 3 [Bx, By, Bz]) (a ``(B, var)``
+            tuple when ``return_var``).
+        """
+        lats = np.atleast_1d(np.asarray(lats, dtype=float))
+        lons = np.atleast_1d(np.asarray(lons, dtype=float))
+        if lats.ndim != 1 or lons.ndim != 1:
+            raise ValueError("lats and lons must be 1-D grid-axis arrays; "
+                             "use predict() for general point sets")
+        glat, glon = np.meshgrid(lats, lons, indexing="ij")
+        latlons = np.column_stack([glat.ravel(), glon.ravel()])
+        B, var = self._predict_arrays(latlons, return_var)
+        shape = (-1, len(lats), len(lons), 3)
+        B = B.reshape(shape)
+        if var is not None:
+            var = var.reshape(shape)
+
+        if not self._is_xarray_fit:
+            return (B, var) if return_var else B
+        import xarray as xr
+        dims = ("time", "latitude", "longitude")
+        coords = {"time": self._times, "latitude": lats, "longitude": lons}
+        out = xr.Dataset(
+            {name: (dims, B[..., i], {"units": "nT"})
+             for i, name in enumerate(("Bx", "By", "Bz"))},
+            coords=coords)
+        if var is not None:
+            for i, name in enumerate(("Bx", "By", "Bz")):
+                out[f"{name}_var"] = (dims, var[..., i], {"units": "nT2"})
         return out
 
     def loo_score(self, b_obs, obs_latlons=None, metric="rmse", **overrides):

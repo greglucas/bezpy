@@ -258,3 +258,93 @@ def test_predict_single_time_step():
 def test_predict_before_fit_raises():
     with pytest.raises(ValueError, match="not been fit"):
         SECSInterpolator().predict(TEST_LATLONS)
+    with pytest.raises(ValueError, match="not been fit"):
+        SECSInterpolator().predict_grid([38., 40.], [-105., -100.])
+
+
+GRID_LATS = np.array([37., 39., 41.])
+GRID_LONS = np.array([-107., -104., -101., -98.])
+
+
+def test_predict_grid_matches_predict(synthetic):
+    """predict_grid must equal predict on the flattened grid points."""
+    B_obs, _ = synthetic
+    interp = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS)
+    grid = interp.predict_grid(GRID_LATS, GRID_LONS)
+    assert grid.shape == (len(B_obs), len(GRID_LATS), len(GRID_LONS), 3)
+
+    glat, glon = np.meshgrid(GRID_LATS, GRID_LONS, indexing="ij")
+    flat = interp.predict(np.column_stack([glat.ravel(), glon.ravel()]))
+    np.testing.assert_array_equal(grid, flat.reshape(grid.shape))
+
+
+def test_predict_grid_return_var(synthetic):
+    B_obs, _ = synthetic
+    interp = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS)
+    B, var = interp.predict_grid(GRID_LATS, GRID_LONS, return_var=True)
+    assert B.shape == var.shape == (len(B_obs), len(GRID_LATS),
+                                    len(GRID_LONS), 3)
+    assert (var[..., :2] > 0).all()
+
+    _, var_flat = interp.predict(
+        np.column_stack([c.ravel() for c in
+                         np.meshgrid(GRID_LATS, GRID_LONS, indexing="ij")]),
+        return_var=True)
+    np.testing.assert_array_equal(var, var_flat.reshape(var.shape))
+
+
+def test_predict_grid_xarray(synthetic):
+    xr = pytest.importorskip("xarray")
+    B_obs, _ = synthetic
+    times = (np.datetime64("2024-05-10")
+             + np.arange(len(B_obs))*np.timedelta64(60, "s"))
+    ds = xr.Dataset(
+        {name: (("time", "obs"), B_obs[:, :, i]) for i, name in
+         enumerate(("Bx", "By", "Bz"))},
+        coords={"time": times, "obs": [f"OB{i}" for i in range(len(OBS_LATLONS))],
+                "latitude": ("obs", OBS_LATLONS[:, 0]),
+                "longitude": ("obs", OBS_LATLONS[:, 1])})
+    interp = SECSInterpolator().fit(ds)
+
+    out = interp.predict_grid(GRID_LATS, GRID_LONS, return_var=True)
+    assert {"Bx", "By", "Bz", "Bx_var", "By_var", "Bz_var"} == set(out.data_vars)
+    assert out["Bx"].dims == ("time", "latitude", "longitude")
+    np.testing.assert_array_equal(out["time"].values, times)
+    np.testing.assert_array_equal(out["latitude"].values, GRID_LATS)
+    np.testing.assert_array_equal(out["longitude"].values, GRID_LONS)
+    assert out["Bx"].attrs["units"] == "nT"
+    assert out["Bx_var"].attrs["units"] == "nT2"
+
+    # Same numbers as the bare-array path
+    plain = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS)
+    np.testing.assert_array_equal(
+        np.stack([out[v].values for v in ("Bx", "By", "Bz")], axis=-1),
+        plain.predict_grid(GRID_LATS, GRID_LONS))
+
+
+def test_predict_grid_rejects_meshgridded_input(synthetic):
+    B_obs, _ = synthetic
+    interp = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS)
+    glat, glon = np.meshgrid(GRID_LATS, GRID_LONS, indexing="ij")
+    with pytest.raises(ValueError, match="1-D grid-axis"):
+        interp.predict_grid(glat, glon)
+
+
+def test_repr(synthetic):
+    B_obs, _ = synthetic
+    interp = SECSInterpolator()
+    text = repr(interp)
+    assert "method='lstsq'" in text
+    assert "unfitted" in text
+    assert "tau" not in text  # kalman-only parameter suppressed
+
+    interp.fit(B_obs, obs_latlons=OBS_LATLONS)
+    assert f"fitted: {len(OBS_LATLONS)} obs" in repr(interp)
+
+    kalman = repr(SECSInterpolator(method="kalman", gate_sigma=4.))
+    assert "method='kalman'" in kalman
+    assert "tau=3600.0" in kalman
+    assert "gate_sigma=4.0" in kalman
+
+    robust = repr(SECSInterpolator(robust="huber"))
+    assert "robust='huber'" in robust

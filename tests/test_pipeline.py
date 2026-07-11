@@ -114,6 +114,16 @@ def test_leave_one_out_changes_fit(setup):
     assert not np.allclose(e_all["Ex"].values, e_loo["Ex"].values)
 
 
+def test_calc_geoelectric_field_sitecollection(setup):
+    """A SiteCollection passed as sites= must match the list path exactly."""
+    b_obs, sites, _ = setup
+    e_list = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h")
+    e_coll = bezpy.calc_geoelectric_field(b_obs, SiteCollection(sites), pad="1h")
+    np.testing.assert_array_equal(e_coll["Ex"].values, e_list["Ex"].values)
+    np.testing.assert_array_equal(e_coll["Ey"].values, e_list["Ey"].values)
+    np.testing.assert_array_equal(e_coll["site"].values, e_list["site"].values)
+
+
 def test_calc_voltages(setup):
     b_obs, sites, lines = setup
     e = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h")
@@ -236,6 +246,16 @@ def test_storm_scan(setup):
     assert result["E_max"].shape == (2, len(sites))
     assert result["V_max"].shape == (2, len(lines))
     assert (result["E_max"].values > 0).all()
+
+
+def test_storm_scan_sitecollection(setup):
+    b_obs, sites, _ = setup
+    windows = [(pd.Timestamp("2024-05-10 02:00"),
+                pd.Timestamp("2024-05-10 06:00"))]
+    from_list = storm_scan(windows, b_obs, sites, pad="1h")
+    from_collection = storm_scan(windows, b_obs, SiteCollection(sites), pad="1h")
+    np.testing.assert_array_equal(from_collection["E_max"].values,
+                                  from_list["E_max"].values)
 
 
 def test_filter_bbox_and_polygon():

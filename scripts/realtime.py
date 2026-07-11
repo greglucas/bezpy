@@ -194,22 +194,22 @@ if args.verbose:
 #-----------------------
 # Set up regular grids
 #-----------------------
-delta_x = delta_y = 2
+delta_lon = delta_lat = 2
 
-xs = np.arange(-180, -20, delta_x)
-ys = np.arange(0, 89, delta_y)
-yy, xx = np.meshgrid(ys, xs)
-# Change it to an N x 2 matrix
-gridded_xy = np.vstack([np.ravel(xx), np.ravel(yy)]).T
+grid_lons = np.arange(-180, -20, delta_lon)
+grid_lats = np.arange(0, 89, delta_lat)
 
 # Plot grid
 # NOTE: This specifies box edges for pcolormesh, which must be
 #       one longer than the 'data points'
-grid_shape = xx.shape
+grid_shape = (len(grid_lats), len(grid_lons))
+lon_edges = np.append(grid_lons - delta_lon/2, grid_lons[-1] + delta_lon/2)
+lat_edges = np.append(grid_lats - delta_lat/2, grid_lats[-1] + delta_lat/2)
 
-xs = np.append((xs - delta_x/2), xs[-1] + delta_x/2)
-ys = np.append((ys - delta_y/2), ys[-1] + delta_y/2)
-yy_edges, xx_edges = np.meshgrid(ys, xs)
+# Flattened (lon, lat) grid points for the quivers, in the same order as
+# predict_grid's flattened (lat, lon) output
+glon, glat = np.meshgrid(grid_lons, grid_lats)
+gridded_xy = np.column_stack([glon.ravel(), glat.ravel()])
 
 #--------------
 # SECS
@@ -219,7 +219,8 @@ yy_edges, xx_edges = np.meshgrid(ys, xs)
 interp = bezpy.mag.SECSInterpolator(grid=(-175, 15, -25, 85), spacing=2.0)
 interp.fit(B_obs, obs_latlons=good_xy[:, ::-1])
 
-B_gridded = interp.predict(gridded_xy[:, ::-1])
+# (ntimes, nlat, nlon, 3) in one call; flatten the grid for the quivers
+B_gridded = interp.predict_grid(grid_lats, grid_lons).reshape(len(B), -1, 3)
 
 if args.verbose:
     print("SECS Interpolation: {:.2f} s".format(time.time()-t0))
@@ -291,7 +292,7 @@ if args.secmap:
 
     fig, ax = setup_map()
 
-    cax = ax.pcolormesh(xx_edges, yy_edges, B_mag.reshape(grid_shape),
+    cax = ax.pcolormesh(lon_edges, lat_edges, B_mag.reshape(grid_shape),
                                cmap=cmap, norm=norm,
                                transform=proj_data)
 
@@ -344,7 +345,7 @@ if args.movie:
     B_mag = np.sqrt(Bx**2 + By**2)
     By_log, Bx_log = scale_vectors(By, Bx)
 
-    cax = ax.pcolormesh(xx_edges, yy_edges, B_mag.reshape(grid_shape),
+    cax = ax.pcolormesh(lon_edges, lat_edges, B_mag.reshape(grid_shape),
                                cmap=cmap, norm=norm,
                                transform=proj_data)
 
@@ -409,7 +410,7 @@ if args.movie:
         By = B_gridded[t,:,1]
         B_mag = np.sqrt(Bx**2 + By**2)
 
-        cax.set_array(B_mag)
+        cax.set_array(B_mag.reshape(grid_shape))
 
         # Uniform grid vectors
         Bx = B_uniform[t,:,0]

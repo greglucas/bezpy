@@ -61,7 +61,8 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
         ``bezpy.mag.combine_observatories`` /
         ``bezpy.data.load_observatory_group``), or a dict of per-observatory
         Datasets/DataFrames which is combined first
-    :param sites: list of MT sites (``Site3d``/``Site1d``)
+    :param sites: list of MT sites (``Site3d``/``Site1d``) or a
+        ``SiteCollection``
     :param interp: how B reaches the sites: ``"secs"`` (default) fits a SECS
         interpolator so each site sees its local field; ``"uniform"`` applies
         the single observatory's field everywhere (requires exactly one
@@ -79,11 +80,16 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
     :param leave_one_out: observatory code to exclude from the SECS fit
         (validation hook)
     :param collection: optionally a reused ``SiteCollection`` (keeps its
-        interpolated-impedance cache warm across equal-length windows)
+        interpolated-impedance cache warm across equal-length windows);
+        takes precedence over a ``SiteCollection`` passed as ``sites``
     :return: Dataset with ``Ex``/``Ey`` (time, site) in mV/km; site
         latitude/longitude coordinates; pad metadata already trimmed
     """
     xr = _require_xarray()
+    if hasattr(sites, "sites"):  # a SiteCollection was passed
+        if collection is None:
+            collection = sites
+        sites = sites.sites
     if isinstance(b_obs, dict):
         b_obs = combine_observatories(b_obs)
     prepared = prepare(b_obs, window=window, pad=pad, detrend=detrend,
@@ -249,7 +255,8 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
     machinery, so the result is invariant to the chunk size.
 
     :param b_obs: ``(time, obs)`` Dataset covering the whole record
-    :param sites: list of MT sites
+    :param sites: list of MT sites (``Site3d``/``Site1d``) or a
+        ``SiteCollection``
     :param lines: optional TransmissionLines to reduce voltages for
     :param chunk: chunk length as a pandas period frequency (default one
         year; use e.g. ``"3ME"`` to bound memory for dense site sets)
@@ -268,13 +275,17 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
         event catalog and to ``bezpy.stats.return_level`` for hazard levels.
     """
     xr = _require_xarray()
+    if hasattr(sites, "sites"):  # a SiteCollection was passed
+        collection = sites
+        sites = collection.sites
+    else:
+        collection = SiteCollection(sites)
     chunks = _chunk_edges(b_obs["time"].values, chunk)
     thresholds = threshold if isinstance(threshold, dict) \
         else {"E": threshold, "V": threshold}
     site_reducer = _Reducers(len(sites), reduce, thresholds.get("E"))
     line_reducer = _Reducers(len(lines), reduce, thresholds.get("V")) \
         if lines is not None else None
-    collection = SiteCollection(sites)
 
     done_until = None
     if out_path is not None:
@@ -380,7 +391,8 @@ def storm_scan(catalog, b_obs, sites, lines=None, how="delaunay",
         (``bezpy.storms.find_storms`` output) or a sequence of
         ``(start, end)`` pairs
     :param b_obs: ``(time, obs)`` Dataset covering the storms
-    :param sites: list of MT sites
+    :param sites: list of MT sites (``Site3d``/``Site1d``) or a
+        ``SiteCollection``
     :param lines: optional TransmissionLines
     :param field_kwargs: forwarded to :func:`calc_geoelectric_field`
     :return: Dataset ``(storm, site[, line])`` with ``E_max`` (mV/km),
@@ -392,7 +404,11 @@ def storm_scan(catalog, b_obs, sites, lines=None, how="delaunay",
     else:
         windows = [(pd.Timestamp(s), pd.Timestamp(e)) for s, e in catalog]
 
-    collection = SiteCollection(sites)
+    if hasattr(sites, "sites"):  # a SiteCollection was passed
+        collection = sites
+        sites = collection.sites
+    else:
+        collection = SiteCollection(sites)
     e_max, v_max = [], []
     for start, end in windows:
         e = calc_geoelectric_field(b_obs, sites, window=(start, end),
