@@ -42,6 +42,24 @@ These conventions hold everywhere in bezpy. When a legacy interface deviates
 - Processing metadata (pad extent, sample interval) travels in `attrs` —
   `bezpy.mag.prepare` writes it, `bezpy.mag.trim_pad` consumes it.
 
+## Canonical site-collection dataset
+
+MT site collections have one canonical xarray form, produced by
+`SiteCollection.to_dataset()` / consumed by `SiteCollection.from_dataset()`
+(with `to_netcdf` / `from_netcdf` for files). Every reader — EMTF XML,
+Z-files, EDI, gridded impedance products — yields sites that round-trip
+through it, so a collection saved from one study loads instantly in the
+next with no pickles and no reparsing:
+
+| | dims | variables | coords |
+| --- | --- | --- | --- |
+| 3D (`Site3d`) | `site`, `component`, `period` | `Z_real`, `Z_imag` [, `Z_var`] | `site` names, `latitude`/`longitude` (site), `period` (s, ascending), `component` = `xx, xy, yx, yy` |
+| 1D (`Site1d`) | `site`, `layer` | `thickness` (m), `resistivity` (ohm-m) | `site` names, `latitude`/`longitude` (site) |
+
+Sites with different period grids share the sorted union axis with NaN
+where a site has no estimate (all downstream interpolation drops NaNs
+per-component).
+
 ## Method options
 
 Everywhere past practice and the current default diverge, the legacy

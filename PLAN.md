@@ -435,18 +435,20 @@ dropping the interpolator's method configuration, `scan` double-counting
 reducer state when resuming onto a foreign netCDF file, and an all-NaN
 warning in `storm_scan`. Questions that need a maintainer decision:
 
-- **Q1. Gridded conductivity/impedance input (the stated goal).** Everything
-  downstream consumes a plain list of sites, so gridded products only need a
-  reader that yields sites. Recommendation: define one xarray convention —
-  dims `(site, period)`, variables `Z_real`/`Z_imag` (`(site, 4, period)`,
-  (xx, xy, yx, yy) order) or `thickness`/`resistivity` for 1D columns,
-  coords `latitude`/`longitude`/`period` — with
-  `bezpy.mt.sites_from_dataset(ds)` / `sites_to_dataset(sites)` as the
-  round-trip pair, then thin per-format adapters (ModEM model files, the
-  gridded CONUS impedance products) that emit that convention. A flattened
-  grid is just a site list; `filter_bbox`-style selection works unchanged.
-  Needs: which source formats actually matter first (recommend: the netCDF
-  gridded impedance product you use most; ModEM rho files second).
+- **Q1. Gridded conductivity/impedance input (the stated goal).** ✅ RESOLVED
+  (2026-07-10). A review of the maintainer's liveswx_geoelectric service
+  answered the format question: the product in production use is the ModEM
+  data-format gridded CONUS impedance file (0.25°, 45 periods), which that
+  service parsed with a hardcoded header count and cached as a pickle.
+  Landed: the canonical xarray convention (`sites_to_dataset` /
+  `sites_from_dataset`, `SiteCollection.to_dataset/from_dataset/
+  to_netcdf/from_netcdf` — see docs/conventions.md), a content-driven
+  `bezpy.mt.read_gridded_impedance` (header-variant tolerant, error column
+  → `Z_var`, longitudes normalized; `ConductivityModel` now delegates to
+  it), `SECSInterpolator.predict_grid`, SiteCollection-aware pipeline entry
+  points, and a tutorial (docs/tutorials/gridded-impedance.md) doing the
+  live-map workflow end-to-end. Spline interpolation now degrades its
+  degree for short period lists instead of failing inside scipy.
 - **Q2. Kalman/robust defaults.** Evidence (VALIDATION.md §3.1) says kalman
   wins on synthetic noise but costs `8*ntimes*npoles^2` bytes of covariance.
   Recommendation: keep `lstsq` default; revisit after the reference-storm

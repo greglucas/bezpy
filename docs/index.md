@@ -16,7 +16,9 @@ The package covers the full workflow:
    current systems carry the observatory field to any location, with missing
    samples masked rather than interpolated over.
 4. **Compute E and V** (`bezpy.mt`, `bezpy.tl`): batched FFT convolution with
-   each site's impedance; line voltages via precomputed kernels (one sparse
+   each site's impedance — individual EMTF XML sites or whole gridded
+   impedance products read the same way, and any collection saves/loads as
+   one canonical netCDF; line voltages via precomputed kernels (one sparse
    matmul for all lines) or per-line telluric response functions computed
    straight from B.
 5. **Scan and catalog** (`bezpy.pipeline`, `bezpy.storms`): process decades of

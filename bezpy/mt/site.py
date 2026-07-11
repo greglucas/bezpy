@@ -199,21 +199,32 @@ class Site3d(Site):
                 weights = 1./np.sqrt(np.abs(self.Z_var[i, good_vals]))
                 smooth_factor = None  # This lets the interpolation function determine the smoothing
 
+            # The spline degree needs at least k+1 points; short period lists
+            # (e.g. downsampled gridded products) fall back to lower degrees
+            # rather than failing inside scipy.
+            ngood = int(np.count_nonzero(good_vals))
+            if ngood < 2:
+                raise ValueError(
+                    f"site {self.name}: component {i} ({'xx xy yx yy'.split()[i]}) "
+                    f"has {ngood} valid impedance estimate(s); need at least 2 "
+                    "to interpolate Z")
+            k = min(3, ngood - 1)
+
             # Whether to interpolate on magnitude/phase of Z,
             # or on the real/imaginary components of Z
             if mag_phase_interp:
                 spl_mag = interp_func(periods[good_vals], np.abs(self.Z[i, good_vals]),
-                                      w=weights, ext=extrapolate, s=smooth_factor)
+                                      w=weights, k=k, ext=extrapolate, s=smooth_factor)
                 spl_phase = interp_func(periods[good_vals],
                                         np.unwrap(np.angle(self.Z[i, good_vals])),
-                                        w=weights, ext=extrapolate, s=smooth_factor)
+                                        w=weights, k=k, ext=extrapolate, s=smooth_factor)
                 with np.errstate(invalid='ignore'):
                     Z_interp[i, :] = spl_mag(x) * np.exp(1j*np.unwrap(spl_phase(x)))
             else:
                 spl = interp_func(periods[good_vals], self.Z[i, good_vals].real,
-                                  w=weights, ext=extrapolate, s=smooth_factor)
+                                  w=weights, k=k, ext=extrapolate, s=smooth_factor)
                 splc = interp_func(periods[good_vals], self.Z[i, good_vals].imag,
-                                   w=weights, ext=extrapolate, s=smooth_factor)
+                                   w=weights, k=k, ext=extrapolate, s=smooth_factor)
                 with np.errstate(invalid='ignore'):
                     Z_interp[i, :] = spl(x) + 1j*splc(x)
 
@@ -597,71 +608,23 @@ class SiteCollection:
 
 
 class ConductivityModel(SiteCollection):
-    """Collection of MT sites from a conductivity model
-    
-    This reads in the ModEM model files and creates a SiteCollection
+    """Collection of MT sites from a ModEM data/response file.
+
+    Compatibility wrapper around :func:`bezpy.mt.read_gridded_impedance`,
+    which replaced the original header-counting parser here: it is
+    content-driven (tolerant of the header variants across product
+    versions), reads the error column into ``Z_var`` when present, and
+    normalizes longitudes to -180..180. Prefer calling
+    ``read_gridded_impedance`` directly in new code.
 
     Parameters
     ----------
-    fname : str or Path
-        Path to the model output file
+    filename : str or Path
+        Path to the ModEM-format data file
     """
     def __init__(self, filename):
-        sites = []
-        with open(filename) as f:
-            while True:
-                line = f.readline()
-                if line.startswith(">"):
-                    break
-            for i in range(4):
-                # 5 ">" lines
-                f.readline()
-            # Now we are at the line with the number of periods
-            # which we need to keep track of so we know how big
-            # of an array we need to allocate
-            nperiods = int(f.readline().split()[1])
-
-            # Now start parsing the actual site content
-            prev_site_name = None
-            for line in f:
-                if line.startswith('#'):
-                    # Hit the TX / TY section which we don't need
-                    break
-                elements = line.split()
-                period = float(elements[0])
-                name = elements[1]
-                lat = float(elements[2])
-                lon = float(elements[3])
-                component = elements[7]
-                val = float(elements[8]) + float(elements[9])*1j
-
-                if name != prev_site_name:
-                    prev_site_name = name
-                    site = Site3d(name)
-                    sites.append(site)
-                    site.latitude = lat
-                    site.longitude = lon
-                    site.periods = np.zeros(nperiods)
-                    site.Z = np.zeros((4, nperiods), dtype=complex)
-                    old_period = 0.
-                    period_counter = -1
-
-                if period != old_period:
-                    period_counter += 1
-                    old_period = period
-                    site.periods[period_counter] = period
-
-                if component == 'ZXX':
-                    loc = 0
-                elif component == 'ZXY':
-                    loc = 1
-                elif component == 'ZYX':
-                    loc = 2
-                elif component == 'ZYY':
-                    loc = 3
-
-                site.Z[loc, period_counter] = val
-        super().__init__(sites)
+        from .modem import read_gridded_impedance
+        super().__init__(read_gridded_impedance(filename).sites)
 
 
 # ---------------------------------

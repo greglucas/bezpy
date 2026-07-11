@@ -50,5 +50,6 @@ nav:
       - Storm catalogs and case studies: tutorials/storm-catalog.md
       - Continuous scan to hazard map: tutorials/hazard-scan.md
       - Line voltages via kernels: tutorials/line-voltages.md
+      - Gridded impedance and live maps: tutorials/gridded-impedance.md
   - API reference: api.md
   - Validation results: validation.md

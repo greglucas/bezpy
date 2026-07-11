@@ -100,3 +100,28 @@ def test_list_1d_sites():
     assert names == sorted(names)
     # Every listed name resolves
     assert all(bezpy.mt.get_1d_site(name) is not None for name in names)
+
+
+def test_short_period_list_interpolates():
+    """Sites with fewer than 4 periods (e.g. downsampled gridded products)
+    must fall back to a lower spline degree instead of failing in scipy."""
+    import numpy as np
+
+    from bezpy.mt.site import Site3d, SiteCollection
+    for nper in (2, 3):
+        periods = np.logspace(1, 3, nper)
+        Z = np.zeros((4, nper), dtype=complex)
+        Z[1] = (1 + 1j) * np.sqrt(1. / periods)
+        Z[2] = -Z[1]
+        site = Site3d("short", latitude=40., longitude=-105.,
+                      periods=periods, Z=Z)
+        ex, ey = SiteCollection([site]).convolve_fft(
+            np.sin(np.arange(256) / 20.), np.cos(np.arange(256) / 20.), dt=60)
+        assert np.isfinite(ex).all() and np.isfinite(ey).all()
+
+    # A single valid estimate is not interpolable: clear error, names the site
+    import pytest
+    bad = Site3d("lonely", periods=np.array([10., 100.]),
+                 Z=np.array([[1 + 1j, np.nan]] * 4, dtype=complex))
+    with pytest.raises(ValueError, match="lonely"):
+        bad.calcZ(np.array([0.01, 0.001]))
