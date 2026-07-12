@@ -76,6 +76,10 @@ evidence-driven validation story. See `PLAN.md` for the design decisions and
   exceedance collection warns when a threshold is set too low.
 - NIMS system-ID parsing recognizes backbone ("B") units; experimental-unit
   notice is a warning, not a print.
+- INTERMAGNET GIN requests are chunked to 92 days of minute data (1 day of
+  second data) and halve adaptively on connection resets: the GIN drops
+  responses larger than ~10 MB mid-transfer regardless of its documented
+  366-day request limit, which made multi-month downloads fail.
 - `spud` bundle resolution, INTERMAGNET table refresh, pathlib waveform IO,
   `calc_resistivity` naming (deprecated misspelled alias retained).
 

@@ -31,10 +31,14 @@ from ._levels import BEST, canonical_level
 
 DEFAULT_BASE_URL = "https://imag-data.bgs.ac.uk/GIN_V1/GINServices"
 
-# GIN request-duration caps (per the service spec): 366 days for minute means,
-# 31 days for one-second data.
-_MAX_CHUNK_DAYS_MINUTE = 366
-_MAX_CHUNK_DAYS_SECOND = 31
+# GIN request-duration caps. The service *spec* allows 366 days of minute
+# means (31 for one-second data), but in practice the GIN resets the
+# connection on large responses: empirically (2026-07) 92 days of minute data
+# (~10 MB) is served reliably while 183+ days is reset mid-transfer. Chunks
+# are also halved adaptively on transport errors (see fetch_dataframe), so
+# these are starting points, not hard assumptions.
+_MAX_CHUNK_DAYS_MINUTE = 92
+_MAX_CHUNK_DAYS_SECOND = 1
 
 
 def publication_state(level):
@@ -134,6 +138,11 @@ def fetch_dataframe(code, start, end, sampling_period=60, level="best",
                     verbose=False):
     """Fetch an interval from the GIN, chunking long requests.
 
+    Requests are chunked to the empirically reliable duration and the chunk
+    size is halved (down to one day) whenever the GIN drops the connection
+    mid-transfer, which it does for large responses regardless of the
+    documented duration limits.
+
     Returns a :class:`pandas.DataFrame` indexed by UTC time (XYZF columns).
     """
     import requests
@@ -144,22 +153,42 @@ def fetch_dataframe(code, start, end, sampling_period=60, level="best",
         raise ValueError(f"end ({end}) must be after start ({start})")
 
     getter = session.get if session is not None else requests.get
-    max_days = _max_chunk_days(sampling_period)
+    chunk_days = _max_chunk_days(sampling_period)
 
     frames = []
     chunk_start = start
+    failures = 0
     while chunk_start < end:
         # GIN duration is whole days; request enough days to cover the chunk.
         remaining = (end - chunk_start).total_seconds() / 86400
-        duration = min(max_days, max(1, math.ceil(remaining)))
+        duration = min(chunk_days, max(1, math.ceil(remaining)))
         url = build_url(code, chunk_start, duration,
                         sampling_period=sampling_period, level=level,
                         base_url=base_url)
         if verbose:
             print(f"Fetching {code} [{level}] {chunk_start.date()} +{duration}d")
-        response = getter(url, timeout=timeout)
-        response.raise_for_status()
-        frames.append(parse_iaga_text(response.text))
+        try:
+            response = getter(url, timeout=timeout)
+            response.raise_for_status()
+            text = response.text
+        except requests.RequestException as exc:
+            if duration > 1:
+                # The GIN resets connections on responses it deems too large
+                # (and occasionally on transient load); retry the same window
+                # with half the duration.
+                chunk_days = max(1, duration // 2)
+                if verbose:
+                    print(f"  {type(exc).__name__}; retrying with "
+                          f"{chunk_days}-day chunks")
+                continue
+            failures += 1
+            if failures < 3:  # transient failure at the 1-day floor
+                if verbose:
+                    print(f"  {type(exc).__name__}; retry {failures}/2")
+                continue
+            raise
+        failures = 0
+        frames.append(parse_iaga_text(text))
         chunk_start = chunk_start + datetime.timedelta(days=duration)
 
     combined = pd.concat(frames)
