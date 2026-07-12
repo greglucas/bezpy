@@ -7,11 +7,19 @@ from .pipeline import calc_geoelectric_field, calc_voltages
 
 # The data-acquisition subpackage relies on optional dependencies (pooch,
 # xarray, a netCDF engine). Only expose bezpy.data when they are installed so
-# the base package stays importable without them. Users can always
-# `import bezpy.data` directly to get the actionable "install bezpy[data]" error.
+# the base package stays importable without them; accessing bezpy.data without
+# them raises the actionable install hint below instead of an AttributeError.
 try:
     from . import data
-except ImportError:
-    data = None
+except ImportError as exc:
+    _DATA_IMPORT_ERROR = str(exc)
 
-__version__ = '0.2.0'
+    def __getattr__(name):
+        if name == "data":
+            raise ImportError(
+                "bezpy.data requires optional dependencies; install them with "
+                "`pip install 'bezpy[data]'` "
+                f"(import failed with: {_DATA_IMPORT_ERROR})")
+        raise AttributeError(f"module 'bezpy' has no attribute {name!r}")
+
+__version__ = '0.5.0'

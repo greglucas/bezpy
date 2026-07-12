@@ -462,24 +462,15 @@ class SECSInterpolator:
             :meth:`fit` keyword (``gaps``, ``times``, ...).
         :return: dict mapping observatory (name if known, else index) to score
         """
-        B, latlons, times, obs_names = _extract_b(b_obs, obs_latlons)
+        # One implementation of the fold loop lives in bezpy.validation;
+        # this is the tuning-oriented front end (config overrides, dict out).
+        from ..validation import leave_one_out
         config = self._config()
         fit_kwargs = {key: overrides.pop(key) for key in list(overrides)
                       if key not in config}
         config.update(overrides)
-        trial = SECSInterpolator(**config)
-        if times is not None:
-            fit_kwargs.setdefault("times", times)
-        reducer = {"rmse": lambda err: np.sqrt(np.nanmean(err**2)),
-                   "mae": lambda err: np.nanmean(np.abs(err))}[metric]
-
-        scores = {}
-        for i in range(len(latlons)):
-            std = np.ones(B.shape)
-            std[:, i, :] = np.inf
-            trial.fit(B, obs_latlons=latlons, obs_std=std, **fit_kwargs)
-            predicted = trial.predict(latlons[i:i+1])[:, 0, :2]
-            err = predicted - B[:, i, :2]
-            name = obs_names[i] if obs_names is not None else i
-            scores[name] = reducer(err)
-        return scores
+        if obs_latlons is not None:
+            fit_kwargs["obs_latlons"] = obs_latlons
+        df = leave_one_out(b_obs, interp=SECSInterpolator(**config),
+                           metrics=(metric,), **fit_kwargs)
+        return df[metric].to_dict()

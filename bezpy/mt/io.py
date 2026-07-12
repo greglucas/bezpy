@@ -142,6 +142,10 @@ def read_xml(fname):
 
     site.quality_flag = convert_int(get_text(xml_site, "DataQualityWarnings/Flag"))
 
+    # The file's declared Fourier convention. bezpy works in exp(+ i omega t)
+    # (the EMTF default); files declaring exp(- i omega t) are conjugated on
+    # read below so every Site3d carries one convention. The attribute records
+    # what the file declared.
     sign_convention = get_text(root, "ProcessingInfo/SignConvention")
     site.sign_convention = -1 if sign_convention is not None and "-" in sign_convention else 1
 
@@ -170,6 +174,11 @@ def read_xml(fname):
     except KeyError:
         # No variance in the data fields
         site.Z_var = None
+
+    if site.sign_convention == -1:
+        # Convert exp(- i omega t) impedances to the package's exp(+ i omega t)
+        # convention; without this the impulse response is time-reversed.
+        site.Z = np.conj(site.Z)
 
     site.calc_resistivity()
 

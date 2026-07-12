@@ -303,6 +303,14 @@ class TelluricResponse:
             ``(chunk, nfreq)`` complex workspace for long time series
         :return: voltages in volts, shape ``(ntimes, nlines)``
         """
+        mag_x, mag_y = np.asarray(mag_x, dtype=float), np.asarray(mag_y, dtype=float)
+        if mag_x.shape != mag_y.shape:
+            raise ValueError("mag_x and mag_y must have the same shape")
+        if np.isnan(mag_x).any() or np.isnan(mag_y).any():
+            raise ValueError(
+                "magnetic field input contains NaNs, which would corrupt the "
+                "FFT; interpolate them (bezpy.mag.prepare(gaps='interpolate')) "
+                "or predict gap-free fields with SECS first")
         N0 = len(mag_x)
         # Same padding rule as Site.convolve_fft (prevents circular convolution)
         N = 2**(int(np.log2(N0))+2)

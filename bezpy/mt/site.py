@@ -20,6 +20,11 @@ from .utils import apparent_resistivity
 # ----------------------------
 MU = 4*np.pi*1e-7  # Magnetic Permeability (H/m)
 
+# SiteCollection.convolve_fft processes sites in blocks whose frequency-domain
+# workspace (interpolated impedances + spectra) stays under this budget; the
+# interpolated-impedance cache is only kept when the whole collection fits.
+_CONVOLVE_BUDGET_BYTES = 512 * 2**20
+
 
 class Site:
     """Magnetotelluric Site base class."""
@@ -181,6 +186,14 @@ class Site3d(Site):
 
             # Need to drop nans
             good_vals = ~np.isnan(self.Z[i, :])
+            # When variances weight the spline, a non-finite or zero variance
+            # would poison every interpolated value (NaN weights propagate
+            # through the whole spline; zero variance is an infinite weight).
+            # Drop those periods from the fit instead -- same policy read_xml
+            # applies at parse time, enforced here so every entry path
+            # (gridded products, user-supplied Z_var) is safe.
+            if self.Z_var is not None:
+                good_vals &= np.isfinite(self.Z_var[i, :]) & (self.Z_var[i, :] != 0.)
             # Limit the period range if the min and max periods are given
             # Note that we need to work with self.periods because the local
             # variable periods could be log-transformed
@@ -366,6 +379,10 @@ class Site3d(Site):
 
         This is added as an extra method to add the components to the in-memory
         objects, rather than saving the transformed values to disk.
+
+        Uses the projection (transpose) rather than the exact inverse of the
+        channel-orientation matrix, which is identical when the two channels
+        of each pair are orthogonal -- the standard installation.
         """
         # Magnetic field components rotated by the channel orientation
         self.waveforms["Bx"] = (self.waveforms["BN"] * np.cos(np.deg2rad(self.channel_orientation["Bx"]))
@@ -540,8 +557,28 @@ class SiteCollection:
             ds.load()
         return cls.from_dataset(ds)
 
-    def convolve_fft(self, mag_x, mag_y, dt=60, extrapolate="zeros"):
+    def _calc_block_Z(self, sites, freqs, extrapolate):
+        """Interpolated impedances (4, len(sites), nfreqs) for a site block."""
+        Z = np.zeros((4, len(sites), len(freqs)), dtype=complex)
+        for i, site in enumerate(sites):
+            try:
+                Z[:, i, :] = site.calcZ(freqs, extrapolate=extrapolate)
+            except TypeError:
+                # Physical sites (Site1d) are valid at all frequencies
+                Z[:, i, :] = site.calcZ(freqs)
+        return Z
+
+    def convolve_fft(self, mag_x, mag_y, dt=60, extrapolate="zeros",
+                     site_chunk=None):
         """Convolution in frequency space for all sites at once.
+
+        Memory scales with ``nsites * nfft`` (``nfft`` is roughly 4x the input
+        length): the frequency-domain workspace is ~200 bytes per site per
+        input sample, and the returned E arrays are ``16 * nsites * ntimes``
+        bytes. Sites are processed in blocks sized to keep the workspace
+        under a fixed budget, so large collections (e.g. gridded impedance
+        products) trade the impedance cache for bounded memory; the output
+        size is up to the caller (shorten the window or chunk the scan).
 
         :param mag_x: northward magnetic field in nT; shape ``(ntimes,)``
             applies the same (spatially uniform) field to every site, shape
@@ -551,6 +588,9 @@ class SiteCollection:
         :param dt: sample interval in seconds
         :param extrapolate: band-edge handling passed through to each site's
             ``calcZ`` where supported (see ``Site3d.calcZ``)
+        :param site_chunk: number of sites processed per block (default:
+            sized from a ~512 MB workspace budget). The interpolated-impedance
+            cache is kept only when all sites fit in one block.
         :return: ``(Ex, Ey)`` in mV/km, each with shape ``(nsites, ntimes)``
         """
         mag_x, mag_y = np.asarray(mag_x, dtype=float), np.asarray(mag_y, dtype=float)
@@ -567,42 +607,56 @@ class SiteCollection:
         N = 2**(int(np.log2(N0))+2)
 
         freqs = scipy.fft.rfftfreq(N, d=dt)
+        nsites = len(self.sites)
+        if mag_x.ndim == 2 and mag_x.shape[1] != nsites:
+            raise ValueError(
+                f"per-site input must be (ntimes, {nsites} sites); "
+                f"got {mag_x.shape}")
 
-        if N0 != self._N0 or dt != self._dt or extrapolate != self._extrapolate:
-            # Only recalculate the interpolated impedances when the frequencies
-            # (or the band-edge policy) change.
-            self._N0 = N0
-            self._dt = dt
-            self._extrapolate = extrapolate
-            # Z needs to be organized as: xx, xy, yx, yy
-            # Z_interp final dimension is N frequencies
-            self._Z_interp = np.zeros((4, len(self.sites), len(freqs)), dtype=complex)
-            for i, site in enumerate(self.sites):
-                try:
-                    self._Z_interp[:, i, :] = site.calcZ(freqs, extrapolate=extrapolate)
-                except TypeError:
-                    # Physical sites (Site1d) are valid at all frequencies
-                    self._Z_interp[:, i, :] = site.calcZ(freqs)
-        Z_interp = self._Z_interp
+        if site_chunk is None:
+            # Z (4) + E spectra (2) + per-site B spectra (2) complex128 rows
+            per_site = 8 * len(freqs) * 16
+            site_chunk = int(max(1, min(nsites, _CONVOLVE_BUDGET_BYTES // per_site)))
+
+        use_cache = site_chunk >= nsites
+        if use_cache:
+            if N0 != self._N0 or dt != self._dt or extrapolate != self._extrapolate:
+                # Only recalculate the interpolated impedances when the
+                # frequencies (or the band-edge policy) change.
+                self._N0 = N0
+                self._dt = dt
+                self._extrapolate = extrapolate
+                # Z needs to be organized as: xx, xy, yx, yy
+                self._Z_interp = self._calc_block_Z(self.sites, freqs, extrapolate)
+        else:
+            # Blocked mode never keeps the (too large) impedance cache
+            self._N0 = self._dt = self._extrapolate = None
+            self._Z_interp = None
 
         if mag_x.ndim == 1:
             # One shared field: fft shape (nfreqs,), broadcasts over sites
-            mag_x_fft = scipy.fft.rfft(mag_x, n=N, workers=-1)
-            mag_y_fft = scipy.fft.rfft(mag_y, n=N, workers=-1)
-        else:
-            if mag_x.shape[1] != len(self.sites):
-                raise ValueError(
-                    f"per-site input must be (ntimes, {len(self.sites)} sites); "
-                    f"got {mag_x.shape}")
-            # Per-site fields: batch the FFTs, then organize as (nsites, nfreqs)
-            mag_x_fft = scipy.fft.rfft(mag_x, n=N, axis=0, workers=-1).T
-            mag_y_fft = scipy.fft.rfft(mag_y, n=N, axis=0, workers=-1).T
+            shared_x_fft = scipy.fft.rfft(mag_x, n=N, workers=-1)
+            shared_y_fft = scipy.fft.rfft(mag_y, n=N, workers=-1)
 
-        Ex_fft = Z_interp[0, :, :]*mag_x_fft + Z_interp[1, :, :]*mag_y_fft
-        Ey_fft = Z_interp[2, :, :]*mag_x_fft + Z_interp[3, :, :]*mag_y_fft
+        Ex_t = np.empty((nsites, N0))
+        Ey_t = np.empty((nsites, N0))
+        for i0 in range(0, nsites, site_chunk):
+            sel = slice(i0, min(i0 + site_chunk, nsites))
+            Z_interp = self._Z_interp[:, sel, :] if use_cache else \
+                self._calc_block_Z(self.sites[sel.start:sel.stop], freqs, extrapolate)
 
-        Ex_t = np.real(scipy.fft.irfft(Ex_fft, axis=-1, workers=-1)[:, :N0])
-        Ey_t = np.real(scipy.fft.irfft(Ey_fft, axis=-1, workers=-1)[:, :N0])
+            if mag_x.ndim == 1:
+                mag_x_fft, mag_y_fft = shared_x_fft, shared_y_fft
+            else:
+                # Per-site fields: batch the FFTs, organize as (nblock, nfreqs)
+                mag_x_fft = scipy.fft.rfft(mag_x[:, sel], n=N, axis=0, workers=-1).T
+                mag_y_fft = scipy.fft.rfft(mag_y[:, sel], n=N, axis=0, workers=-1).T
+
+            Ex_fft = Z_interp[0, :, :]*mag_x_fft + Z_interp[1, :, :]*mag_y_fft
+            Ey_fft = Z_interp[2, :, :]*mag_x_fft + Z_interp[3, :, :]*mag_y_fft
+
+            Ex_t[sel] = scipy.fft.irfft(Ex_fft, axis=-1, workers=-1)[:, :N0]
+            Ey_t[sel] = scipy.fft.irfft(Ey_fft, axis=-1, workers=-1)[:, :N0]
 
         return (Ex_t, Ey_t)
 

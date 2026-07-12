@@ -108,3 +108,44 @@ def test_score_fitting_methods_smoke():
     table = score_fitting_methods(seed=0, ntimes=48)
     assert set(table.index) >= {"lstsq", "kalman"}
     assert (table["rmse_nT"] > 0).all() and np.isfinite(table["rmse_nT"]).all()
+
+
+def test_coherence_per_component_perfect_prediction():
+    """Perfect predictions must score coherence ~1 in every band (A2).
+
+    Regression: the ravel of (ntimes, 2) interleaved Bx/By into one fake
+    series and scored ~0.7 for identical inputs.
+    """
+    import pandas as pd
+    import xarray as xr
+
+    from bezpy.mag import SECSInterpolator
+    from bezpy.mag.secs import R_EARTH  # noqa: F401 (import parity with above)
+    from bezpy.validation import leave_one_out
+
+    pysecs = pytest.importorskip("pysecs")
+    rng = np.random.default_rng(7)
+    ntimes = 512
+    obs_latlons = np.array([[lat, lon]
+                            for lat in (38.0, 42.0) for lon in (-108.0, -102.0)])
+    # A smooth SEC source so left-out observatories are well predicted
+    poles = np.array([[lat, lon, 6371e3 + 110e3]
+                      for lat in np.linspace(34, 46, 4)
+                      for lon in np.linspace(-112, -98, 4)])
+    source = pysecs.SECS(sec_df_loc=poles)
+    t = np.linspace(0, 4 * np.pi, ntimes)[:, None]
+    source.sec_amps = 1e13 * np.sin(t + rng.uniform(0, 2 * np.pi, len(poles)))
+    b = source.predict(np.column_stack([obs_latlons,
+                                        np.full(len(obs_latlons), 6371e3)]))
+    times = pd.date_range("2024-01-01", periods=ntimes, freq="1min")
+    ds = xr.Dataset(
+        {name: (("time", "obs"), b[:, :, i])
+         for i, name in enumerate(("Bx", "By", "Bz"))},
+        coords={"time": times, "obs": [f"O{i}" for i in range(len(obs_latlons))],
+                "latitude": ("obs", obs_latlons[:, 0]),
+                "longitude": ("obs", obs_latlons[:, 1])})
+    scores = leave_one_out(ds, interp=SECSInterpolator(grid="auto"),
+                           metrics=("rmse",), bands=[(300.0, 7200.0)])
+    coherence = scores["coherence_300-7200s"]
+    # Noise-free smooth source: near-perfect held-out predictions
+    assert (coherence > 0.95).all()

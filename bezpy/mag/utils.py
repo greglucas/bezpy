@@ -204,4 +204,4 @@ def get_iaga_observatory(iaga_code):
     try:
         return _IAGA_SITES[iaga_code.upper()]
     except KeyError:
-        raise ValueError("No observatory: ", iaga_code)
+        raise ValueError(f"No observatory: {iaga_code}") from None

@@ -213,6 +213,15 @@ def prepare(b, window=None, pad="auto", max_period=DEFAULT_MAX_PERIOD,
     pad_left = int(np.searchsorted(times.values, np.datetime64(start)))
     pad_right = int(len(times) - np.searchsorted(times.values, np.datetime64(end),
                                                  side="right"))
+    if pad_left + pad_right >= len(times):
+        record = pd.Timestamp(times[-1]) - pd.Timestamp(times[0])
+        raise ValueError(
+            f"no samples remain in the analysis window {start} .. {end}: the "
+            f"record ({record}, {len(times)} samples) is consumed entirely by "
+            f"the pad ({pd.Timedelta(seconds=pad_seconds)} per side) -- "
+            "everything would be trimmed away. Pass an explicit "
+            "window=(start, end), a shorter pad= (e.g. pad='2h'), or a smaller "
+            "max_period.")
 
     if gaps == "interpolate":
         missing = {name: np.isnan(da.transpose("time", ...).values)

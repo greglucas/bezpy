@@ -3,6 +3,7 @@ Magnetotelluric datalogger classes.
 
 """
 import datetime
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -203,22 +204,30 @@ def _get_logger_info(sysid, samplingrate):
     if nim1 not in nimlist1:
         raise ValueError('We do not know NIMS series ' + str(nim1) + '. Check the system ID.')
 
-    nim2str = sysid[j+2:]
-    nim2 = int(nim2str)
+    # The unit number may carry a letter prefix (B: backbone, A: experimental);
+    # recognize it before parsing the number, or int() below raises first and
+    # the backbone/experimental branches are unreachable.
+    nim2str = sysid[j+1:].strip()
+    backbone = 0
+    if nim2str[:1] in ('B', 'b'):
+        # recognized backbone NIMS ID
+        backbone = 1
+        nim2str = nim2str[1:]
+    elif nim2str[:1] in ('A', 'a'):
+        # recognized new experimental NIMS
+        warnings.warn('NIMS ID ' + sysid + ' is a new experimental system. '
+                      'Look out for clock drift.', stacklevel=2)
+        nim2str = nim2str[1:]
+
+    try:
+        nim2 = int(nim2str)
+    except ValueError:
+        raise ValueError('NIMS ID ' + sysid + ' does not seem to be valid. '
+                         'Please correct.') from None
 
     # and assume that the possible numbers are 1-30
     nimlist2 = range(1, 31)
-    backbone = 0
-
-    if nim2str[0] == 'B' or nim2str[0] == 'b':
-        # recognized backbone NIMS ID
-        backbone = 1
-    elif nim2str[0] == 'A' or nim2str[0] == 'a':
-        # recognized new experimental NIMS
-        print('NIMS ID ' + sysid + ' is a new experimental system. Look out for clock drift.')
-    elif np.isnan(nim2):
-        raise ValueError('NIMS ID ' + sysid + ' does not seem to be valid. Please correct.')
-    elif nim2 not in nimlist2:
+    if nim2 not in nimlist2:
         raise ValueError('NIMS ID ' + sysid + ' does not seem to be valid. Please correct.')
 
     # if 2106-1/10, assume PC104 hardware of v2001 or v2006

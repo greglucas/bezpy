@@ -255,6 +255,10 @@ class EDIFile:
         # Undo (de-rotate) whatever rotation has been applied in the file so
         # the stored tensor is in geographic coordinates
         self.Z = r_z.swapaxes(1, 2) @ self.Z @ r_z
+        # NOTE: rotating standard errors linearly like the tensor is the
+        # legacy behavior, not statistically correct (variances rotate with
+        # squared coefficients); entries it drives <= 0 are discarded in
+        # _to_site3d rather than used.
         self.Zerr = r_z.swapaxes(1, 2) @ self.Zerr @ r_z
 
         # Tippers: rotation block sometimes missing (assume ZROT), and the

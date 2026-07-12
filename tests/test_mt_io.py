@@ -84,3 +84,17 @@ def test_get_1d_site_unknown_raises():
 
 def test_ak1_aliases_ak1a():
     assert bezpy.mt.get_1d_site("AK-1").name == bezpy.mt.get_1d_site("AK-1A").name
+
+
+def test_read_xml_negative_sign_convention_conjugates(tmp_path, sample_emtf_path):
+    """exp(-i omega t) files are conjugated to the package convention (B1)."""
+    xml = sample_emtf_path.read_text()
+    flipped = re.sub(r"<SignConvention>.*?</SignConvention>",
+                     r"<SignConvention>exp(- i\\omega t)</SignConvention>",
+                     xml, flags=re.S)
+    fname = tmp_path / "negative_sign.xml"
+    fname.write_text(flipped)
+    site_pos = bezpy.mt.read_xml(str(sample_emtf_path))
+    site_neg = bezpy.mt.read_xml(str(fname))
+    assert site_neg.sign_convention == -1
+    np.testing.assert_allclose(site_neg.Z, np.conj(site_pos.Z))

@@ -100,10 +100,16 @@ def leave_one_out(b_obs, interp=None, metrics=("rmse", "mae", "correlation"),
         for metric in metrics:
             row[metric] = reducers[metric](flat_o, flat_p)
         if bands is not None:
+            # Coherence per physical component, then averaged -- the two
+            # components are separate time series and must not be mixed
+            # into one. Missing samples are spliced out, which biases the
+            # spectral estimate near gaps; acceptable for a skill score.
             good = np.isfinite(observed).all(axis=1)
             for k, band in enumerate(bands):
-                coh = _coherence_bands(observed[good].ravel(),
-                                       predicted[good].ravel(), dt, [band])[0]
+                coh = np.nanmean([
+                    _coherence_bands(observed[good, c], predicted[good, c],
+                                     dt, [band])[0]
+                    for c in range(observed.shape[1])])
                 row[f"coherence_{band[0]:g}-{band[1]:g}s"] = coh
         rows.append(row)
         names.append(obs_names[i] if obs_names is not None else i)

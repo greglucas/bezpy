@@ -125,3 +125,53 @@ def test_short_period_list_interpolates():
                  Z=np.array([[1 + 1j, np.nan]] * 4, dtype=complex))
     with pytest.raises(ValueError, match="lonely"):
         bad.calcZ(np.array([0.01, 0.001]))
+
+
+def test_spline_ignores_bad_variance_periods():
+    """Non-finite or zero Z_var must not poison the interpolation (A1).
+
+    A gridded-product row without an error column leaves Z_var NaN at a
+    period whose Z is valid; previously that made the whole component NaN.
+    """
+    rng = np.random.default_rng(0)
+    periods = np.logspace(1, 4, 12)
+    Z = (rng.normal(size=(4, 12)) + 1j * rng.normal(size=(4, 12)))
+    Z_var = np.full((4, 12), 0.01)
+    Z_var[:, 5] = np.nan   # missing error column on one row
+    Z_var[:, 7] = 0.0      # degenerate (infinite-weight) variance
+    site = bezpy.mt.Site3d("mixed", latitude=40.0, longitude=-105.0,
+                           periods=periods, Z=Z, Z_var=Z_var)
+    Z_interp = site.calcZ(1.0 / np.logspace(1.2, 3.8, 7))
+    assert np.all(np.isfinite(Z_interp))
+
+    # Same Z without variances still interpolates (baseline sanity)
+    plain = bezpy.mt.Site3d("plain", latitude=40.0, longitude=-105.0,
+                            periods=periods, Z=Z)
+    assert np.all(np.isfinite(plain.calcZ(1.0 / np.logspace(1.2, 3.8, 7))))
+
+
+def test_collection_site_chunk_equivalence():
+    """Blocked processing returns the same fields as one block (P1)."""
+    rng = np.random.default_rng(3)
+    sites = []
+    for i in range(5):
+        site = bezpy.mt.Site1d(f"s{i}", [20e3, 1e9], [100.0 * (i + 1), 1000.0])
+        site.latitude, site.longitude = 40.0 + i, -105.0
+        sites.append(site)
+    collection = bezpy.mt.SiteCollection(sites)
+    bx = rng.normal(size=256)
+    by = rng.normal(size=256)
+    ex_all, ey_all = collection.convolve_fft(bx, by, dt=60)
+    ex_blk, ey_blk = bezpy.mt.SiteCollection(sites).convolve_fft(
+        bx, by, dt=60, site_chunk=2)
+    np.testing.assert_allclose(ex_blk, ex_all)
+    np.testing.assert_allclose(ey_blk, ey_all)
+
+    # Per-site fields through the blocked path as well
+    bx2 = rng.normal(size=(256, 5))
+    by2 = rng.normal(size=(256, 5))
+    ex_all, ey_all = collection.convolve_fft(bx2, by2, dt=60)
+    ex_blk, ey_blk = bezpy.mt.SiteCollection(sites).convolve_fft(
+        bx2, by2, dt=60, site_chunk=2)
+    np.testing.assert_allclose(ex_blk, ex_all)
+    np.testing.assert_allclose(ey_blk, ey_all)

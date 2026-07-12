@@ -136,3 +136,21 @@ def test_prepare_option_validation():
         prepare(b, pad="5min", detrend="cubic")
     with pytest.raises(ValueError, match="gaps"):
         prepare(b, pad="5min", gaps="drop")
+
+
+def test_prepare_record_shorter_than_pad_raises():
+    """A record consumed entirely by the pad raises, not empties (B2)."""
+    import xarray as xr
+    times = pd.date_range("2024-05-10", periods=1440, freq="1min")  # 1 day
+    rng = np.random.default_rng(0)
+    ds = xr.Dataset(
+        {"Bx": (("time", "obs"), rng.normal(size=(1440, 1))),
+         "By": (("time", "obs"), rng.normal(size=(1440, 1)))},
+        coords={"time": times, "obs": ["AAA"],
+                "latitude": ("obs", [40.0]), "longitude": ("obs", [-105.0])})
+    # Default pad="auto" is 25 h per side -- more than the whole record
+    with pytest.raises(ValueError, match="pad"):
+        prepare(ds)
+    # An explicit short pad works on the same record
+    out = prepare(ds, pad="1h")
+    assert trim_pad(out).sizes["time"] == 1440 - 2 * 60

@@ -13,6 +13,7 @@ is not a result.**
 
 __all__ = ["ReturnLevel", "return_level"]
 
+import warnings
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -202,6 +203,12 @@ def return_level(data, years_observed, return_period=100., method="gpd",
         if ci == "profile":
             raise ValueError("profile CIs are implemented for method='gpd'; "
                              "use ci='bootstrap' with gev")
+        if abs(len(data) - years_observed) > 1:
+            warnings.warn(
+                f"method='gev' expects one block (annual) maximum per observed "
+                f"year, but got {len(data)} maxima for {years_observed:g} years "
+                "-- check that the input is annual maxima, not exceedances",
+                stacklevel=2)
 
         def estimate(sample):
             c, loc, scale = scipy.stats.genextreme.fit(sample)

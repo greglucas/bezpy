@@ -1,0 +1,88 @@
+# Changelog
+
+## 0.5.0 (unreleased)
+
+The first release of the rebuilt package: bezpy grows from a collection of
+per-paper utilities into a full B → E → V hazard-analysis pipeline with an
+evidence-driven validation story. See `PLAN.md` for the design decisions and
+`VALIDATION.md` for the method-comparison results behind the defaults.
+
+### Result-changing fixes (read before reproducing published numbers)
+
+- **Delaunay interpolation weights**: the gnomonic projection was applied to
+  transmission-line points but not site points when building Delaunay weights
+  (line points were divided by cos(c), sites were not), skewing the weights
+  since the original package. Voltages computed with `how="delaunay"` change
+  by a few percent relative to the published 2019/2020 workflows. This was a
+  bug, not a method, so there is **no legacy switch**; use the git history if
+  you need the old numbers exactly.
+- **EMTF sign convention**: `read_xml` now conjugates impedances from files
+  declaring the `exp(-i omega t)` convention, so every `Site3d` carries the
+  package's `exp(+i omega t)` convention. Previously such files silently
+  produced time-reversed impulse responses.
+- **Impedance spline weighting**: periods with non-finite or zero `Z_var` are
+  now excluded from the interpolating spline. Previously a single NaN
+  variance (e.g. from a gridded-product row without an error column) made an
+  entire impedance component — and every E field computed from it — NaN.
+- **`leave_one_out` band coherence** was computed on an interleaved Bx/By
+  sequence and is now computed per component and averaged. Coherence-based
+  skill scores from earlier runs are unreliable; RMSE/MAE/correlation scores
+  were always correct.
+
+### New
+
+- `bezpy.mag.SECSInterpolator` — fit/predict SECS interpolation (pysecs 0.4:
+  Kalman smoothing, robust fits, prediction variances), per-sample gap
+  masking instead of interpolate-then-drop, `predict_grid`, `loo_score`.
+- `bezpy.mag.combine_observatories` / `prepare` / `trim_pad` — shared B
+  preprocessing (linear detrend + Tukey taper over an impedance-derived pad).
+- `bezpy.pipeline` — `calc_geoelectric_field`, top-level `calc_voltages`,
+  chunked continuous `scan` with streaming reducers (resumable netCDF), and
+  `storm_scan` for catalog windows.
+- `bezpy.storms` — `find_storms` (index catalog) and `find_events`
+  (threshold + runs declustering on any series).
+- `bezpy.stats.return_level` — GPD/POT with profile-likelihood or bootstrap
+  CIs; `lognormal-2019` and `gev` by name. CIs are mandatory in the output.
+- `bezpy.validation` — leave-one-out skill scores and a synthetic-truth
+  benchmark that arbitrates method defaults.
+- `bezpy.tl.kernels` — Level-1 voltage functionals and Level-2 power-line
+  telluric response functions (Kelbert & Lucas 2020), with netCDF round-trip
+  and FFT-grid caching; `TransmissionLine.resampled` great-circle
+  densification; `filter_bbox`/`filter_polygon` (no geopandas).
+- `bezpy.data` — observatory archive (USGS/NRCan/INTERMAGNET, provenance-
+  and level-aware merge), activity indices (Kp/ap/Dst), EMTF XML archive with
+  SPUD download, HIFLD transmission-line download, IAGA ingest.
+- `bezpy.mt` — legacy readers (`read_zfile`, `read_edi`), ModEM/gridded
+  impedance reader (`read_gridded_impedance`), canonical xarray form for
+  site collections (`to_dataset`/`from_netcdf`), `extrapolate="asymptotic"`
+  band-edge continuation, per-site fields in `SiteCollection.convolve_fft`.
+- `bezpy.plot` — map helpers (cartopy optional).
+- Documentation site (mkdocs-material) with tutorials; CI (lint, 3.10–3.13,
+  oldest-pins job).
+
+### Fixed
+
+- `prepare` (and therefore `calc_geoelectric_field`) now raises an actionable
+  error when the record is shorter than twice the pad instead of silently
+  returning an empty result.
+- `SiteCollection.convolve_fft` and `TelluricResponse.calc_voltages` reject
+  NaN magnetic-field input with guidance instead of silently producing NaN
+  everywhere; `convolve_fft` processes sites in memory-bounded blocks.
+- `DTIR.calculate(periods=..., Z=...)` works as documented and tolerates
+  sites without impedance variances; the data-space path uses a
+  pseudo-inverse.
+- `scan` builds the voltage kernel once instead of per chunk; `storm_scan`
+  skips (with a warning) catalog windows outside the magnetic record;
+  exceedance collection warns when a threshold is set too low.
+- NIMS system-ID parsing recognizes backbone ("B") units; experimental-unit
+  notice is a warning, not a print.
+- `spud` bundle resolution, INTERMAGNET table refresh, pathlib waveform IO,
+  `calc_resistivity` naming (deprecated misspelled alias retained).
+
+### Changed
+
+- `bezpy.data` access without the optional dependencies now raises an
+  ImportError with the install hint (previously `bezpy.data` was `None`).
+- Defaults that may change with more evidence (tracked in `VALIDATION.md`):
+  SECS fitting stays `method="lstsq"`; band-edge handling stays
+  `extrapolate="zeros"`. Both alternatives are one keyword away.

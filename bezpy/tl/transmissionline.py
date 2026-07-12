@@ -132,7 +132,11 @@ class TransmissionLine:
                                 metadata=self.metadata)
 
     def set_nearest_sites(self, site_xys):
-        """Sets the nearest site to each point along the transmission line."""
+        """Sets the nearest site to each point along the transmission line.
+
+        :param site_xys: ``(nsites, 2)`` array of ``(latitude, longitude)``
+            -- note this is the **opposite** order of ``self.pts`` (lon/lat)
+        """
         # Using Haversine distance to calculate nearest sites
         distances = haversine_distance(self.pts[:, 0][:, np.newaxis],
                                        self.pts[:, 1][:, np.newaxis],
@@ -168,7 +172,15 @@ class TransmissionLine:
         self.regions1d[point_idx[order]] = poly_idx[order]
 
     def set_delaunay_weights(self, site_xys, use_gnomic=True):
-        """Sets the delaunay weights for the given sites for each point along the line."""
+        """Sets the delaunay weights for the given sites for each point along the line.
+
+        :param site_xys: ``(nsites, 2)`` array of ``(latitude, longitude)``
+            -- note this is the **opposite** order of ``self.pts`` (lon/lat)
+        :param use_gnomic: project through a gnomonic projection centered on
+            the site network (default), which maps great circles to straight
+            lines; requires every point within 90 degrees of the network's
+            mean location
+        """
         # function takes data first, and then the interpolation locations
         # We are trying to go from the site_xys (data_xy) to our transmission line
         # points (interp_xy)
@@ -188,6 +200,11 @@ class TransmissionLine:
             lats = xys[:, 0]
 
             cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
+            if np.any(cos_c <= 0.):
+                raise ValueError(
+                    "gnomonic projection is invalid for points 90 degrees or "
+                    "more from the site network's mean location; use "
+                    "use_gnomic=False or split the domain")
             x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
             y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))/cos_c
             xys[:, 0], xys[:, 1] = x, y
@@ -197,6 +214,11 @@ class TransmissionLine:
             lats = pts[:, 1]
 
             cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
+            if np.any(cos_c <= 0.):
+                raise ValueError(
+                    "gnomonic projection is invalid for line points 90 degrees "
+                    "or more from the site network's mean location; use "
+                    "use_gnomic=False or split the domain")
             x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
             y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))/cos_c
             pts[:, 0], pts[:, 1] = x, y

@@ -195,6 +195,10 @@ def _chunk_edges(times, chunk):
 class _Reducers:
     """Streaming reducers over (time, item) magnitude blocks."""
 
+    # Warn once when the exceedance list passes this size -- a threshold set
+    # too low on a long scan accumulates unbounded memory silently otherwise.
+    _EXCEEDANCE_WARN_AT = 1_000_000
+
     def __init__(self, n_items, reduce, threshold):
         self.reduce = list(reduce)
         self.threshold = threshold
@@ -204,6 +208,7 @@ class _Reducers:
         self.counts = np.zeros((n_items, len(_SKETCH_BINS) - 1), dtype=np.int64)
         self.n_samples = 0
         self.exceedances = []  # (time, item index, value) tuples
+        self._exceedance_warned = False
         if "exceedances" in self.reduce and threshold is None:
             raise ValueError("reduce='exceedances' requires threshold=")
 
@@ -227,6 +232,14 @@ class _Reducers:
                 t_idx, item = np.nonzero(magnitudes > self.threshold)
             self.exceedances.extend(zip(times[t_idx], item,
                                         magnitudes[t_idx, item]))
+            if (not self._exceedance_warned
+                    and len(self.exceedances) > self._EXCEEDANCE_WARN_AT):
+                self._exceedance_warned = True
+                import warnings
+                warnings.warn(
+                    f"over {self._EXCEEDANCE_WARN_AT:,} exceedances collected "
+                    f"-- threshold={self.threshold} is likely too low for this "
+                    "record; memory grows with every exceedance", stacklevel=2)
 
     def quantiles(self, qs):
         """Approximate quantiles from the accumulated histogram sketch."""
@@ -259,7 +272,11 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
         ``SiteCollection``
     :param lines: optional TransmissionLines to reduce voltages for
     :param chunk: chunk length as a pandas period frequency (default one
-        year; use e.g. ``"3ME"`` to bound memory for dense site sets)
+        year; use e.g. ``"3ME"`` to bound memory for dense site sets).
+        Peak memory per chunk is roughly ``50 * nsites * chunk_samples``
+        bytes (E fields plus bounded FFT workspace) -- one year of 1-minute
+        data is ~25 MB per site, so hundreds of sites want monthly chunks
+        and gridded products (10^4 sites) want ~daily ones
     :param reduce: any of ``"max"``, ``"exceedances"``, ``"quantiles"``
     :param threshold: exceedance level for ``"exceedances"``: a number
         applied to both quantities, or ``{"E": mv_per_km, "V": volts}``
@@ -286,6 +303,17 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
     site_reducer = _Reducers(len(sites), reduce, thresholds.get("E"))
     line_reducer = _Reducers(len(lines), reduce, thresholds.get("V")) \
         if lines is not None else None
+
+    # The voltage kernel is static across chunks: set interpolation weights
+    # and contract the geometry once, then apply per chunk (never rebuild).
+    if lines is not None:
+        site_xys = _site_latlons(sites)
+        for line in lines:
+            if how == "delaunay" and line.delaunay_vtx is None:
+                line.set_delaunay_weights(site_xys)
+            elif how == "nn" and line.nearest_sites is None:
+                line.set_nearest_sites(site_xys)
+        L, valid = voltage_matrix(lines, len(sites), how=how)
 
     done_until = None
     if out_path is not None:
@@ -315,8 +343,9 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
         magnitude = np.hypot(e["Ex"].values, e["Ey"].values)
         site_reducer.update(times.values, magnitude)
         if line_reducer is not None:
-            v = calc_voltages(lines, e, how=how)
-            line_reducer.update(times.values, np.abs(v.values))
+            E = np.stack([e["Ex"].values, e["Ey"].values], axis=-1)
+            v = apply_voltage_matrix(E, L, valid)
+            line_reducer.update(times.values, np.abs(v))
 
         if out_path is not None:
             result = _scan_result(xr, site_reducer, line_reducer, sites,
@@ -411,8 +440,21 @@ def storm_scan(catalog, b_obs, sites, lines=None, how="delaunay",
         collection = SiteCollection(sites)
     e_max, v_max = [], []
     for start, end in windows:
-        e = calc_geoelectric_field(b_obs, sites, window=(start, end),
-                                   collection=collection, **field_kwargs)
+        try:
+            e = calc_geoelectric_field(b_obs, sites, window=(start, end),
+                                       collection=collection, **field_kwargs)
+        except ValueError as exc:
+            if "no data in" not in str(exc):
+                raise
+            # Index-derived catalogs often outspan the magnetic record; keep
+            # the storm row (NaN) instead of failing the whole scan.
+            import warnings
+            warnings.warn(f"storm window {start} .. {end} has no magnetic "
+                          "data; recording NaN maxima", stacklevel=2)
+            e_max.append(np.full(len(sites), np.nan))
+            if lines is not None:
+                v_max.append(np.full(len(lines), np.nan))
+            continue
         magnitude = np.hypot(e["Ex"].values, e["Ey"].values)
         e_max.append(np.nanmax(magnitude, axis=0))
         if lines is not None:

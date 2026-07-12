@@ -382,3 +382,20 @@ def test_telluric_master_grid_asymptotic_close_to_exact(site_grid, site_xys):
     V_master = master.calc_voltages(mag_x, mag_y, dt=60)
     scale = np.sqrt(np.mean(V_exact**2))
     assert np.sqrt(np.mean((V_master - V_exact)**2)) < 0.05 * scale
+
+
+def test_telluric_response_rejects_nan_input():
+    """NaN B must raise, not silently produce all-NaN voltages (A3)."""
+    sites = []
+    for lat, lon in [(39.0, -105.0), (41.0, -105.0), (40.0, -103.0), (40.0, -107.0)]:
+        site = Site1d(f"s{lat}_{lon}", [20e3, 1e9], [100.0, 1000.0])
+        site.latitude, site.longitude = lat, lon
+        sites.append(site)
+    line = TransmissionLine(np.array([[-105.5, 39.5], [-104.0, 40.5]]))
+    response = TelluricResponse.from_lines([line], sites, how="nn")
+    bad = np.ones(256)
+    bad[10] = np.nan
+    with pytest.raises(ValueError, match="NaN"):
+        response.calc_voltages(bad, np.ones(256))
+    with pytest.raises(ValueError, match="same shape"):
+        response.calc_voltages(np.ones(256), np.ones(128))

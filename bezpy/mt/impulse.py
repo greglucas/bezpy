@@ -76,14 +76,17 @@ class DTIR:
         """Calculates the DTIR for the given periods and Z, or the site object."""
         # pylint: disable=too-many-locals
         if isinstance(site, Site3d):
-            # Drop any nan's along the entire column.
-            good_locs = ~np.any(np.isnan(site.Z), axis=0)
-            periods = site.periods[good_locs]
-            Z = site.Z[:, good_locs]
-            Z_var = site.Z_var[:, good_locs]
-        else:
-            # elif periods is None or Z is None:
+            periods, Z, Z_var = site.periods, site.Z, site.Z_var
+        elif periods is None or Z is None:
             raise ValueError("Must pass in either periods and Z or a Site3d object")
+        periods = np.asarray(periods, dtype=float)
+        Z = np.asarray(Z, dtype=complex)
+        # Drop any nan's along the entire column.
+        good_locs = ~np.any(np.isnan(Z), axis=0)
+        periods = periods[good_locs]
+        Z = Z[:, good_locs]
+        if Z_var is not None:
+            Z_var = np.asarray(Z_var, dtype=float)[:, good_locs]
 
         t0 = time.time()
         # Number of data points
@@ -234,9 +237,10 @@ class DTIR:
             # No Q matrix present yet, so make one
             self._calcQ()
 
-        # In dataspace we need to calculate the inverse of Q
-        # Q is singular so calculate the pseudo-inverse instead
-        self.Q_inv = np.linalg.inv(self.Q)
+        # In dataspace we need to calculate the inverse of Q.
+        # Q can be singular (e.g. Q_choice=3), so use the pseudo-inverse;
+        # for well-conditioned Q it agrees with the true inverse.
+        self.Q_inv = np.linalg.pinv(self.Q)
 
         if self.verbose:
             print("Q Inversion Complete:", time.time()-t0)

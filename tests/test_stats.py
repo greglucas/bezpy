@@ -112,3 +112,12 @@ def test_str_output():
     text = str(rl)
     assert "100-year return level" in text
     assert "95% CI" in text
+
+
+def test_gev_warns_on_block_count_mismatch(rng):
+    """GEV expects one annual maximum per observed year (B4)."""
+    data = scipy.stats.genextreme.rvs(-0.1, loc=10, scale=2, size=60,
+                                      random_state=42)
+    with pytest.warns(UserWarning, match="annual"):
+        return_level(data, years_observed=30, method="gev", ci="bootstrap",
+                     n_bootstrap=25, seed=0)
