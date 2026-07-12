@@ -172,6 +172,12 @@ def fetch_dataframe(code, start, end, sampling_period=60, level="best",
             response.raise_for_status()
             text = response.text
         except requests.RequestException as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status is not None and 400 <= status < 500:
+                # A client error is the GIN saying "no such data" (unknown
+                # observatory, no data in the window, bad state) -- shrinking
+                # the request cannot help, so fail fast.
+                raise
             if duration > 1:
                 # The GIN resets connections on responses it deems too large
                 # (and occasionally on transient load); retry the same window
