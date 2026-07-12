@@ -126,15 +126,23 @@ def test_coherence_per_component_perfect_prediction():
     pysecs = pytest.importorskip("pysecs")
     rng = np.random.default_rng(7)
     ntimes = 512
+    # Dense enough that a held-out observatory is well constrained by the
+    # rest -- with only corner stations the LOO prediction error is real.
     obs_latlons = np.array([[lat, lon]
-                            for lat in (38.0, 42.0) for lon in (-108.0, -102.0)])
+                            for lat in (38.0, 40.0, 42.0)
+                            for lon in (-108.0, -105.0, -102.0)])
     # A smooth SEC source so left-out observatories are well predicted
     poles = np.array([[lat, lon, 6371e3 + 110e3]
                       for lat in np.linspace(34, 46, 4)
                       for lon in np.linspace(-112, -98, 4)])
     source = pysecs.SECS(sec_df_loc=poles)
-    t = np.linspace(0, 4 * np.pi, ntimes)[:, None]
-    source.sec_amps = 1e13 * np.sin(t + rng.uniform(0, 2 * np.pi, len(poles)))
+    # Broadband amplitudes with power *inside* the scored 300-7200 s band --
+    # coherence over a band the signal does not occupy is meaningless.
+    t_sec = 60.0 * np.arange(ntimes)[:, None]
+    phases = rng.uniform(0, 2 * np.pi, (3, len(poles)))
+    source.sec_amps = 1e13 * sum(
+        np.sin(2 * np.pi * t_sec / period + phase)
+        for period, phase in zip((600.0, 1800.0, 4800.0), phases))
     b = source.predict(np.column_stack([obs_latlons,
                                         np.full(len(obs_latlons), 6371e3)]))
     times = pd.date_range("2024-01-01", periods=ntimes, freq="1min")
@@ -149,3 +157,19 @@ def test_coherence_per_component_perfect_prediction():
     coherence = scores["coherence_300-7200s"]
     # Noise-free smooth source: near-perfect held-out predictions
     assert (coherence > 0.95).all()
+
+
+def test_coherence_bands_identity_and_independence():
+    """_coherence_bands must be ~1 for identical series and low for
+    independent noise (A2 regression: interleaved Bx/By ravel scored ~0.7
+    for identical inputs; a single-segment Welch estimate scores ~1 for
+    *any* inputs, hiding real prediction error)."""
+    from bezpy.validation import _coherence_bands
+
+    rng = np.random.default_rng(3)
+    x = rng.standard_normal(2000)
+    same = _coherence_bands(x, x, 60.0, [(300.0, 7200.0)])
+    assert same[0] > 0.999
+    other = _coherence_bands(x, rng.standard_normal(2000), 60.0,
+                             [(300.0, 7200.0)])
+    assert other[0] < 0.6

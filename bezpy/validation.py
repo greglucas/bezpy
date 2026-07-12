@@ -32,7 +32,13 @@ from .mt.site import Site1d, Site3d
 def _coherence_bands(observed, predicted, dt, bands):
     """Mean magnitude-squared coherence in each period band (seconds)."""
     from scipy.signal import coherence as msc
-    nperseg = min(len(observed), 4096)
+    # Welch coherence needs several averaged segments to be meaningful: with a
+    # single segment it is identically 1 regardless of the signals. Cap the
+    # segment length so even short windows average >= ~8 segments (with the
+    # default 50% overlap), while keeping enough length to resolve the longest
+    # requested band.
+    nperseg = min(len(observed) // 4, 4096)
+    nperseg = max(nperseg, 16)
     freqs, coh = msc(observed, predicted, fs=1./dt, nperseg=nperseg)
     out = []
     with np.errstate(divide="ignore"):
