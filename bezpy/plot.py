@@ -139,18 +139,24 @@ def plot_hazard_map(ax, latlons, values, log=True, cmap="magma_r",
     :param values: per-site scalars
     :param log: color on a log scale (hazard values span decades)
     :param add_colorbar: attach a colorbar to the axes' figure
-    :param kwargs: forwarded to ``ax.scatter`` (``s``, ``marker``, ...)
+    :param kwargs: forwarded to ``ax.scatter`` (``s``, ``marker``, ...);
+        ``vmin``/``vmax`` set the log color limits (values outside saturate
+        at the colormap ends rather than being dropped), and a ``norm``
+        kwarg overrides the log scaling entirely
     :return: the PathCollection artist
     """
     matplotlib = _require_matplotlib()
     latlons = np.atleast_2d(np.asarray(latlons, dtype=float))
     values = np.asarray(values, dtype=float)
-    norm = None
-    if log:
+    norm = kwargs.pop("norm", None)
+    if log and norm is None:
         positive = values[np.isfinite(values) & (values > 0)]
         if positive.size:
-            norm = matplotlib.colors.LogNorm(vmin=positive.min(),
-                                             vmax=positive.max())
+            vmin = kwargs.pop("vmin", None)
+            vmax = kwargs.pop("vmax", None)
+            norm = matplotlib.colors.LogNorm(
+                vmin=positive.min() if vmin is None else vmin,
+                vmax=positive.max() if vmax is None else vmax)
     artist = ax.scatter(latlons[:, 1], latlons[:, 0], c=values, cmap=cmap,
                         norm=norm, **_crs_kwargs(ax), **kwargs)
     if add_colorbar:
