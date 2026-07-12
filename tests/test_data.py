@@ -488,3 +488,35 @@ def test_cache_override_and_clear(cache, fake_ws):
     assert str(data.get_cache_dir()).startswith(str(cache))
     removed = data.clear_cache("magnetic")
     assert not removed.exists()
+
+
+def test_download_all_nan_response_not_stored(cache, monkeypatch):
+    """A service returning a time axis of nulls must not create a partition.
+
+    The USGS/GIN services return full-length all-null responses for quality
+    levels they do not hold (e.g. definitive before publication); storing
+    them created misleading all-NaN archive files.
+    """
+    def all_nan_payload(url):
+        payload = _synthetic_payload(url)
+        for entry in payload["values"]:
+            entry["values"] = [None] * len(entry["values"])
+        return payload
+
+    class NaNSession:
+        def get(self, url, timeout=None):
+            return _FakeResponse(payload=all_nan_payload(url))
+
+    original = ws.fetch_interval
+
+    def patched(code, start, end, **kwargs):
+        kwargs["session"] = NaNSession()
+        return original(code, start, end, **kwargs)
+
+    monkeypatch.setattr(ws, "fetch_interval", patched)
+    with pytest.warns(UserWarning, match="nothing stored"):
+        paths = data.download_observatory("BOU", "2024-05-10", "2024-05-11",
+                                          level="definitive")
+    assert paths == []
+    inventory = data.observatory_inventory()
+    assert inventory.empty

@@ -259,10 +259,13 @@ def download_observatory(code, start, end, source="auto", level="variation",
                            elements=elements, sampling_period=sampling_period,
                            base_url=base_url, verbose=verbose)
     df = dataset_to_frame(ds)
-    if df.empty:
+    if df.empty or not np.isfinite(df.to_numpy(dtype=float)).any():
+        # Services commonly return a full time axis of nulls for levels they
+        # do not actually hold (e.g. definitive before publication). Storing
+        # that would create misleading all-NaN partitions in the archive.
         warnings.warn(
             f"No {level} data returned for {code} ({source}) "
-            f"between {start} and {end}.", stacklevel=2)
+            f"between {start} and {end}; nothing stored.", stacklevel=2)
         return []
     return _store_frame(code, df, source, level, ds.attrs)
 
