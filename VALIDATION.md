@@ -76,6 +76,126 @@ tradition; pair it with `resample_km≈5` when building kernels. The
 on it across sharp conductivity contrasts and lands with the multi-input
 kernels.
 
+### D7 extension (2026-07-12): accuracy vs truth + real-storm divergence
+
+The table above aggregates a few long lines over a coarse (5×5) grid, where
+every scheme scores well. A Minnesota Gannon-storm case study found
+`delaunay` and `nn` line voltages differing by ~19% median (200% p99) on
+real 3-D impedances — far above the "few percent" folklore — because
+neighboring MT sites' peak |E| can differ 20× at ~43 km spacing. Two
+questions follow: (a) *which scheme is right* when they disagree, and
+(b) *when* do they diverge in practice. The synthetic truth answers (a); the
+storm answers (b).
+
+**Stress-test design** (`synth_interp.py`, seed 1, ntimes 4096, MN-scale
+domain 44–49 °N × 89–97 °W): site density is swept 4×4 → 11×11 (median
+spacing 185 → 56 km) and conductivity roughness `r` (full wavelengths of the
+layered structure across the domain) is swept 1 → 4, so the ratio of site
+spacing to field wavelength — the quantity that actually governs
+interpolation error — is scanned from well-resolved to badly undersampled.
+Every scheme is scored against the exact layered-Z field at ~80 held-out
+interior points and along random lines binned by length.
+
+**Held-out E interpolation, relative RMS error vs exact truth** (the "which
+is right" arbiter — points, not integrated over a line):
+
+| roughness | spacing | `delaunay` (gnomonic) | `delaunay` (plate-carrée) | `nn` |
+| --- | --- | --- | --- | --- |
+| r=1 (resolved) | 56 km | **0.045** | 0.101 | 0.183 |
+| r=1 | 79 km | **0.129** | 0.222 | 0.300 |
+| r=1 | 111 km | **0.237** | 0.362 | 0.357 |
+| r=1 | 185 km | **0.453** | 0.502 | 0.517 |
+| r=2 | 56 km | **0.262** | 0.373 | 0.460 |
+| r=2 | 111 km | **0.539** | 0.554 | 0.749 |
+| r=4 (undersampled) | 56 km | 0.572 | 0.576 | **0.511** |
+| r=4 | 185 km | **0.784** | 0.784 | 0.844 |
+
+Gnomonic-Delaunay is the most accurate scheme in **9 of 12** density×roughness
+cells (plate-carrée 2, nn 1). Its worst-case (max relative) error is also the
+smallest almost everywhere; `nn`'s max error runs 2–8× larger, the mechanism
+behind the real-storm 200% p99. Two regimes:
+
+* **Resolved / mildly rough** (spacing ≲ field wavelength): Delaunay blending
+  is decisively better than nearest-site — up to ~4× lower error at tight
+  spacing — and the margin over `nn` *grows as coverage thins*, exactly the
+  hard case. This is the operational regime for real MT surveys.
+* **Severely undersampled** (r=4, spacing ≫ wavelength): every scheme carries
+  50–85% error and the choice is a wash (the one `nn` "win" lives here). No
+  interpolation rescues a field sampled below its Nyquist — that is a
+  data-density problem, not a scheme problem.
+
+**Integrated line voltages, relative RMS error vs exact quadrature** (r=1,
+averaged over site spacings; random lines per length bin):
+
+| line length | `delaunay` (gnomonic) | `delaunay` (plate-carrée) | `nn` |
+| --- | --- | --- | --- |
+| short <20 km | **0.230** | 0.278 | 0.373 |
+| ~40 km | **0.286** | 0.327 | 0.488 |
+| ~120 km | **0.368** | 0.458 | 0.551 |
+| ~300 km | 0.662 | **0.606** | 0.797 |
+
+`nn` is the worst scheme in every length bin; the Delaunay family wins **29 of
+32** length×density×roughness voltage cells (gnomonic 18, plate-carrée 11, nn
+3). The Delaunay-over-`nn` margin again widens with spacing (voltage error
+0.42 vs 0.68 at 185 km vs 0.35 vs 0.43 at 56 km). Very long lines average
+pointwise error down and the two projections converge (plate-carrée edges
+gnomonic only there).
+
+**Projection (gnomonic vs plate-carrée).** The synthetic truth resolves the
+known diagonal-flip sensitivity: gnomonic is the better-scoring projection for
+held-out E in every resolved cell (often ~2× lower error) and wins most
+voltage cells; the two projections only tie deep in the undersampled regime
+where both are hopeless. They *disagree* with each other by a median 21% (p90
+36%, max 47%) in synthetic line voltage — a real, truth-relevant gap, not a
+rounding difference. **Gnomonic is the correct default**, confirmed against
+truth, not just convention.
+
+**Real-storm divergence** (`real_storm.py`, May 2024 Gannon, MN line set,
+263 long-period MT sites after dropping 91 screening-flagged "bad" codes,
+North-American SECS B; 1140 lines above 0.5 V):
+
+| slice | `delaunay` vs `nn` peak-\|V\| (p50 / p90 / p99) |
+| --- | --- |
+| all lines | 18.8% / 58.3% / 166% |
+| length 0–20 km | 22.7% / 61.5% / 200% |
+| length 20–50 km | 14.9% / 51.8% / 86% |
+| length 50–100 km | 14.2% / 48.7% / 65% |
+| length 100–200 km | 6.5% / 56.9% / 63% |
+| local spacing 0–20 km | 11.0% / 31.8% / 54% |
+| local spacing 20–35 km | 20.8% / 60.5% / 113% |
+| local spacing 35–50 km | 23.2% / 61.6% / 264% |
+| local spacing 50–80 km | 39.3% / 88.5% / 152% |
+
+Divergence is largest for **short lines** (they are near-point samples, so
+voltage is set by which single site is picked) and for **sparse local
+coverage** (median divergence climbs 11% → 39% as the nearest-site distance
+grows 20 → 80 km) — the same spacing dependence the synthetic truth shows,
+and the regime where the truth says Delaunay is the more accurate of the two.
+Gnomonic-vs-plate-carrée peak-|V| differences on the same lines are 14.4% /
+59.6% / 339% (p50/p90/p99): the projection choice moves voltages as much as
+the interpolation scheme does.
+
+**Hazard stakes.** Switching `delaunay → nn` shifts per-line peak voltage by a
+signed median +5.8% (mean |shift| 27.6%); on the 810 hazard-relevant lines
+(fitted V100 > 5 kV) the median peak-|V| move is 16.2%, and since the
+100-year voltage is a monotone transform of the per-storm peaks, V100 carries
+a comparable fractional shift — up to ~60% on individual lines. Choosing the
+less accurate scheme (`nn`) therefore biases the reported 100-year hazard by
+roughly its divergence, in the direction the truth says is wrong.
+
+**Verdict / default (unchanged, now with truth behind it):** keep
+`how="delaunay"` with the **gnomonic** projection. The synthetic truth ranks
+gnomonic-Delaunay the most accurate scheme in every resolved regime for both
+held-out E and line voltages, `nn` the least accurate, and plate-carrée a
+measurably worse triangulation; the real-storm divergence tracks the same
+spacing/length dependence. The one caveat is honest uncertainty, not a
+different default: where MT coverage is much coarser than the field's spatial
+scale (very sparse networks over strong 3-D structure), *all* schemes carry
+50%+ error and the voltage should be reported with matching uncertainty rather
+than trusted to any interpolation. Evidence: `synth_interp_Efield.csv`,
+`synth_interp_voltage.csv`, `synth_interp_error_vs_length.png`,
+`real_storm_divergence.csv` in `~/.cache/bezpy/hazard/`.
+
 ## 3.1 — SECS fitting method (`method=`, `robust=`)
 
 pysecs 0.4 unblocked the temporal Kalman filter/smoother and robust IRLS
