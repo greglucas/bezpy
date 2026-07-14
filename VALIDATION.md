@@ -250,6 +250,42 @@ harness tables:
   `test_stats.py::test_methods_diverge_on_heavy_tail` plus profile-CI
   coverage on simulation.
 
+## Variometer despiking (`bezpy.mag.despike`, `despike_obs=`)
+
+FDSN-distributed USGS/EarthScope variometer feeds carry instrumental
+artifacts a boxcar minute-decimation passes straight through: isolated wild
+samples, multi-minute saturation rails (values pinned near ±10^5 nT), and DC
+baseline steps (instrument re-zeroing, and the ~1 Hz `LF`->10 Hz `BF` channel
+switch around Dec-2024). Physically-impossible 1-minute rates (|dB/dt| up to
+~3×10^5 nT/min, vs a real mid-latitude ceiling of a few hundred) appear at
+essentially every station. Left in place they inject broadband high-frequency
+energy — exactly the band that dominates the induced E field.
+
+**Effect on hazard E (per-site max|E|, CONUS long-period sites, ratio of
+network *with* variometers to observatory-only baseline A).** Adding *raw*
+variometers should barely move E (they add stations to a consistent field);
+in the clean LF era it does, but the glitchy BF era inflates it badly.
+Despiking (iterated Hampel, `window="31min"`, `nsig=6`, `sig_floor=3` nT)
+returns the ratio to ~1.0 — the variometers behave like the LF-era data again
+— while leaving the clean LF era essentially untouched:
+
+| Storm (era) | raw C/A median | raw p90 | raw max | despiked median | despiked p90 | despiked max |
+|---|---|---|---|---|---|---|
+| 2024-08 (LF control) | 0.88 | 1.23 | 4.20 | 1.04 | 1.67 | 3.42 |
+| 2025-11 (BF) | 1.29 | 7.13 | 27.6 | 1.03 | 1.43 | 2.42 |
+| 2026-01 (BF) | 1.37 | 6.50 | 47.5 | 0.91 | 1.14 | 1.65 |
+| 2026-07 (BF) | 2.31 | 11.8 | 55.1 | 0.92 | 1.50 | 2.47 |
+
+Validated against the co-located CMO observatory (College, AK): despiking
+preserves the dB/dt correlation with the clean observatory (0.819) and the
+real storm peak, confirming it removes artifacts, not signal. A pure DC step
+(no accompanying spike) is intentionally *not* flagged — the variometer
+baseline is arbitrary and removed per-window by `prepare`'s detrend; only an
+analysis window straddling a step is affected, and the fix there is to mask
+around it or split the window. Unit coverage:
+`test_mag_processing.py::test_despike_*`,
+`test_pipeline.py::test_despike_obs_recovers_field_from_spiked_observatory`.
+
 ## Still to add
 
 - Reference-storm comparison on real data (May 2024 or Halloween 2003)

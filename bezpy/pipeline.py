@@ -22,7 +22,7 @@ __all__ = ["calc_geoelectric_field", "calc_voltages", "scan", "storm_scan"]
 import numpy as np
 import pandas as pd
 
-from .mag.processing import DEFAULT_MAX_PERIOD, combine_observatories, prepare, trim_pad
+from .mag.processing import DEFAULT_MAX_PERIOD, combine_observatories, despike, prepare, trim_pad
 from .mag.secs import SECSInterpolator
 from .mt.site import SiteCollection
 from .tl.kernels import apply_voltage_matrix, voltage_matrix
@@ -49,8 +49,8 @@ def _max_site_period(sites):
 
 def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
                            pad="auto", detrend="linear", taper="tukey",
-                           gaps="mask", extrapolate="zeros", secs=None,
-                           leave_one_out=None, collection=None):
+                           gaps="mask", despike_obs=False, extrapolate="zeros",
+                           secs=None, leave_one_out=None, collection=None):
     """Geoelectric fields at MT sites from observatory magnetic fields.
 
     The full chain: :func:`bezpy.mag.prepare` (detrend/taper/pad) ->
@@ -74,6 +74,11 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
     :param detrend: passed to :func:`bezpy.mag.prepare`
     :param taper: passed to :func:`bezpy.mag.prepare`
     :param gaps: passed to :func:`bezpy.mag.prepare`
+    :param despike_obs: if True, run :func:`bezpy.mag.despike` on the combined
+        B before preparing it -- masks instrumental spikes, saturation rails,
+        and steps that would otherwise inflate the interpolated E. Recommended
+        for FDSN variometer inputs; a no-op cost on clean observatory data
+        (nothing is flagged). Pass a dict to override despike keywords.
     :param extrapolate: impedance band-edge handling (``"zeros"`` or
         ``"asymptotic"``, see ``Site3d.calcZ``)
     :param secs: optionally a configured ``SECSInterpolator`` to use
@@ -92,6 +97,9 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
         sites = sites.sites
     if isinstance(b_obs, dict):
         b_obs = combine_observatories(b_obs)
+    if despike_obs:
+        b_obs = despike(b_obs, **(despike_obs if isinstance(despike_obs, dict)
+                                  else {}))
     prepared = prepare(b_obs, window=window, pad=pad, detrend=detrend,
                        taper=taper, gaps=gaps,
                        max_period=_max_site_period(sites) if pad == "auto"
@@ -258,7 +266,7 @@ class _Reducers:
 
 def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
          threshold=None, quantiles=(0.5, 0.9, 0.99), out_path=None,
-         how="delaunay", **field_kwargs):
+         how="delaunay", despike_obs=False, **field_kwargs):
     """Continuous scan of the whole record with streaming reducers (D4).
 
     Processes ``b_obs`` chunk by chunk through
@@ -284,6 +292,9 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
     :param out_path: write the (small) result Dataset to this netCDF path
         after every chunk, making long scans resumable: if the file already
         exists, completed chunks are skipped and accumulation continues
+    :param despike_obs: if True (or a dict of :func:`bezpy.mag.despike`
+        keywords), despike ``b_obs`` once up front (not per chunk) --
+        recommended for FDSN variometer inputs
     :param field_kwargs: forwarded to :func:`calc_geoelectric_field`
         (``interp``, ``extrapolate``, ``leave_one_out``, ...)
     :return: Dataset with per-site (and per-line) reductions: ``E_max``,
@@ -297,6 +308,9 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
         sites = collection.sites
     else:
         collection = SiteCollection(sites)
+    if despike_obs:
+        b_obs = despike(b_obs, **(despike_obs if isinstance(despike_obs, dict)
+                                  else {}))
     chunks = _chunk_edges(b_obs["time"].values, chunk)
     thresholds = threshold if isinstance(threshold, dict) \
         else {"E": threshold, "V": threshold}
@@ -413,7 +427,7 @@ def _restore_reducers(existing, site_reducer, line_reducer):
 
 
 def storm_scan(catalog, b_obs, sites, lines=None, how="delaunay",
-               **field_kwargs):
+               despike_obs=False, **field_kwargs):
     """Per-storm maxima for a catalog of explicit windows (case-study path).
 
     :param catalog: DataFrame with ``start``/``end`` columns
@@ -423,6 +437,9 @@ def storm_scan(catalog, b_obs, sites, lines=None, how="delaunay",
     :param sites: list of MT sites (``Site3d``/``Site1d``) or a
         ``SiteCollection``
     :param lines: optional TransmissionLines
+    :param despike_obs: if True (or a dict of :func:`bezpy.mag.despike`
+        keywords), despike ``b_obs`` once before the storm loop -- recommended
+        for FDSN variometer inputs
     :param field_kwargs: forwarded to :func:`calc_geoelectric_field`
     :return: Dataset ``(storm, site[, line])`` with ``E_max`` (mV/km),
         ``V_max`` (volts), and the storm windows as coordinates
@@ -438,6 +455,9 @@ def storm_scan(catalog, b_obs, sites, lines=None, how="delaunay",
         sites = collection.sites
     else:
         collection = SiteCollection(sites)
+    if despike_obs:
+        b_obs = despike(b_obs, **(despike_obs if isinstance(despike_obs, dict)
+                                  else {}))
     e_max, v_max = [], []
     for start, end in windows:
         try:

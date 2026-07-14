@@ -5,7 +5,7 @@ import pytest
 
 xr = pytest.importorskip("xarray")
 
-from bezpy.mag import combine_observatories, prepare, trim_pad  # noqa: E402
+from bezpy.mag import combine_observatories, despike, prepare, trim_pad  # noqa: E402
 
 RNG = np.random.default_rng(11)
 
@@ -136,6 +136,104 @@ def test_prepare_option_validation():
         prepare(b, pad="5min", detrend="cubic")
     with pytest.raises(ValueError, match="gaps"):
         prepare(b, pad="5min", gaps="drop")
+
+
+def _clean_field(n=6 * 1440, seed=3):
+    """A smooth diurnal + trend + mild noise -- physically plausible B(t)."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(n) * 60.0
+    return (30 * np.sin(2 * np.pi * t / 86400.0)   # diurnal
+            + 2e-3 * t                              # secular drift
+            + rng.standard_normal(n))               # ~1 nT measurement noise
+
+
+def test_despike_removes_spikes_and_rails_keeps_signal():
+    """Isolated spikes and multi-minute rails are masked; the field survives."""
+    clean = _clean_field()
+    x = clean.copy()
+    x[1000] += 5000.0                # isolated spike
+    x[2000:2006] = 99800.0           # multi-minute saturation rail
+    times = pd.date_range("2024-05-09", periods=len(x), freq="60s")
+    ds = xr.Dataset({"X": ("time", x), "Y": ("time", np.zeros_like(x)),
+                     "Z": ("time", np.zeros_like(x))},
+                    coords={"time": times},
+                    attrs={"latitude": 40.0, "longitude": -105.0})
+
+    out, flags = despike(ds, return_flags=True)
+    fx = flags["X"]
+    assert fx[1000]                          # spike flagged
+    assert fx[2000:2006].all()               # whole rail flagged
+    assert out.attrs["n_despiked"] == int(fx.sum()) > 0
+    # no physically-impossible minute-to-minute rate survives
+    assert np.nanmax(np.abs(np.diff(out["X"].values))) < 500.0
+    # away from the artifacts the smooth field is untouched
+    quiet = np.ones(len(x), bool)
+    for lo, hi in [(980, 1020), (1980, 2030)]:
+        quiet[lo:hi] = False
+    kept = np.isfinite(out["X"].values) & quiet
+    np.testing.assert_allclose(out["X"].values[kept], clean[kept])
+
+
+def test_despike_leaves_pure_dc_step_in_place():
+    """A persistent re-level with no spike is not an outlier against a rolling
+    median -- despike must not mangle it (the per-window detrend owns it)."""
+    x = _clean_field(n=4000)
+    x[2000:] += 26000.0
+    out, flags = despike(np.asarray(x), window=31, return_flags=True)
+    # the step edge is not turned into a scatter of masked samples
+    assert flags[1900:2100].sum() <= 2
+    # both plateaus survive intact
+    np.testing.assert_allclose(out[1000], x[1000])
+    np.testing.assert_allclose(out[3000], x[3000])
+
+
+def test_despike_leaves_clean_data_alone():
+    """A smooth record with no artifacts is essentially never flagged."""
+    x = _clean_field()
+    _, flags = despike(pd.DataFrame({"X": x}), return_flags=True)
+    assert flags.mean() < 1e-3
+
+
+def test_despike_preserves_real_transient():
+    """A rapid but real (multi-sample, evolving) excursion is not a spike and
+    must survive -- despike keys on deviation from a rolling median, and a
+    smoothly-varying storm tracks that median."""
+    n = 3 * 1440
+    t = np.arange(n) * 60.0
+    x = 20 * np.sin(2 * np.pi * t / 86400.0)
+    burst = np.exp(-0.5 * ((np.arange(n) - 1500) / 40.0) ** 2) * 300  # ~1h storm
+    x = x + burst
+    out = despike(np.asarray(x), window=31)
+    assert np.isfinite(out).all()                 # nothing masked
+    assert out[1500] == pytest.approx(x[1500])
+
+
+def test_despike_clears_short_rail_flanked_by_spikes():
+    """A short saturation rail flanked by rail-valued spikes -- the real
+    variometer morphology -- is fully removed, leaving no impossible rate."""
+    x = _clean_field(n=2000)
+    x[898] = -5e4                                 # spike just before ...
+    x[899:906] = 5e4                              # ... a 7-min rail ...
+    x[906] = 8e4                                  # ... spike just after
+    out = despike(np.asarray(x), window=31)
+    assert np.isnan(out[898:907]).all()
+    assert np.nanmax(np.abs(np.diff(out))) < 500.0
+
+
+def test_despike_input_types_and_window_units():
+    x = _clean_field(n=1000)
+    x[500] += 5000.0
+    times = pd.date_range("2024-05-09", periods=len(x), freq="60s")
+
+    # DataFrame: duration window resolved from the index cadence
+    df_out = despike(pd.DataFrame({"X": x}, index=times), window="31min")
+    assert np.isnan(df_out["X"].to_numpy()[500])
+
+    # bare array: window must be an integer sample count
+    arr_out = despike(np.asarray(x), window=31)
+    assert np.isnan(arr_out[500])
+    with pytest.raises(ValueError, match="integer sample count"):
+        despike(np.asarray(x), window="31min")
 
 
 def test_prepare_record_shorter_than_pad_raises():

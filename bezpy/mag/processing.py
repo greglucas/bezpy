@@ -16,7 +16,7 @@ steps every analysis re-implements; they live here with defensible defaults:
   3 x 30,000 s for EMTF transfer functions) rather than a hardcoded value.
 """
 
-__all__ = ["combine_observatories", "prepare", "trim_pad"]
+__all__ = ["combine_observatories", "despike", "prepare", "trim_pad"]
 
 import numpy as np
 import pandas as pd
@@ -83,6 +83,135 @@ def combine_observatories(observatories):
     for name in combined.data_vars:
         combined[name].attrs.setdefault("units", "nT")
     return combined
+
+
+def _hampel_mask(values, window, nsig, sig_floor, iterations):
+    """Iterated Hampel outlier mask over the first axis of a 2-D array.
+
+    ``values`` is ``(time, ncols)``; returns a boolean array of the same shape
+    marking outliers. Each pass flags samples deviating from a centered rolling
+    median by more than ``nsig`` robust sigmas (``1.4826 * MAD``, floored at
+    ``sig_floor``); flagged samples are removed before the next pass, so a run
+    of bad samples longer than half the window still erodes from its edges
+    inward (a plain single-pass Hampel cannot clean a run wider than the
+    window, because the median itself is then contaminated).
+    """
+    w = int(window)
+    if w < 3:
+        w = 3
+    if w % 2 == 0:
+        w += 1
+    min_periods = w // 2 + 1
+    df = pd.DataFrame(np.asarray(values, dtype="float64"))
+    bad = np.zeros(df.shape, dtype=bool)
+    work = df
+    for _ in range(int(iterations)):
+        med = work.rolling(w, center=True, min_periods=min_periods).median()
+        dev = (work - med).abs()
+        mad = dev.rolling(w, center=True, min_periods=min_periods).median()
+        sigma = (1.4826 * mad).clip(lower=sig_floor)
+        new_bad = (dev > nsig * sigma).to_numpy() & np.isfinite(df.to_numpy())
+        new_bad &= ~bad
+        if not new_bad.any():
+            break
+        bad |= new_bad
+        work = df.mask(bad)
+    return bad
+
+
+def despike(b, window="31min", nsig=6.0, sig_floor=3.0, iterations=5,
+            return_flags=False):
+    """Mask instrumental spikes, rails, and steps in magnetic time series.
+
+    Field magnetometers -- especially variometers distributed through
+    seismological FDSN feeds -- carry non-physical artifacts that a plain
+    boxcar decimation passes straight through: isolated wild samples, multi-
+    minute saturation rails (values pinned near an instrument limit), and DC
+    baseline steps (re-zeroing, or the ~1 Hz->10 Hz channel switch on the
+    USGS/EarthScope stations). All three inject broadband high-frequency
+    energy, which is exactly the band that dominates the induced geoelectric
+    field, so left in place they inflate SECS-interpolated E by large factors.
+
+    This applies an iterated Hampel (rolling median / MAD) filter along the
+    time axis and sets flagged samples to NaN, leaving them for the per-sample
+    gap handling downstream (``gaps="mask"`` in :func:`prepare`, infinite
+    variance in :class:`~bezpy.mag.SECSInterpolator`). Isolated spikes and
+    multi-minute rails are removed outright. Real storm signal is preserved --
+    a smoothly evolving large excursion tracks the rolling median and is not
+    flagged (validated against co-located observatories in ``bezpy.validation``).
+
+    A *pure* DC step (a persistent re-level with no accompanying spike) is not
+    an outlier against a rolling median and is intentionally left in place: the
+    variometer baseline is arbitrary and removed per-window by :func:`prepare`'s
+    detrend anyway, so a step only matters to an analysis window that straddles
+    it. When it does, mask a band around the discontinuity or process the two
+    sides as separate windows.
+
+    :param b: :class:`xarray.Dataset` (``Bx``/``By``/``Bz`` or ``X``/``Y``/``Z``
+        over a ``time`` dim, optionally with an ``obs``/``site`` dim),
+        :class:`pandas.DataFrame` (time-indexed component columns), or a bare
+        ``(time,)`` / ``(time, ncols)`` :class:`numpy.ndarray`.
+    :param window: Hampel window as a duration (``"31min"``, the default) when
+        the time step is known (Dataset/DataFrame), or an integer sample count.
+        A duration is converted with the series' own sampling interval.
+    :param nsig: robust-sigma threshold; larger flags less (default 6.0).
+    :param sig_floor: minimum robust sigma in data units (default 3.0 nT). The
+        rolling MAD collapses toward zero over a locally smooth stretch, so
+        without a floor the tiny (few-nT) curvature at the crest of a real,
+        smoothly-varying storm would trip the threshold; 3 nT keeps such crests
+        while leaving the huge (10^3-10^5 nT) artifacts far above it.
+    :param iterations: maximum erosion passes (default 5; converges in ~3 even
+        for multi-minute rails).
+    :param return_flags: if True, also return the boolean outlier mask.
+    :return: the despiked input in its own type (NaN where flagged), with
+        ``n_despiked`` recorded in ``attrs`` for a Dataset. With
+        ``return_flags``, a ``(despiked, flags)`` tuple.
+    """
+    if hasattr(b, "data_vars"):                                  # xarray Dataset
+        out = b.copy(deep=True)
+        dt = _uniform_dt(out["time"].values)
+        w = _window_samples(window, dt)
+        flags = {}
+        total = 0
+        for name, da in out.data_vars.items():
+            if "time" not in da.dims:
+                continue
+            da_t = da.transpose("time", ...)
+            arr = da_t.values.astype("float64")
+            flat = arr.reshape(arr.shape[0], -1)
+            mask = _hampel_mask(flat, w, nsig, sig_floor, iterations)
+            flat[mask] = np.nan
+            out[name] = (da_t.dims, flat.reshape(arr.shape), da.attrs)
+            flags[name] = mask.reshape(arr.shape)
+            total += int(mask.sum())
+        out.attrs["n_despiked"] = total
+        return (out, flags) if return_flags else out
+
+    if isinstance(b, pd.DataFrame):
+        dt = _uniform_dt(b.index.values)
+        w = _window_samples(window, dt)
+        mask = _hampel_mask(b.to_numpy(), w, nsig, sig_floor, iterations)
+        out = b.mask(pd.DataFrame(mask, index=b.index, columns=b.columns))
+        return (out, mask) if return_flags else out
+
+    arr = np.asarray(b, dtype="float64")
+    flat = arr.reshape(arr.shape[0], -1) if arr.ndim > 1 else arr.reshape(-1, 1)
+    w = _window_samples(window, None)
+    mask = _hampel_mask(flat, w, nsig, sig_floor, iterations)
+    out = arr.copy()
+    out.reshape(flat.shape)[mask] = np.nan
+    mask = mask.reshape(arr.shape)
+    return (out, mask) if return_flags else out
+
+
+def _window_samples(window, dt):
+    """Hampel window in samples from a duration (needs ``dt``) or an int."""
+    if isinstance(window, (int, np.integer)):
+        return int(window)
+    if dt is None:
+        raise ValueError("window must be an integer sample count when the "
+                         "sampling interval is unknown (bare-array input)")
+    return max(3, int(round(_as_seconds(window) / dt)))
 
 
 def _uniform_dt(times):

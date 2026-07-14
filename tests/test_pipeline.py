@@ -80,6 +80,28 @@ def test_calc_geoelectric_field_secs(setup):
     assert "pad_left" not in e.attrs  # trimmed
 
 
+def test_despike_obs_recovers_field_from_spiked_observatory(setup):
+    """A single injected spike in one observatory corrupts the SECS E field;
+    despike_obs=True removes it and recovers the clean-input field."""
+    b_obs, sites, _ = setup
+    clean = bezpy.calc_geoelectric_field(b_obs, sites, interp="secs", pad="1h")
+
+    spiked = b_obs.copy(deep=True)
+    spiked["Bx"].values[700, 3] += 5000.0        # one huge sample at one obs
+    corrupted = bezpy.calc_geoelectric_field(spiked, sites, interp="secs",
+                                             pad="1h")
+    recovered = bezpy.calc_geoelectric_field(spiked, sites, interp="secs",
+                                             pad="1h", despike_obs=True)
+
+    peak = lambda e: np.nanmax(np.abs(e["Ex"].values))  # noqa: E731
+    assert peak(corrupted) > 3 * peak(clean)            # spike inflates E
+    assert peak(recovered) < 1.05 * peak(clean)         # inflation removed
+    # Field restored everywhere (despike masks only the one spiked instant, so
+    # the tiny residual is a localized SECS gap, not the 3x corruption).
+    resid = np.abs(recovered["Ex"].values - clean["Ex"].values)
+    assert np.median(resid) < 1e-3 * peak(clean)
+
+
 def test_calc_geoelectric_field_uniform_matches_convolve(setup):
     b_obs, sites, _ = setup
     one_obs = b_obs.isel(obs=[5])
