@@ -280,7 +280,7 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
         ``SiteCollection``
     :param lines: optional TransmissionLines to reduce voltages for
     :param chunk: chunk length as a pandas period frequency (default one
-        year; use e.g. ``"3ME"`` to bound memory for dense site sets).
+        year; use e.g. ``"3M"`` to bound memory for dense site sets).
         Peak memory per chunk is roughly ``50 * nsites * chunk_samples``
         bytes (E fields plus bounded FFT workspace) -- one year of 1-minute
         data is ~25 MB per site, so hundreds of sites want monthly chunks

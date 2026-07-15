@@ -18,9 +18,11 @@ multiple different ways.
 
 ## Examples
 
-Example notebooks can be found in [notebooks/](./notebooks/)
-
-Example scripts for command line use can be found in [scripts/](./scripts/)
+Worked, end-to-end tutorials live in the documentation ([docs/](./docs/) — a
+storm B→E map, storm catalogs, a continuous scan to a hazard map, line
+voltages via kernels, and gridded impedance / live maps). The sections below
+give a quick tour of each stage; [scripts/](./scripts/) holds runnable
+command-line examples.
 
 ## Install
 
