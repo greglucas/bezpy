@@ -56,11 +56,13 @@ from .magnetic import (
 )
 from .mt import (
     download_mt,
+    download_mt_search,
     download_mt_spud,
     ingest_mt_xml,
     load_mt_site,
     load_mt_sites,
     mt_inventory,
+    search_mt,
     stored_mt_surveys,
 )
 from .tl import (
@@ -82,8 +84,9 @@ __all__ = [
     # geomagnetic activity indices
     "fetch_index",
     # magnetotelluric transfer functions (EMTF XML)
-    "download_mt", "download_mt_spud", "ingest_mt_xml", "load_mt_site",
-    "load_mt_sites", "mt_inventory", "stored_mt_surveys", "mt",
+    "download_mt", "download_mt_spud", "download_mt_search", "search_mt",
+    "ingest_mt_xml", "load_mt_site", "load_mt_sites", "mt_inventory",
+    "stored_mt_surveys", "mt",
     # transmission line geometries
     "download_transmission_lines", "load_transmission_lines", "read_geojson",
     "tl",

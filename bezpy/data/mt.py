@@ -17,19 +17,22 @@ The survey is read from the XML's ``<Site><Survey>`` element (falling back to
 ``<Project>`` and then the IRIS network code). Loading a stored site returns a
 fully-parsed :class:`bezpy.mt.Site3d`.
 
-Notes
------
-``download_mt`` works with any direct EMTF-XML URL, including IRIS SPUD data
-URLs (see :func:`spud_data_url`). Programmatic bounding-box *discovery* against
-the live SPUD service is intentionally left thin (:func:`spud_search_url`)
-because that query interface has changed over time and should be confirmed
-against the current service before relying on it; downloading and organizing
-known files is fully supported.
+Discovery
+---------
+:func:`search_mt` finds transfer functions by region (and survey / quality)
+against the live SPUD archive, and :func:`download_mt_search` downloads the
+matches -- so a whole region's MT data is one call, no bundle ids needed::
+
+    bezpy.data.download_mt_search(bbox=(128, 30, 146, 46))   # e.g. Japan
+
+``download_mt``/:func:`download_mt_spud` remain for fetching a single known URL
+or SPUD bundle id.
 """
 __all__ = [
-    "download_mt", "download_mt_spud", "ingest_mt_xml", "store_mt_xml",
-    "load_mt_site", "load_mt_sites", "mt_inventory", "stored_mt_surveys",
-    "mt_survey_of", "spud_data_url", "spud_bundle_url", "spud_search_url",
+    "download_mt", "download_mt_spud", "download_mt_search", "search_mt",
+    "ingest_mt_xml", "store_mt_xml", "load_mt_site", "load_mt_sites",
+    "mt_inventory", "stored_mt_surveys", "mt_survey_of",
+    "spud_data_url", "spud_bundle_url", "spud_search_url",
 ]
 
 import html
@@ -51,6 +54,10 @@ from ._cache import get_cache_dir
 _SPUD_DATA_URL = "https://ds.iris.edu/spudservice/data/{data_id}"
 _SPUD_BUNDLE_URL = "https://ds.iris.edu/spudservice/emtf/{bundle_id}"
 _SPUD_SEARCH_URL = "https://ds.iris.edu/spud/emtf"
+# The service lists every EM_TF product (id, location, and full <Site> header)
+# as one document. It has no reliable server-side geographic filter, so
+# search_mt caches this index and filters it locally.
+_SPUD_INDEX_URL = "https://ds.iris.edu/spudservice/emtf"
 
 
 def spud_data_url(data_id):
@@ -69,11 +76,11 @@ def spud_bundle_url(bundle_id):
 
 
 def spud_search_url(bbox=None):
-    """Return a SPUD EMTF search URL for a bounding box (best-effort).
+    """Return the human SPUD EMTF *browser* URL for a bounding box.
 
-    ``bbox`` is ``(west, south, east, north)`` in degrees. The live SPUD query
-    vocabulary should be confirmed before depending on this; it is provided as a
-    starting point for discovery.
+    For programmatic discovery use :func:`search_mt` / :func:`download_mt_search`
+    instead; this just builds the ``ds.iris.edu/spud/emtf`` page URL a person
+    would open. ``bbox`` is ``(west, south, east, north)`` in degrees.
     """
     if bbox is None:
         return _SPUD_SEARCH_URL
@@ -251,6 +258,149 @@ def download_mt_spud(bundle_id, survey=None, session=None, timeout=60):
     response = getter(xml_url, timeout=timeout)
     response.raise_for_status()
     return store_mt_xml(response.text, survey=survey)
+
+
+# ----------------------------------------------------------------------------
+# Search (discovery against the live SPUD archive)
+# ----------------------------------------------------------------------------
+def _spud_index_path():
+    return get_cache_dir("mt") / "spud_emtf_index.xml"
+
+
+def fetch_spud_index(refresh=False, session=None, timeout=300):
+    """Download (and cache) the SPUD EMTF index of every transfer function.
+
+    The index is one large document listing all ~8000 products with their
+    location and site header; :func:`search_mt` filters it locally. It is
+    cached on disk and reused until ``refresh=True`` re-downloads it. Returns
+    the cached path.
+    """
+    path = _spud_index_path()
+    if refresh or not path.exists():
+        import requests
+        getter = session.get if session is not None else requests.get
+        response = getter(_SPUD_INDEX_URL, timeout=timeout)
+        response.raise_for_status()
+        path.write_text(response.text, encoding="utf-8")
+    return path
+
+
+# One <EM_TF id="..."> ... </EM_TF> product block.
+_EMTF_BLOCK_RE = re.compile(r'<EM_TF\b[^>]*\bid="(\d+)".*?</EM_TF>', re.DOTALL)
+# Embedded <a href=...>...</a> links (in <Link>, <OrgUrl>, ...) break XML parsing.
+_ANCHOR_RE = re.compile(r'</?a\b[^>]*>', re.IGNORECASE)
+# Bare ampersands in free-text fields (e.g. "Nagamachi, & Owada") are not valid
+# XML; re-escape any that are not already part of an entity before parsing.
+_BARE_AMP_RE = re.compile(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)')
+
+
+def _parse_index_block(spud_id, block):
+    """One search row from an EM_TF index block, or None if it isn't a site TF."""
+    clean = _BARE_AMP_RE.sub("&amp;", _ANCHOR_RE.sub("", block))
+    try:
+        root = ET.fromstring(clean)
+    except ET.ParseError:
+        return None
+    if _text(root, "SubType") not in ("MT_TF", None):
+        return None
+    header = _parse_header(root)
+    if header["latitude"] is None or header["longitude"] is None:
+        return None
+    return {
+        "spud_id": int(spud_id),
+        "code": header["code"],
+        "survey": header["survey"] or header["network"] or "unknown",
+        "country": header["country"],
+        "year": header["year"],
+        "latitude": header["latitude"],
+        "longitude": header["longitude"],
+        "rating": header["rating"],
+        "product_id": header["product_id"],
+    }
+
+
+def search_mt(bbox=None, survey=None, min_rating=None, country=None,
+              refresh=False, session=None, timeout=300):
+    """Search the SPUD EMTF archive for transfer functions to download.
+
+    Parses the cached SPUD index (see :func:`fetch_spud_index`) and filters it;
+    the returned ``spud_id`` column feeds :func:`download_mt_spud` (or use
+    :func:`download_mt_search` to fetch every match in one call).
+
+    Parameters
+    ----------
+    bbox : tuple, optional
+        ``(west, south, east, north)`` in degrees; keep sites inside it.
+    survey : str, optional
+        Case-insensitive substring match on the survey/project name
+        (e.g. ``"JMA"`` or ``"INTERMAGNET"`` for the Japanese observatories).
+    min_rating : int, optional
+        Drop sites rated below this (1-5); sites with no rating are kept.
+    country : str, optional
+        Case-insensitive substring match on the country field.
+    refresh : bool, optional
+        Re-download the index instead of using the cached copy.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per matching transfer function (``spud_id``, ``code``,
+        ``survey``, ``country``, ``year``, ``latitude``, ``longitude``,
+        ``rating``, ``product_id``), sorted by survey then code.
+    """
+    text = html.unescape(fetch_spud_index(refresh=refresh, session=session,
+                                          timeout=timeout).read_text(encoding="utf-8"))
+    rows = []
+    for match in _EMTF_BLOCK_RE.finditer(text):
+        row = _parse_index_block(match.group(1), match.group(0))
+        if row is None:
+            continue
+        if survey is not None and survey.lower() not in \
+                f"{row['survey']} {row['product_id']}".lower():
+            continue
+        if country is not None and country.lower() not in str(row["country"]).lower():
+            continue
+        if min_rating is not None and row["rating"] is not None \
+                and row["rating"] < min_rating:
+            continue
+        if bbox is not None:
+            west, south, east, north = bbox
+            if not (west <= row["longitude"] <= east
+                    and south <= row["latitude"] <= north):
+                continue
+        rows.append(row)
+    columns = ["spud_id", "code", "survey", "country", "year",
+               "latitude", "longitude", "rating", "product_id"]
+    df = pd.DataFrame(rows, columns=columns)
+    if not df.empty:
+        df = df.sort_values(["survey", "code"]).reset_index(drop=True)
+    return df
+
+
+def download_mt_search(bbox=None, survey=None, min_rating=None, country=None,
+                       refresh=False, session=None, timeout=60, verbose=False):
+    """Search the SPUD archive and download every matching transfer function.
+
+    Runs :func:`search_mt` with the given filters, then downloads each result
+    (skipping sites already stored under the same survey). Returns the list of
+    stored paths. See :func:`search_mt` for the filter arguments.
+    """
+    import requests
+
+    catalog = search_mt(bbox=bbox, survey=survey, min_rating=min_rating,
+                        country=country, refresh=refresh, session=session)
+    getter_session = session if session is not None else requests.Session()
+    stored = []
+    for row in catalog.itertuples():
+        dest = _site_path(row.survey, row.code)
+        if dest.exists():
+            stored.append(dest)
+            continue
+        if verbose:
+            print(f"downloading {row.code} ({row.survey}) [spud {row.spud_id}]")
+        stored.append(download_mt_spud(row.spud_id, survey=row.survey,
+                                       session=getter_session, timeout=timeout))
+    return stored
 
 
 # ----------------------------------------------------------------------------

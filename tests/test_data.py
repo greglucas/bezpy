@@ -58,9 +58,10 @@ def _synthetic_payload(url):
 
 
 class _FakeResponse:
-    def __init__(self, *, payload=None, text=None):
+    def __init__(self, *, payload=None, text=None, content=None):
         self._payload = payload
         self.text = text
+        self.content = content
 
     def raise_for_status(self):
         pass
@@ -420,6 +421,179 @@ def test_spud_resolver_picks_xml_not_png(cache, sample_emtf_path, monkeypatch):
     path = data.download_mt_spud(999, session=FakeSession())
     assert path.name == "TEST01.xml"
     assert data.load_mt_site("TEST01").name == "TEST01"
+
+
+# ---------------------------------------------------------------------------
+# SPUD archive search
+# ---------------------------------------------------------------------------
+def _emtf_index_block(spud_id, code, survey, project, lat, lon, rating,
+                      subtype="MT_TF", citation="A & B"):
+    # A raw "&" in the citation mimics the real index (invalid XML until fixed).
+    return f"""  <EM_TF id="{spud_id}">
+    <SubType>{subtype}</SubType>
+    <ProductId>{project}.{code}</ProductId>
+    <Link><a href="http://x/emtf/{spud_id}">link</a></Link>
+    <Copyright><Citation><Authors>{citation}</Authors></Citation></Copyright>
+    <Site><Project>{project}</Project><Survey>{survey}</Survey>
+      <Id>{code}</Id>
+      <Location><Latitude>{lat}</Latitude><Longitude>{lon}</Longitude></Location>
+      <DataQualityNotes><Rating>{rating}</Rating></DataQualityNotes>
+    </Site>
+  </EM_TF>"""
+
+
+def _write_fake_index():
+    from bezpy.data.mt import _spud_index_path
+    blocks = [
+        _emtf_index_block(1, "KAK", "JMA", "INTERMAGNET", 36.232, 140.186, 3),
+        _emtf_index_block(2, "MMB", "JMA", "INTERMAGNET", 43.910, 144.189, 5),
+        _emtf_index_block(3, "TA01", "USArray", "USArray", 40.0, -100.0, 4),
+        # A non-transfer-function product that must be filtered out.
+        _emtf_index_block(4, "SPEC", "Other", "Other", 37.0, 140.0, 5,
+                          subtype="MT_SPECTRA"),
+    ]
+    path = _spud_index_path()
+    path.write_text("<Results>\n" + "\n".join(blocks) + "\n</Results>")
+    return path
+
+
+def test_search_mt_filters_bbox_survey_and_subtype(cache):
+    _write_fake_index()
+    # A bare "&" in the block would break XML parsing without re-escaping.
+    all_tf = data.search_mt()
+    assert set(all_tf["code"]) == {"KAK", "MMB", "TA01"}   # MT_SPECTRA excluded
+
+    japan = data.search_mt(bbox=(128, 30, 146, 46))
+    assert set(japan["code"]) == {"KAK", "MMB"}
+
+    # Survey filter matches the project (INTERMAGNET) as well as <Survey> (JMA).
+    assert set(data.search_mt(survey="INTERMAGNET")["code"]) == {"KAK", "MMB"}
+    assert set(data.search_mt(survey="JMA")["code"]) == {"KAK", "MMB"}
+    assert set(data.search_mt(min_rating=5)["code"]) == {"MMB"}
+
+
+def test_download_mt_search_fetches_and_skips_existing(cache, sample_emtf_path):
+    _write_fake_index()
+    xml = sample_emtf_path.read_text()
+
+    class FakeSession:
+        def __init__(self):
+            self.data_calls = 0
+
+        def get(self, url, timeout=None):
+            if "/emtf/" in url:
+                return _FakeResponse(text=_SPUD_METADATA)
+            self.data_calls += 1
+            return _FakeResponse(text=xml)
+
+    session = FakeSession()
+    paths = data.download_mt_search(survey="JMA", session=session)
+    assert session.data_calls == 2                       # KAK and MMB fetched
+    assert all(p.exists() and p.parent.name == "JMA" for p in paths)
+
+    # Pre-existing destinations are skipped without any download.
+    from bezpy.data.mt import _site_path
+    for code in ("KAK", "MMB"):
+        _site_path("JMA", code).write_text("<cached/>")
+    session = FakeSession()
+    data.download_mt_search(survey="JMA", session=session)
+    assert session.data_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# WDC (BGS World Data Centre) magnetic source
+# ---------------------------------------------------------------------------
+def _iaga_line(label, value):
+    # IAGA-2002 header: label in cols 1-23, value from col 24.
+    return " " + label.ljust(23) + value + " " * 8 + "|"
+
+
+def _wdc_zip_bytes(day="2003-10-30"):
+    """A minimal WDC-style zip: one IAGA-2002 file plus files to be skipped."""
+    import io
+    import zipfile
+
+    rows = "\n".join(
+        f"{day} 00:0{m}:00.000 303 {29700 + m}.00 -3500.00 35000.00 45000.00"
+        for m in range(3))
+    iaga = "\n".join([
+        _iaga_line("Format", "IAGA-2002"),
+        _iaga_line("Station Name", "Kakioka"),
+        _iaga_line("IAGA Code", "KAK"),
+        _iaga_line("Geodetic Latitude", "36.232"),
+        _iaga_line("Geodetic Longitude", "140.186"),
+        _iaga_line("Reported", "XYZF"),
+        "DATE       TIME         DOY     KAKX      KAKY      KAKZ      KAKF   |",
+        rows,
+    ]) + "\n"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as archive:
+        archive.writestr("kak200310dmin.min", iaga)
+        archive.writestr("_REQUEST_SUMMARY.txt", "ignore me")
+        archive.writestr("_ACKNOWLEDGEMENTS_/kak.ack", "cite JMA")
+    return buf.getvalue()
+
+
+def test_wdc_build_url_minute_and_hour():
+    from bezpy.data import _wdc
+
+    minute = _wdc.build_url("kak", "2003-10-29", "2003-10-31", cadence="minute")
+    assert "/data/zipped-data/minute/KAK?" in minute
+    assert "file_format=iaga" in minute and "orientation=XYZF" in minute
+    assert "group_by=month" in minute            # monthly grouping for minute
+    hour = _wdc.build_url("KAK", "1960-01-01", "1970-01-01", cadence="hour")
+    assert "/data/zipped-data/hour/KAK?" in hour and "group_by" not in hour
+
+
+def test_wdc_parse_zip_skips_non_data_members():
+    from bezpy.data import _wdc
+
+    df = _wdc.parse_zip(_wdc_zip_bytes())
+    assert list(df.columns) == ["X", "Y", "Z", "F"] and len(df) == 3
+    assert df.attrs["station_name"] == "Kakioka"
+    assert df.attrs["latitude"] == 36.232
+    assert "wdcapi.bgs.ac.uk" in df.attrs["provider"]
+
+
+def test_wdc_fetch_trims_to_window():
+    from bezpy.data import _wdc
+
+    class FakeSession:
+        def get(self, url, timeout=None):
+            return _FakeResponse(content=_wdc_zip_bytes())
+
+    # The file holds 00:00-00:02; the window keeps only from 00:01.
+    df = _wdc.fetch_dataframe("KAK", "2003-10-30 00:01", "2003-10-30 00:05",
+                              sampling_period=60, session=FakeSession())
+    assert len(df) == 2 and str(df.index[0]) == "2003-10-30 00:01:00"
+
+
+def test_wdc_rejects_unsupported_cadence():
+    from bezpy.data import _wdc
+
+    with pytest.raises(ValueError, match="minute .* hourly"):
+        _wdc.fetch_dataframe("KAK", "2003-10-29", "2003-10-31",
+                             sampling_period=1)
+
+
+def test_wdc_source_stored_under_provenance(cache, monkeypatch):
+    from bezpy.data import _wdc
+
+    def fake_fetch(code, start, end, sampling_period=60, level="definitive",
+                   verbose=False, **kwargs):
+        idx = pd.date_range(start, periods=3, freq="min")
+        df = pd.DataFrame({"X": [1.0, 2, 3], "Y": [4.0, 5, 6],
+                           "Z": [7.0, 8, 9], "F": [10.0, 11, 12]}, index=idx)
+        df.attrs["provider"] = _wdc.PROVIDER
+        return df
+
+    monkeypatch.setattr(_wdc, "fetch_dataframe", fake_fetch)
+    paths = data.download_observatory("KAK", "2003-10-30", "2003-10-30 00:03",
+                                      source="wdc", level="definitive")
+    assert paths and paths[0].parts[-3:-1] == ("definitive", "KAK")
+    assert "wdc" in str(paths[0])
+    ds = data.load_observatory("KAK", source="wdc", as_dataframe=True)
+    assert list(ds.columns) == ["X", "Y", "Z", "F"] and len(ds) == 3
 
 
 # ---------------------------------------------------------------------------

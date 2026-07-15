@@ -26,6 +26,9 @@ Sources currently supported:
   NRCan observatories).
 * ``intermagnet`` -- the INTERMAGNET GIN (the global network; pass
   ``source="intermagnet"`` explicitly).
+* ``wdc`` -- the BGS World Data Centre archive (``wdcapi.bgs.ac.uk``), the
+  source for definitive minute/hourly data reaching back before the real-time
+  services (e.g. Kakioka from 1913). Pass ``source="wdc"`` explicitly.
 
 All times are handled in UTC.
 """
@@ -42,7 +45,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from . import _intermagnet, _webservice
+from . import _intermagnet, _wdc, _webservice
 from ._cache import get_cache_dir
 from ._levels import BEST, canonical_level, level_rank
 from ._netcdf import dataset_to_frame, frame_to_dataset, merge_datasets, read_dataset, write_dataset
@@ -51,8 +54,8 @@ from ._webservice import default_source
 DEFAULT_ELEMENTS = ("X", "Y", "Z", "F")
 
 # Provenance tiebreak when two sources provide the same quality level: prefer
-# the global/authoritative network, then the national services.
-_SOURCE_RANK = {"intermagnet": 3, "usgs": 2, "nrcan": 2, "iaga": 1}
+# the global/authoritative networks, then the national services.
+_SOURCE_RANK = {"intermagnet": 3, "wdc": 3, "usgs": 2, "nrcan": 2, "iaga": 1}
 
 
 # ----------------------------------------------------------------------------
@@ -172,9 +175,14 @@ def _fetch_frame(code, start, end, source, level, elements, sampling_period,
         return _intermagnet.fetch_dataframe(
             code, start, end, sampling_period=sampling_period, level=level,
             verbose=verbose, **kwargs)
+    if source == "wdc":
+        kwargs = {"base_url": base_url} if base_url else {}
+        return _wdc.fetch_dataframe(
+            code, start, end, sampling_period=sampling_period, level=level,
+            verbose=verbose, **kwargs)
     raise ValueError(
-        f"Unknown source {source!r}. Supported: 'usgs', 'nrcan', 'intermagnet' "
-        f"(or 'auto').")
+        f"Unknown source {source!r}. Supported: 'usgs', 'nrcan', "
+        f"'intermagnet', 'wdc' (or 'auto').")
 
 
 def fetch_observatory(code, start, end, source="auto", level="variation",
@@ -241,7 +249,8 @@ def download_observatory(code, start, end, source="auto", level="variation",
         UTC interval to download (naive timestamps are treated as UTC).
     source : str, optional
         ``"auto"`` (default; USGS or NRCan by observatory), ``"usgs"``,
-        ``"nrcan"``, or ``"intermagnet"``.
+        ``"nrcan"``, ``"intermagnet"``, or ``"wdc"`` (the long-baseline BGS
+        World Data Centre archive; minute or hourly).
     level : str, optional
         Data quality level to request and file under. Default ``"variation"``
         (real-time). See :mod:`._levels`.
