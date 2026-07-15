@@ -73,7 +73,7 @@ version = {attr = "bezpy.__version__"}
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["bezpy*"]
-exclude = ["notebooks", "tests"]
+exclude = ["tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

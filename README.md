@@ -21,8 +21,11 @@ multiple different ways.
 Worked, end-to-end tutorials live in the documentation ([docs/](./docs/) — a
 storm B→E map, storm catalogs, a continuous scan to a hazard map, line
 voltages via kernels, and gridded impedance / live maps). The sections below
-give a quick tour of each stage; [scripts/](./scripts/) holds runnable
-command-line examples.
+give a quick tour of each stage.
+
+[scripts/](./scripts/) holds runnable command-line examples, including
+`mt_site_example.py` (inspect an MT site and turn B into E three ways) and
+`japan_halloween.py` (the Halloween 2003 storm at the Japanese observatories).
 
 ## Install
 
