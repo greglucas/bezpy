@@ -24,18 +24,11 @@ __all__ = ["screen_impedance", "screen_sites"]
 import numpy as np
 import pandas as pd
 
+from ..tl.utils import haversine_distance
 from .utils import apparent_resistivity
 
 # Off-diagonal rows of Z organised (xx, xy, yx, yy).
 _OFFDIAG = (1, 2)
-R_EARTH_KM = 6371.0
-
-
-def _great_circle_km(lat, lon, lats, lons):
-    lat, lon, lats, lons = map(np.radians, (lat, lon, lats, lons))
-    d = (np.sin((lats - lat) / 2) ** 2
-         + np.cos(lat) * np.cos(lats) * np.sin((lons - lon) / 2) ** 2)
-    return 2 * R_EARTH_KM * np.arcsin(np.sqrt(np.clip(d, 0, 1)))
 
 
 def screen_impedance(site, rho_bounds=(3e-2, 3e5), max_rel_err=0.75,
@@ -158,7 +151,7 @@ def screen_sites(sites, values=None, k=8, loo_decades=0.74, min_neighbors=4,
         for i in range(len(sites)):
             if not np.isfinite(logv[i]):
                 continue
-            d = _great_circle_km(lat[i], lon[i], lat, lon)
+            d = haversine_distance(lon[i], lat[i], lon, lat)
             d[i] = np.inf
             order = np.argsort(d)
             neigh = order[np.isfinite(logv[order])][:k]
