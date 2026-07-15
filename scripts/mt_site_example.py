@@ -44,8 +44,9 @@ def parse_args():
 def main():
     args = parse_args()
     if args.download:
-        # Best-effort: pull every EMTF bundle SPUD lists for the bbox.
-        bezpy.data.download_mt(bezpy.data.spud_search_url(bbox=tuple(args.bbox)))
+        # Search the SPUD archive for this region and download every match.
+        bezpy.data.download_mt_search(bbox=tuple(args.bbox),
+                                      min_rating=args.min_rating, verbose=True)
 
     sites = bezpy.data.load_mt_sites(bbox=tuple(args.bbox),
                                      min_rating=args.min_rating)

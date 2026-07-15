@@ -8,8 +8,9 @@ geomagnetically induced current (GIC) hazard studies.
 The package covers the full workflow:
 
 1. **Get the data** (`bezpy.data`): download and cache observatory magnetic
-   fields (USGS / INTERMAGNET), MT transfer functions (EarthScope SPUD), and
-   transmission line geometries (HIFLD); fetch Dst/Kp activity indices.
+   fields (USGS / INTERMAGNET, or the century-long BGS World Data Centre
+   archive), MT transfer functions searched by region from EarthScope SPUD,
+   and transmission line geometries (HIFLD); fetch Dst/Kp activity indices.
 2. **Prepare it** (`bezpy.mag`): combine observatories onto one time axis,
    detrend, taper, pad, and handle gaps *without fabricating data*.
 3. **Interpolate B** (`bezpy.mag.SECSInterpolator`): spherical elementary

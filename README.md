@@ -67,12 +67,16 @@ magnetotelluric (MT) transfer functions, and transmission-line geometries.
 
 ### Magnetic-field data
 
-Observatory data can be downloaded from three sources:
+Observatory data can be downloaded from several sources:
 
 - **`usgs`** / **`nrcan`** — the USGS web service (USGS observatories and
   relayed NRCan observatories; selected automatically by observatory code).
 - **`intermagnet`** — the INTERMAGNET GIN, the global network of ~150
   observatories (pass `source="intermagnet"`).
+- **`wdc`** — the BGS World Data Centre archive (`wdcapi.bgs.ac.uk`), holding
+  definitive minute and hourly data that reaches back before the real-time
+  services — e.g. Kakioka hourly from the 1950s–60s, decades before
+  INTERMAGNET (`source="wdc"`, `sampling_period=3600` for hourly).
 
 Data is stored as **CF-style netCDF, one file per observatory per year**, in a
 directory layout that records its *provenance* — both the source and the data
@@ -135,11 +139,14 @@ stored hierarchically by **survey** — the field campaign a station belongs to:
 ```
 
 ```python
-# Download from a SPUD EMTF page id (ds.iris.edu/spud/emtf/<id>) — bezpy
-# resolves the bundle's XML attachment automatically.
-bezpy.data.download_mt_spud(13283146)
+# Search the SPUD archive by region / survey / quality and download every
+# match in one call — no bundle ids by hand.
+catalog = bezpy.data.search_mt(bbox=(128, 30, 146, 46))       # e.g. Japan
+bezpy.data.download_mt_search(survey="JMA")                   # KAK, MMB, KNY
 
-# ...or from any direct EMTF-XML URL, or organize files you already have.
+# ...or download a single known SPUD page id (ds.iris.edu/spud/emtf/<id>),
+# any direct EMTF-XML URL, or organize files you already have.
+bezpy.data.download_mt_spud(13283146)
 bezpy.data.download_mt("https://ds.iris.edu/spudservice/data/<xml_id>")
 bezpy.data.ingest_mt_xml("TEST01.xml")
 
