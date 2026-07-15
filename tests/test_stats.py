@@ -29,6 +29,46 @@ def test_gpd_parameter_recovery():
     assert abs(rl.params["scale"] - sigma) / sigma < 0.15
 
 
+def test_shape_prior_stabilizes_small_samples():
+    """A Gaussian shape prior regularizes the notoriously unstable small-sample
+    GPD fit: on a dozen-odd heavy-tailed exceedances it delivers a lower-RMSE
+    return level and much tighter CIs, without biasing a large clean sample."""
+    u, sigma, xi, years = 50., 10., 0.3, 30.
+    rate = 13 / years
+    truth = gpd_truth(u, sigma, xi, rate, 100.)
+    rng = np.random.default_rng(7)
+
+    def relwidth(rl):
+        return (rl.ci_high - rl.ci_low) / rl.value if np.isfinite(rl.ci_high) \
+            else np.inf
+
+    mle_err, pri_err, mle_w, pri_w = [], [], [], []
+    for _ in range(120):
+        x = u + scipy.stats.genpareto.rvs(xi, scale=sigma, size=13,
+                                          random_state=rng)
+        for scale, errs, widths in ((None, mle_err, mle_w),
+                                    (0.5, pri_err, pri_w)):
+            try:
+                rl = return_level(x, years, threshold=u, ci="profile",
+                                  shape_prior_scale=scale)
+            except ValueError:
+                continue
+            errs.append((rl.value - truth) / truth)
+            widths.append(relwidth(rl))
+
+    # lower RMSE and tighter median CI with the prior
+    assert np.sqrt(np.mean(np.square(pri_err))) \
+        < 0.6 * np.sqrt(np.mean(np.square(mle_err)))
+    assert np.median(pri_w) < 0.5 * np.median(mle_w)
+
+    # non-breaking on a large clean sample: prior ~ MLE, both recover truth
+    big = make_gpd_sample(1500, u, sigma, xi)
+    mle = return_level(big, years_observed=40., threshold=u, ci="profile")
+    pri = return_level(big, years_observed=40., threshold=u, ci="profile",
+                       shape_prior_scale=0.5)
+    assert abs(pri.value - mle.value) / mle.value < 0.05
+
+
 def test_gpd_ci_brackets_and_orders():
     data = make_gpd_sample(300)
     profile = return_level(data, years_observed=30., threshold=50.,

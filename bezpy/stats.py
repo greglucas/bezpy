@@ -48,10 +48,37 @@ def _gpd_level(u, sigma, xi, rate, return_period):
     return u + sigma/xi*(m**xi - 1.)
 
 
-def _fit_gpd(excesses):
-    """MLE fit of GPD(shape xi, scale sigma) to excesses above the threshold."""
-    xi, _, sigma = scipy.stats.genpareto.fit(excesses, floc=0)
-    return xi, sigma
+def _shape_penalty(xi, prior_scale):
+    """Negative-log of a mean-zero Gaussian prior on the shape (0 if disabled).
+
+    The prior shrinks xi toward 0. Being independent of the sample size, its
+    weight relative to the data log-likelihood fades as the number of
+    exceedances grows -- it regularizes small samples (where the MLE of xi is
+    wild and blows the return level and its CI up) and all but vanishes on
+    large ones.
+    """
+    return 0.0 if prior_scale is None else xi*xi/(2.*prior_scale*prior_scale)
+
+
+def _fit_gpd(excesses, prior_scale=None):
+    """(Penalized) ML fit of GPD(shape xi, scale sigma) above the threshold.
+
+    With ``prior_scale`` set, maximizes the likelihood times a Gaussian shape
+    prior (a MAP estimate); otherwise the plain scipy MLE.
+    """
+    xi0, _, sigma0 = scipy.stats.genpareto.fit(excesses, floc=0)
+    if prior_scale is None:
+        return xi0, sigma0
+
+    def obj(p):
+        xi, log_sigma = p
+        return _gpd_nll(excesses, xi, np.exp(log_sigma)) \
+            + _shape_penalty(xi, prior_scale)
+    res = scipy.optimize.minimize(
+        obj, [np.clip(xi0, -0.9, 1.5), np.log(max(sigma0, 1e-9))],
+        method="Nelder-Mead", options={"xatol": 1e-5, "fatol": 1e-8})
+    xi, log_sigma = res.x
+    return float(xi), float(np.exp(log_sigma))
 
 
 def _gpd_nll(excesses, xi, sigma):
@@ -61,13 +88,17 @@ def _gpd_nll(excesses, xi, sigma):
     return np.inf if not np.all(np.isfinite(logpdf)) else -logpdf.sum()
 
 
-def _gpd_profile_ci(excesses, u, rate, return_period, level, x_hat, nll_hat):
+def _gpd_profile_ci(excesses, u, rate, return_period, level, x_hat, nll_hat,
+                    prior_scale=None):
     """Profile-likelihood CI on the GPD return level (Coles 2001, 4.3.3).
 
     The likelihood is re-parametrized in (return level, shape); for each
     candidate level the shape is profiled out, and the CI is where the
     deviance crosses the chi-square(1) quantile. The exceedance rate is held
-    at its estimate (Poisson variability in the count is not profiled).
+    at its estimate (Poisson variability in the count is not profiled). With a
+    ``prior_scale`` the same Gaussian shape penalty used for the fit is carried
+    through, giving a penalized-likelihood interval that stays finite when the
+    unpenalized profile would run away on a heavy-tailed small sample.
     """
     m = rate * return_period
     log_m = np.log(m)
@@ -79,7 +110,7 @@ def _gpd_profile_ci(excesses, u, rate, return_period, level, x_hat, nll_hat):
         def nll_of_xi(xi):
             sigma = (x_t - u)/log_m if abs(xi) < 1e-9 else \
                 (x_t - u)*xi/(m**xi - 1.)
-            return _gpd_nll(excesses, xi, sigma)
+            return _gpd_nll(excesses, xi, sigma) + _shape_penalty(xi, prior_scale)
         result = scipy.optimize.minimize_scalar(nll_of_xi, bounds=(-1., 2.),
                                                 method="bounded")
         return result.fun
@@ -124,7 +155,8 @@ def _bootstrap_ci(data, estimator, level, n_boot, rng):
 
 def return_level(data, years_observed, return_period=100., method="gpd",
                  threshold=None, ci="profile", ci_level=0.95,
-                 n_bootstrap=_BOOTSTRAP_DEFAULT, seed=None):
+                 n_bootstrap=_BOOTSTRAP_DEFAULT, seed=None,
+                 shape_prior_scale=None):
     """Estimate the T-year return level of a hazard quantity, with a CI.
 
     :param data: the sample the tail is fit to. For ``method="gpd"``:
@@ -152,6 +184,13 @@ def return_level(data, years_observed, return_period=100., method="gpd",
     :param ci_level: confidence level (default 0.95)
     :param n_bootstrap: bootstrap replicates for ``ci="bootstrap"``
     :param seed: random seed for the bootstrap
+    :param shape_prior_scale: for ``method="gpd"``, the standard deviation of a
+        mean-zero Gaussian prior on the tail shape xi (a penalized/MAP fit).
+        ``None`` (default) is the plain MLE. A value like ``0.5`` regularizes
+        the notoriously unstable small-sample shape estimate -- it shrinks xi
+        toward 0 when there are few exceedances (taming runaway return levels
+        and their profile CIs) while fading to the MLE as the sample grows.
+        Recommended for per-site hazard fits with only a dozen-odd exceedances.
     :return: :class:`ReturnLevel` -- value, CI, and fit parameters
     """
     data = np.asarray(data, dtype=float)
@@ -168,16 +207,18 @@ def return_level(data, years_observed, return_period=100., method="gpd",
         if len(excesses) < 5:
             raise ValueError("fewer than 5 exceedances above the threshold")
         rate = len(excesses)/years_observed
-        xi, sigma = _fit_gpd(excesses)
+        xi, sigma = _fit_gpd(excesses, prior_scale=shape_prior_scale)
         value = _gpd_level(u, sigma, xi, rate, return_period)
         params = {"shape": xi, "scale": sigma, "threshold": u, "rate": rate}
         if ci == "profile":
-            nll_hat = _gpd_nll(excesses, xi, sigma)
+            nll_hat = _gpd_nll(excesses, xi, sigma) \
+                + _shape_penalty(xi, shape_prior_scale)
             ci_low, ci_high = _gpd_profile_ci(excesses, u, rate, return_period,
-                                              ci_level, value, nll_hat)
+                                              ci_level, value, nll_hat,
+                                              prior_scale=shape_prior_scale)
         else:
             def estimate(sample):
-                xi_b, sigma_b = _fit_gpd(sample)
+                xi_b, sigma_b = _fit_gpd(sample, prior_scale=shape_prior_scale)
                 return _gpd_level(u, sigma_b, xi_b, len(sample)/years_observed,
                                   return_period)
             ci_low, ci_high = _bootstrap_ci(excesses, estimate, ci_level,
