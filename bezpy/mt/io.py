@@ -54,9 +54,7 @@ def get_text(base, name):
 
 def parse_data(xml_data):
     """Parse data obtained from Anna's xml files."""
-    # For storing periods in a dictionary
     periods = {}
-    # Iterate through the periods
     for period in xml_data:
         period_length = float(period.attrib['value'])
         periods[period_length] = {}
@@ -83,7 +81,6 @@ def parse_data(xml_data):
                 column_name = ''.join(i for i in column_name if not i.isdigit())
                 df_dict[column_name.lower()] = column_value
 
-    # Create a DataFrame for the data that was stored in the dictionary
     df = pd.DataFrame.from_dict(periods, orient='index')
     df.index.name = "period"
 

@@ -29,6 +29,23 @@ def _unit_vectors_to_lonlat(vec):
     return np.rad2deg(np.column_stack([lons, lats]))
 
 
+def _gnomonic_forward(lats, lons, lat0, lon0, what="points"):
+    """Forward gnomonic projection of (lats, lons) radians about (lat0, lon0).
+
+    Returns ``(x, y)`` plane coordinates. Only valid within 90 degrees of the
+    projection center; ``what`` names the offending point set in the error.
+    """
+    cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
+    if np.any(cos_c <= 0.):
+        raise ValueError(
+            f"gnomonic projection is invalid for {what} 90 degrees or more "
+            "from the site network's mean location; use use_gnomic=False or "
+            "split the domain")
+    x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
+    y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))/cos_c
+    return x, y
+
+
 def _coords_of(line):
     """Extract an ``(npts, 2)`` lon/lat coordinate array from several inputs.
 
@@ -181,47 +198,20 @@ class TransmissionLine:
             lines; requires every point within 90 degrees of the network's
             mean location
         """
-        # function takes data first, and then the interpolation locations
-        # We are trying to go from the site_xys (data_xy) to our transmission line
-        # points (interp_xy)
-
-        # Turn everything into radians
-        xys = np.deg2rad(site_xys)
-        pts = np.deg2rad(self.pts)
+        xys = np.deg2rad(site_xys)          # (lat, lon)
+        pts = np.deg2rad(self.pts)          # (lon, lat)
         if use_gnomic:
-            # Use a gnomonic projection (every line is a great circle distance)
-
-            # Make the middle lat/lon point be the mean of our data points
+            # Project both point sets through one gnomonic projection centered
+            # on the site network, so great circles map to straight lines. The
+            # sites and the line points MUST go through the same projection --
+            # projecting only one of them skews the Delaunay weights (the
+            # pre-0.5.0 bug).
             lon0 = np.mean(xys[:, 1])
             lat0 = np.mean(xys[:, 0])
-
-            # Calculate the x/y locations of the data points
-            lons = xys[:, 1]
-            lats = xys[:, 0]
-
-            cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
-            if np.any(cos_c <= 0.):
-                raise ValueError(
-                    "gnomonic projection is invalid for points 90 degrees or "
-                    "more from the site network's mean location; use "
-                    "use_gnomic=False or split the domain")
-            x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
-            y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))/cos_c
-            xys[:, 0], xys[:, 1] = x, y
-
-            # Now calculate the x/y locations of the interpolation points
-            lons = pts[:, 0]
-            lats = pts[:, 1]
-
-            cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
-            if np.any(cos_c <= 0.):
-                raise ValueError(
-                    "gnomonic projection is invalid for line points 90 degrees "
-                    "or more from the site network's mean location; use "
-                    "use_gnomic=False or split the domain")
-            x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
-            y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))/cos_c
-            pts[:, 0], pts[:, 1] = x, y
+            xys[:, 0], xys[:, 1] = _gnomonic_forward(
+                xys[:, 0], xys[:, 1], lat0, lon0, what="site points")
+            pts[:, 0], pts[:, 1] = _gnomonic_forward(
+                pts[:, 1], pts[:, 0], lat0, lon0, what="line points")
         else:
             # site_xys is (lat, lon) but self.pts is (lon, lat); put both in
             # (lon, lat) axis order, then shrink longitudes by cos(latitude)

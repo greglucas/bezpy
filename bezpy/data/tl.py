@@ -30,6 +30,7 @@ __all__ = [
 import json
 
 from ._cache import get_cache_dir
+from ._http import http_get
 
 # A public HIFLD-derived Electric Power Transmission Lines feature layer.
 # Fields include VOLTAGE, VOLT_CLASS, OWNER, ID, SUB_1, SUB_2.
@@ -149,10 +150,6 @@ def download_transmission_lines(bbox=None, min_voltage=None, where="1=1",
     -------
     list of bezpy.tl.TransmissionLine
     """
-    import requests
-
-    getter = session.get if session is not None else requests.get
-
     clauses = [where] if where and where != "1=1" else []
     if min_voltage is not None:
         clauses.append(f"VOLTAGE>={min_voltage}")
@@ -166,9 +163,7 @@ def download_transmission_lines(bbox=None, min_voltage=None, where="1=1",
                                     count=_PAGE_SIZE, bbox=bbox)
         if verbose:
             print(f"Fetching transmission lines offset={offset}")
-        response = getter(query_url, timeout=timeout)
-        response.raise_for_status()
-        page = response.json()
+        page = http_get(query_url, timeout=timeout, session=session).json()
 
         page_features = page.get("features", [])
         features.extend(page_features)

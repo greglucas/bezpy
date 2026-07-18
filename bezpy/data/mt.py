@@ -43,6 +43,7 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 
 from ._cache import get_cache_dir
+from ._http import http_get
 
 # IRIS SPUD service URL templates.
 #   - a TF "bundle" (what the ds.iris.edu/spud/emtf/<id> page shows) has a
@@ -137,6 +138,12 @@ def _parse_header(root):
     }
 
 
+def _in_bbox(longitude, latitude, bbox):
+    """True if the point falls inside ``(west, south, east, north)`` degrees."""
+    west, south, east, north = bbox
+    return west <= longitude <= east and south <= latitude <= north
+
+
 def _sanitize(name):
     """Make a filesystem-safe survey directory name."""
     cleaned = "".join(c if (c.isalnum() or c in "-._") else "_" for c in str(name))
@@ -208,18 +215,14 @@ def download_mt(url, survey=None, session=None, timeout=60):
     (see :func:`spud_data_url`). To download from a SPUD *bundle/page* id
     instead, use :func:`download_mt_spud`. Returns the stored path.
     """
-    import requests
-
-    getter = session.get if session is not None else requests.get
-    response = getter(url, timeout=timeout)
-    response.raise_for_status()
+    response = http_get(url, timeout=timeout, session=session)
     return store_mt_xml(response.text, survey=survey)
 
 
-def _resolve_spud_xml_url(bundle_id, getter, timeout):
+def _resolve_spud_xml_url(bundle_id, session, timeout):
     """Resolve a SPUD bundle id to the download URL of its EMTF XML attachment."""
-    response = getter(spud_bundle_url(bundle_id), timeout=timeout)
-    response.raise_for_status()
+    response = http_get(spud_bundle_url(bundle_id), timeout=timeout,
+                        session=session)
     # The service HTML-escapes the metadata XML inside <pre> for browser viewing;
     # its DataLinks also embed HTML <a> tags, so this document does not parse
     # cleanly as XML -- resolve the XML attachment's data id by pattern instead.
@@ -251,12 +254,8 @@ def download_mt_spud(bundle_id, survey=None, session=None, timeout=60):
     (``ds.iris.edu/spud/emtf/<bundle_id>``). This resolves the bundle's XML
     attachment and stores it by survey. Returns the stored path.
     """
-    import requests
-
-    getter = session.get if session is not None else requests.get
-    xml_url = _resolve_spud_xml_url(bundle_id, getter, timeout)
-    response = getter(xml_url, timeout=timeout)
-    response.raise_for_status()
+    xml_url = _resolve_spud_xml_url(bundle_id, session, timeout)
+    response = http_get(xml_url, timeout=timeout, session=session)
     return store_mt_xml(response.text, survey=survey)
 
 
@@ -277,10 +276,7 @@ def fetch_spud_index(refresh=False, session=None, timeout=300):
     """
     path = _spud_index_path()
     if refresh or not path.exists():
-        import requests
-        getter = session.get if session is not None else requests.get
-        response = getter(_SPUD_INDEX_URL, timeout=timeout)
-        response.raise_for_status()
+        response = http_get(_SPUD_INDEX_URL, timeout=timeout, session=session)
         path.write_text(response.text, encoding="utf-8")
     return path
 
@@ -363,11 +359,8 @@ def search_mt(bbox=None, survey=None, min_rating=None, country=None,
         if min_rating is not None and row["rating"] is not None \
                 and row["rating"] < min_rating:
             continue
-        if bbox is not None:
-            west, south, east, north = bbox
-            if not (west <= row["longitude"] <= east
-                    and south <= row["latitude"] <= north):
-                continue
+        if bbox is not None and not _in_bbox(row["longitude"], row["latitude"], bbox):
+            continue
         rows.append(row)
     columns = ["spud_id", "code", "survey", "country", "year",
                "latitude", "longitude", "rating", "product_id"]
@@ -472,10 +465,8 @@ def load_mt_sites(survey=None, bbox=None, min_rating=None):
         site = read_xml(str(path))
         if min_rating is not None and (site.rating is None or site.rating < min_rating):
             continue
-        if bbox is not None:
-            west, south, east, north = bbox
-            if not (west <= site.longitude <= east and south <= site.latitude <= north):
-                continue
+        if bbox is not None and not _in_bbox(site.longitude, site.latitude, bbox):
+            continue
         sites.append(site)
     return sites
 

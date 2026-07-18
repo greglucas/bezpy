@@ -66,8 +66,8 @@ def screen_impedance(site, rho_bounds=(3e-2, 3e5), max_rel_err=0.75,
 
     lo, hi = rho_bounds
     rho_out, phase_out, rel_errs, roughs, phase_roughs = [], [], [], [], []
-    for r in _OFFDIAG:
-        m = valid[_OFFDIAG.index(r)]
+    for i, r in enumerate(_OFFDIAG):
+        m = valid[i]
         if m.sum() < 3:
             continue
         rr = rho[r, m]
@@ -128,9 +128,9 @@ def screen_sites(sites, values=None, k=8, loo_decades=0.74, min_neighbors=4,
     :param min_neighbors: fewest finite neighbours to run the spatial screen
         for a site.
     :param imp_kwargs: forwarded to :func:`screen_impedance`.
-    :return: DataFrame indexed by site name with the impedance metrics,
-        ``loo_resid``/``spatial_flag`` (if ``values`` given), and a combined
-        ``verdict`` in ``{"ok", "review", "bad"}``.
+    :return: DataFrame with one row per site (``code``, location, the
+        impedance metrics, ``loo_resid``/``spatial_flag`` if ``values`` is
+        given) and a combined ``verdict`` in ``{"ok", "review", "bad"}``.
     """
     rows = []
     lat = np.array([s.latitude for s in sites], dtype=float)

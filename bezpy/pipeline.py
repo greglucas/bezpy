@@ -41,6 +41,13 @@ def _site_latlons(sites):
     return np.array([[site.latitude, site.longitude] for site in sites])
 
 
+def _maybe_despike(b_obs, despike_obs):
+    """Apply :func:`bezpy.mag.despike` when requested (True or a kwargs dict)."""
+    if not despike_obs:
+        return b_obs
+    return despike(b_obs, **(despike_obs if isinstance(despike_obs, dict) else {}))
+
+
 def _max_site_period(sites):
     periods = [np.max(site.periods) for site in sites
                if getattr(site, "periods", None) is not None]
@@ -97,9 +104,7 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
         sites = sites.sites
     if isinstance(b_obs, dict):
         b_obs = combine_observatories(b_obs)
-    if despike_obs:
-        b_obs = despike(b_obs, **(despike_obs if isinstance(despike_obs, dict)
-                                  else {}))
+    b_obs = _maybe_despike(b_obs, despike_obs)
     prepared = prepare(b_obs, window=window, pad=pad, detrend=detrend,
                        taper=taper, gaps=gaps,
                        max_period=_max_site_period(sites) if pad == "auto"
@@ -308,9 +313,7 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
         sites = collection.sites
     else:
         collection = SiteCollection(sites)
-    if despike_obs:
-        b_obs = despike(b_obs, **(despike_obs if isinstance(despike_obs, dict)
-                                  else {}))
+    b_obs = _maybe_despike(b_obs, despike_obs)
     chunks = _chunk_edges(b_obs["time"].values, chunk)
     thresholds = threshold if isinstance(threshold, dict) \
         else {"E": threshold, "V": threshold}
@@ -455,9 +458,7 @@ def storm_scan(catalog, b_obs, sites, lines=None, how="delaunay",
         sites = collection.sites
     else:
         collection = SiteCollection(sites)
-    if despike_obs:
-        b_obs = despike(b_obs, **(despike_obs if isinstance(despike_obs, dict)
-                                  else {}))
+    b_obs = _maybe_despike(b_obs, despike_obs)
     e_max, v_max = [], []
     for start, end in windows:
         try:

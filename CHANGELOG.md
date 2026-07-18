@@ -52,12 +52,29 @@ method-comparison results behind the defaults.
 - `bezpy.data` — observatory archive (USGS/NRCan/INTERMAGNET, provenance-
   and level-aware merge), activity indices (Kp/ap/Dst), EMTF XML archive with
   SPUD download, HIFLD transmission-line download, IAGA ingest.
+- `bezpy.data` `source="wdc"` — the BGS World Data Centre archive, for
+  definitive minute/hourly records reaching back before the real-time
+  services (e.g. Kakioka to the 1910s).
+- `bezpy.data.search_mt` / `download_mt_search` — search the SPUD EMTF
+  archive by region/survey/quality and download every match in one call.
+- `bezpy.mag.despike` — iterated Hampel (rolling median/MAD) masking of
+  instrumental spikes, saturation rails, and step artifacts, exposed as
+  `despike_obs=` on `calc_geoelectric_field`/`scan`/`storm_scan`; built for
+  FDSN variometer inputs.
+- `bezpy.mt.screen_impedance` / `screen_sites` — physical-plausibility and
+  spatial-outlier screening of MT transfer functions before hazard use.
+- `bezpy.stats.return_level(..., shape_prior_scale=)` — optional Gaussian
+  shape prior (penalized/MAP GPD fit) that stabilizes small-sample tail
+  estimates and their profile CIs.
 - `bezpy.mt` — legacy readers (`read_zfile`, `read_edi`), ModEM/gridded
   impedance reader (`read_gridded_impedance`), canonical xarray form for
   site collections (`to_dataset`/`from_netcdf`), `extrapolate="asymptotic"`
   band-edge continuation, per-site fields in `SiteCollection.convolve_fft`.
-- `bezpy.plot` — map helpers (cartopy optional).
-- Documentation site (mkdocs-material) with tutorials; CI (lint, 3.10–3.13,
+- `bezpy.plot` — map helpers (cartopy optional); `plot_hazard_map` accepts
+  `vmin`/`vmax` (saturating log color limits) or a full `norm` override.
+- Runnable example scripts (`scripts/mt_site_example.py`,
+  `scripts/japan_halloween.py`) replace the old Jupyter notebooks.
+- Documentation site (mkdocs-material) with tutorials; CI (lint, 3.10–3.14,
   oldest-pins job).
 
 ### Fixed
@@ -80,6 +97,12 @@ method-comparison results behind the defaults.
   second data) and halve adaptively on connection resets: the GIN drops
   responses larger than ~10 MB mid-transfer regardless of its documented
   366-day request limit, which made multi-month downloads fail.
+- GIN client-error responses (4xx) fail fast with the service's message
+  instead of pointlessly retrying with smaller chunks; observatory downloads
+  that return an all-NaN payload (levels the service does not actually hold)
+  are no longer stored in the archive.
+- `leave_one_out` band coherence uses enough Welch segments to be meaningful
+  on short windows (a single segment is identically 1).
 - `spud` bundle resolution, INTERMAGNET table refresh, pathlib waveform IO,
   `calc_resistivity` naming (deprecated misspelled alias retained).
 

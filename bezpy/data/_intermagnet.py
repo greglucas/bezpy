@@ -27,6 +27,7 @@ import tempfile
 
 import pandas as pd
 
+from ._http import http_get
 from ._levels import BEST, canonical_level
 
 DEFAULT_BASE_URL = "https://imag-data.bgs.ac.uk/GIN_V1/GINServices"
@@ -145,14 +146,13 @@ def fetch_dataframe(code, start, end, sampling_period=60, level="best",
 
     Returns a :class:`pandas.DataFrame` indexed by UTC time (XYZF columns).
     """
-    import requests
+    import requests  # for RequestException in the retry loop
 
     start = pd.Timestamp(start)
     end = pd.Timestamp(end)
     if end <= start:
         raise ValueError(f"end ({end}) must be after start ({start})")
 
-    getter = session.get if session is not None else requests.get
     chunk_days = _max_chunk_days(sampling_period)
 
     frames = []
@@ -168,9 +168,7 @@ def fetch_dataframe(code, start, end, sampling_period=60, level="best",
         if verbose:
             print(f"Fetching {code} [{level}] {chunk_start.date()} +{duration}d")
         try:
-            response = getter(url, timeout=timeout)
-            response.raise_for_status()
-            text = response.text
+            text = http_get(url, timeout=timeout, session=session).text
         except requests.RequestException as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
             if status is not None and 400 <= status < 500:

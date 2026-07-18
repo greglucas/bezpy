@@ -26,6 +26,8 @@ import zipfile
 
 import pandas as pd
 
+from ._http import http_get
+
 DEFAULT_BASE_URL = "https://wdcapi.bgs.ac.uk"
 PROVIDER = "WDC for Geomagnetism, Edinburgh (wdcapi.bgs.ac.uk)"
 
@@ -109,8 +111,6 @@ def fetch_dataframe(code, start, end, sampling_period=60, level="definitive",
     trimmed to ``[start, end]``. ``sampling_period`` selects the cadence: 60 s
     (minute, the default) or 3600 s (hourly, for the longest historical spans).
     """
-    import requests
-
     if int(sampling_period) not in _CADENCE:
         raise ValueError(
             f"WDC source supports minute (60 s) and hourly (3600 s) data; "
@@ -120,7 +120,6 @@ def fetch_dataframe(code, start, end, sampling_period=60, level="definitive",
     start, end = pd.Timestamp(start), pd.Timestamp(end)
     if end <= start:
         raise ValueError(f"end ({end}) must be after start ({start})")
-    getter = session.get if session is not None else requests.get
 
     frames = []
     chunk_start = start
@@ -131,8 +130,7 @@ def fetch_dataframe(code, start, end, sampling_period=60, level="definitive",
         if verbose:
             print(f"Fetching {code} [WDC {cadence}] "
                   f"{chunk_start.date()} -> {chunk_end.date()}")
-        response = getter(url, timeout=timeout)
-        response.raise_for_status()
+        response = http_get(url, timeout=timeout, session=session)
         frames.append(parse_zip(response.content))
         chunk_start = chunk_end
 

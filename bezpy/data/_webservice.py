@@ -24,6 +24,7 @@ import datetime
 import numpy as np
 import pandas as pd
 
+from ._http import http_get
 from ._levels import canonical_level
 
 DEFAULT_BASE_URL = "https://geomag.usgs.gov"
@@ -178,15 +179,10 @@ def fetch_interval(code, start, end, elements=("X", "Y", "Z", "F"),
     Returns a :class:`pandas.DataFrame` indexed by UTC time with one column per
     requested element. Requires the ``requests`` library.
     """
-    # Imported lazily so the rest of bezpy.data works without requests.
-    import requests
-
     url = build_url(code, start, end, elements=elements,
                     sampling_period=sampling_period, level=level,
                     base_url=base_url)
-    getter = session.get if session is not None else requests.get
-    response = getter(url, timeout=timeout)
-    response.raise_for_status()
+    response = http_get(url, timeout=timeout, session=session)
     return _payload_to_frame(response.json())
 
 

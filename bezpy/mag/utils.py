@@ -36,7 +36,6 @@ def read_iaga_header(fname):
 
 def read_iaga(fname, return_xyzf=True, return_header=False):
     """Reads an IAGA-2002 data file and returns data in XYZF format."""
-    # Get the header information
     header_records = read_iaga_header(fname)
 
     # This contains 4 letters stating the reported values
@@ -119,8 +118,7 @@ def filter_signal(data, sample_freq=1./60, lowcut=1e-4, highcut=1e-1, order=3):
     low = lowcut / nyquist
     high = highcut / nyquist
 
-    # Create the butterworth filters
-    # If the sample frequency is high enough, make it a band pass
+    # If the sample frequency is high enough, make it a band pass;
     # otherwise, it will be a highpass filter
     # TODO: Might want to add in a low pass filter option?
     #       Or does the bandpass account for that automatically?

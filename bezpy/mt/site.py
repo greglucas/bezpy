@@ -51,17 +51,9 @@ class Site:
         """Convolution in frequency space."""
         # pylint: disable=invalid-name
 
-        # Note that I use rfft, because the input is real-valued. This eliminates
-        # the need to calculate complex conjugates of negative frequencies.
-        # To utilize normal fft you can do the following:
-        #   mag_x_fft_c = np.fft.fft(mag_x, n=N)
-        #   freqs_c = np.fft.fftfreq(N, d=dt)
-        #   neg_freqs = freqs_c < 0.
-        #   Z_c = self.calcZ(np.abs(freqs_c))
-        #   Z_c[:,neg_freqs] = np.conj(Z_c[:,neg_freqs])
-        #   Ex_t = np.real(np.fft.ifft(Z_c[0,:]*mag_x_fft_c)) ...
-        # That produces the same results, accounting for complex conjugates of
-        # the impedances at negative frequencies.
+        # rfft, because the input is real-valued: the negative-frequency
+        # half-spectrum is implied (conjugate symmetry), so Z is only ever
+        # evaluated at non-negative frequencies.
 
         N0 = len(mag_x)
         # Round N to the next highest power of 2 (+1 (makes it 2) to prevent circular convolution)
@@ -105,7 +97,6 @@ class Site3d(Site):
     # pylint: disable=too-many-arguments
     def __init__(self, name, latitude=None, longitude=None,
                  periods=None, Z=None, Z_var=None):
-        # Call the base site class and initialize all those variables
         super().__init__(name)
 
         self.xml = None
@@ -400,7 +391,6 @@ class Site3d(Site):
 class Site1d(Site):
     """MT class for a 1D Fernberg profile"""
     def __init__(self, name, thicknesses, resistivities):
-        # Call the base site class and initialize all those variables
         super().__init__(name)
 
         self.thicknesses = np.array(thicknesses)
