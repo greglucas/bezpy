@@ -19,6 +19,8 @@ The single-window building blocks :func:`calc_geoelectric_field` and
 
 __all__ = ["calc_geoelectric_field", "calc_voltages", "scan", "storm_scan"]
 
+import concurrent.futures
+
 import numpy as np
 import pandas as pd
 
@@ -269,9 +271,74 @@ class _Reducers:
         return out
 
 
+def _build_line_kernel(lines, sites, how):
+    """Precompute the static (L, valid) voltage kernel for a set of lines.
+
+    Sets each line's interpolation weights (if not already set) and contracts
+    the geometry once, so :func:`_scan_chunk` never rebuilds it per chunk.
+    Returns None when there are no lines.
+    """
+    if lines is None:
+        return None
+    site_xys = _site_latlons(sites)
+    for line in lines:
+        if how == "delaunay" and line.delaunay_vtx is None:
+            line.set_delaunay_weights(site_xys)
+        elif how == "nn" and line.nearest_sites is None:
+            line.set_nearest_sites(site_xys)
+    return voltage_matrix(lines, len(sites), how=how)
+
+
+def _scan_chunk(b_obs, sites, collection, window, field_kwargs, line_kernel):
+    """One chunk's reduced inputs: ``(times, |E|, |V| or None)``.
+
+    The unit of work for both the sequential loop and each parallel worker
+    in :func:`scan` -- raises ``ValueError`` ("no data in ...") for a chunk
+    that falls entirely in a record gap, same as :func:`calc_geoelectric_field`.
+    """
+    e = calc_geoelectric_field(b_obs, sites, window=window,
+                               collection=collection, **field_kwargs)
+    times = pd.DatetimeIndex(e["time"].values).values
+    magnitude = np.hypot(e["Ex"].values, e["Ey"].values)
+    v_mag = None
+    if line_kernel is not None:
+        L, valid = line_kernel
+        E = np.stack([e["Ex"].values, e["Ey"].values], axis=-1)
+        v_mag = np.abs(apply_voltage_matrix(E, L, valid))
+    return times, magnitude, v_mag
+
+
+def _scan_chunk_or_skip(b_obs, sites, collection, window, field_kwargs, line_kernel):
+    """:func:`_scan_chunk`, but a record-gap chunk returns None instead of
+    raising -- the shared skip policy for both the sequential loop and
+    parallel workers."""
+    try:
+        return _scan_chunk(b_obs, sites, collection, window, field_kwargs, line_kernel)
+    except ValueError as exc:
+        if "no data in" in str(exc):  # record gap spanning the chunk
+            return None
+        raise
+
+
+# Per-process state for parallel scan workers, set once by _init_scan_worker
+# (not per chunk) so the SiteCollection cache and line kernel are built only
+# once per worker rather than rebuilt on every task.
+_scan_worker_state = None
+
+
+def _init_scan_worker(b_obs, sites, field_kwargs, line_kernel):
+    global _scan_worker_state
+    _scan_worker_state = (b_obs, sites, SiteCollection(sites), field_kwargs, line_kernel)
+
+
+def _scan_chunk_worker(window):
+    b_obs, sites, collection, field_kwargs, line_kernel = _scan_worker_state
+    return _scan_chunk_or_skip(b_obs, sites, collection, window, field_kwargs, line_kernel)
+
+
 def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
          threshold=None, quantiles=(0.5, 0.9, 0.99), out_path=None,
-         how="delaunay", despike_obs=False, **field_kwargs):
+         how="delaunay", despike_obs=False, workers=None, **field_kwargs):
     """Continuous scan of the whole record with streaming reducers (D4).
 
     Processes ``b_obs`` chunk by chunk through
@@ -296,10 +363,23 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
     :param quantiles: quantile levels reported for ``"quantiles"``
     :param out_path: write the (small) result Dataset to this netCDF path
         after every chunk, making long scans resumable: if the file already
-        exists, completed chunks are skipped and accumulation continues
+        exists, completed chunks are skipped and accumulation continues.
+        Checkpoints are still written strictly in chunk order with
+        ``workers`` set, so resuming behaves identically either way.
     :param despike_obs: if True (or a dict of :func:`bezpy.mag.despike`
         keywords), despike ``b_obs`` once up front (not per chunk) --
         recommended for FDSN variometer inputs
+    :param workers: if set, process chunks in parallel across this many
+        subprocesses (``concurrent.futures.ProcessPoolExecutor``) instead of
+        one at a time. Chunks are independent by construction (D4 -- see
+        ``test_scan_chunk_invariance``), so results are bit-identical to
+        ``workers=None``; only wall-clock time changes. ``b_obs`` and
+        ``sites``/``lines`` are sent to each worker once (via the pool
+        initializer) and each worker rebuilds its own ``SiteCollection``
+        impedance cache, so they must be picklable -- true for anything that
+        already round-trips through ``SiteCollection.to_netcdf`` /
+        ``TransmissionLine``. Default ``None`` (sequential, the previous
+        behavior).
     :param field_kwargs: forwarded to :func:`calc_geoelectric_field`
         (``interp``, ``extrapolate``, ``leave_one_out``, ...)
     :return: Dataset with per-site (and per-line) reductions: ``E_max``,
@@ -307,6 +387,8 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
         dimension]. Feed exceedances to ``bezpy.storms.find_events`` for an
         event catalog and to ``bezpy.stats.return_level`` for hazard levels.
     """
+    if workers is not None and workers < 1:
+        raise ValueError("workers must be a positive integer or None")
     xr = _require_xarray()
     if hasattr(sites, "sites"):  # a SiteCollection was passed
         collection = sites
@@ -323,14 +405,7 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
 
     # The voltage kernel is static across chunks: set interpolation weights
     # and contract the geometry once, then apply per chunk (never rebuild).
-    if lines is not None:
-        site_xys = _site_latlons(sites)
-        for line in lines:
-            if how == "delaunay" and line.delaunay_vtx is None:
-                line.set_delaunay_weights(site_xys)
-            elif how == "nn" and line.nearest_sites is None:
-                line.set_nearest_sites(site_xys)
-        L, valid = voltage_matrix(lines, len(sites), how=how)
+    line_kernel = _build_line_kernel(lines, sites, how)
 
     done_until = None
     if out_path is not None:
@@ -345,29 +420,35 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
             done_until = pd.Timestamp(existing.attrs["scan_done_until"])
             _restore_reducers(existing, site_reducer, line_reducer)
 
-    for c0, c1 in chunks:
-        if done_until is not None and c1 <= done_until:
-            continue
-        try:
-            e = calc_geoelectric_field(b_obs, sites, window=(c0, c1),
-                                       collection=collection, **field_kwargs)
-        except ValueError as exc:
-            if "no data in" in str(exc):  # record gap spanning the chunk
-                continue
-            raise
-        times = pd.DatetimeIndex(e["time"].values)
+    pending = [(c0, c1) for c0, c1 in chunks
+              if done_until is None or c1 > done_until]
 
-        magnitude = np.hypot(e["Ex"].values, e["Ey"].values)
-        site_reducer.update(times.values, magnitude)
+    def consume(result, c1):
+        if result is None:
+            return
+        times, magnitude, v_mag = result
+        site_reducer.update(times, magnitude)
         if line_reducer is not None:
-            E = np.stack([e["Ex"].values, e["Ey"].values], axis=-1)
-            v = apply_voltage_matrix(E, L, valid)
-            line_reducer.update(times.values, np.abs(v))
-
+            line_reducer.update(times, v_mag)
         if out_path is not None:
-            result = _scan_result(xr, site_reducer, line_reducer, sites,
-                                  quantiles, threshold, done_until=c1)
-            result.to_netcdf(out_path)
+            checkpoint = _scan_result(xr, site_reducer, line_reducer, sites,
+                                      quantiles, threshold, done_until=c1)
+            checkpoint.to_netcdf(out_path)
+
+    if workers is None:
+        for c0, c1 in pending:
+            consume(_scan_chunk_or_skip(b_obs, sites, collection, (c0, c1),
+                                        field_kwargs, line_kernel), c1)
+    else:
+        # Submit every pending chunk up front (they run concurrently across
+        # the pool), then consume results strictly in chunk order -- this is
+        # what keeps output (and checkpoint) order identical to sequential.
+        with concurrent.futures.ProcessPoolExecutor(
+                max_workers=workers, initializer=_init_scan_worker,
+                initargs=(b_obs, sites, field_kwargs, line_kernel)) as pool:
+            futures = [pool.submit(_scan_chunk_worker, w) for w in pending]
+            for (c0, c1), future in zip(pending, futures):
+                consume(future.result(), c1)
 
     return _scan_result(xr, site_reducer, line_reducer, sites, quantiles,
                         threshold, done_until=chunks[-1][1])

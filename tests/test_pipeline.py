@@ -259,6 +259,59 @@ def test_scan_resume(setup, tmp_path, monkeypatch):
                                   full["E_max_time"].values)
 
 
+def test_scan_workers_matches_sequential(setup):
+    """The D4 guarantee extends to workers: chunks are independent, so
+    splitting the work across processes must not change the statistics."""
+    b_obs, sites, lines = setup
+    kwargs = dict(lines=lines, chunk="6h",
+                  reduce=("max", "exceedances", "quantiles"),
+                  threshold={"E": 1e-9, "V": 1e-9}, pad="1h")
+    sequential = scan(b_obs, sites, **kwargs)
+    parallel = scan(b_obs, sites, workers=2, **kwargs)
+
+    np.testing.assert_array_equal(sequential["E_max"].values, parallel["E_max"].values)
+    np.testing.assert_array_equal(sequential["E_max_time"].values,
+                                  parallel["E_max_time"].values)
+    np.testing.assert_array_equal(sequential["V_max"].values, parallel["V_max"].values)
+    np.testing.assert_array_equal(sequential["E_q50"].values, parallel["E_q50"].values)
+    np.testing.assert_array_equal(sequential["E_exceedance_value"].values,
+                                  parallel["E_exceedance_value"].values)
+
+
+def test_scan_workers_resume(setup, tmp_path):
+    """A scan interrupted midway (sequentially) resumes correctly when the
+    second half runs in parallel -- checkpoints are chunk-order-exact either
+    way, so which mode finishes the job doesn't matter."""
+    b_obs, sites, _ = setup
+    path = tmp_path / "scan_parallel.nc"
+    kwargs = dict(chunk="6h", reduce=("max",), pad="1h")
+    full = scan(b_obs, sites, **kwargs)
+
+    import bezpy.pipeline as pipeline
+    real = pipeline.calc_geoelectric_field
+    calls = {"n": 0}
+
+    def flaky(*args, **kw):
+        calls["n"] += 1
+        if calls["n"] > 2:
+            raise RuntimeError("interrupted")
+        return real(*args, **kw)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(pipeline, "calc_geoelectric_field", flaky)
+        with pytest.raises(RuntimeError, match="interrupted"):
+            scan(b_obs, sites, out_path=str(path), **kwargs)
+
+    resumed = scan(b_obs, sites, out_path=str(path), workers=2, **kwargs)
+    np.testing.assert_allclose(resumed["E_max"].values, full["E_max"].values,
+                               rtol=1e-9)
+
+
+def test_scan_workers_invalid():
+    with pytest.raises(ValueError, match="workers"):
+        scan(make_b_obs(), make_sites(), workers=0)
+
+
 def test_storm_scan(setup):
     b_obs, sites, lines = setup
     windows = [(pd.Timestamp("2024-05-10 02:00"), pd.Timestamp("2024-05-10 06:00")),

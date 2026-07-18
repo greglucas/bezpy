@@ -38,7 +38,9 @@ method-comparison results behind the defaults.
   preprocessing (linear detrend + Tukey taper over an impedance-derived pad).
 - `bezpy.pipeline` — `calc_geoelectric_field`, top-level `calc_voltages`,
   chunked continuous `scan` with streaming reducers (resumable netCDF), and
-  `storm_scan` for catalog windows.
+  `storm_scan` for catalog windows. `scan(..., workers=)` parallelizes
+  independent chunks across processes; results (and resumable checkpoints)
+  are bit-identical to the sequential default.
 - `bezpy.storms` — `find_storms` (index catalog) and `find_events`
   (threshold + runs declustering on any series).
 - `bezpy.stats.return_level` — GPD/POT with profile-likelihood or bootstrap

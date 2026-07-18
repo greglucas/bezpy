@@ -35,6 +35,11 @@ Chunk edges are protected by the convolution pad, so the result does not
 depend on the chunk size. If the run is interrupted, calling `scan` again
 with the same `out_path` resumes after the last completed chunk.
 
+Chunks are independent, so a multi-decade scan over many sites can use
+`workers=` to process them across processes instead of one at a time
+(`scan(..., workers=4)`); results and `out_path` checkpoints are unchanged
+by the worker count.
+
 ## Return levels with uncertainty
 
 Decluster the exceedances into independent events per site, then fit a
