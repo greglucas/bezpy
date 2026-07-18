@@ -1,9 +1,10 @@
 """Data acquisition, storage, and inventory for bezpy.
 
 This subpackage downloads the input datasets bezpy needs and manages them in a
-local cache so analyses are reproducible and fast. Today it covers geomagnetic
-observatory field data; MT transfer functions and transmission-line/region
-geometries are planned (see ROADMAP.md).
+local cache so analyses are reproducible and fast. It covers all three inputs
+of the hazard workflow: geomagnetic observatory field data, MT transfer
+functions (EMTF XML from the EarthScope SPUD archive), and transmission-line
+geometries.
 
 Magnetic-field data is stored as CF-style netCDF, one file per observatory per
 year, which reads far faster than the text-based IAGA-2002 format and supports

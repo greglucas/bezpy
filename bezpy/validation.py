@@ -10,8 +10,8 @@ Two tools:
   varying conductivity structure under a spatially uniform source, where
   the true E at any point and the true V along any line are computable
   exactly. Every method option (``how=``, ``resample_km=``,
-  ``extrapolate=``) is scored against that truth instead of tradition
-  (PLAN.md D6/D7); ``VALIDATION.md`` records the current results.
+  ``extrapolate=``) is scored against that truth instead of tradition;
+  ``VALIDATION.md`` records the current results.
 """
 
 __all__ = ["leave_one_out", "synthetic_scenario",

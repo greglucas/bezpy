@@ -4,8 +4,8 @@
 
 The first release of the rebuilt package: bezpy grows from a collection of
 per-paper utilities into a full B → E → V hazard-analysis pipeline with an
-evidence-driven validation story. See `PLAN.md` for the design decisions and
-`VALIDATION.md` for the method-comparison results behind the defaults.
+evidence-driven validation story. See `VALIDATION.md` for the
+method-comparison results behind the defaults.
 
 ### Result-changing fixes (read before reproducing published numbers)
 

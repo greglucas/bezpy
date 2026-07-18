@@ -56,7 +56,7 @@ data = ["pooch>=1.6", "xarray>=2023.1", "h5netcdf>=1.0", "h5py>=3.0", "requests>
 # SECS interpolation of observatory magnetic fields (bezpy.mag.SECSInterpolator)
 secs = ["pysecs>=0.4"]
 # Everything needed to run the example command-line scripts in scripts/
-scripts = ["matplotlib>=3.5", "requests>=2.25", "pysecs>=0.4"]
+scripts = ["matplotlib>=3.5", "bezpy[data]"]
 # Documentation site (mkdocs-material + API reference from docstrings)
 docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.24"]
 # Test and lint tooling (pulls in the optional stacks so their tests run;

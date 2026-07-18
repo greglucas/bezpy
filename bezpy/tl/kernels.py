@@ -1,7 +1,7 @@
 """
 Precomputed voltage functionals and power line telluric response functions.
 
-This implements the runtime factorization described in ``ARCHITECTURE.md``:
+The runtime factorization behind fast voltage calculations:
 every interpolation scheme in :meth:`TransmissionLine.calc_voltages` is a
 *linear* map from per-site electric fields to a voltage, so the geometry can
 be contracted out ahead of time.

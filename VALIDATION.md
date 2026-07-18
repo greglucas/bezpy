@@ -1,6 +1,6 @@
 # Method-comparison results
 
-**What this is:** the evidence base for bezpy's method defaults (PLAN.md §2).
+**What this is:** the evidence base for bezpy's method defaults.
 Every option where past practice and a proposed default diverge is scored
 against synthetic truth by `benchmarks/validation_harness.py` (built on
 `bezpy.validation`); this file records the current results. Re-run the
@@ -34,8 +34,8 @@ truth:
 actually carries — here most of the signal variance — while the anchored
 sqrt(f) continuation recovers it to a few percent even though the layered
 truth does not follow the half-space asymptote exactly. This is the
-short-line error mechanism identified in Kelbert & Lucas (2020) Table 3
-(ARCHITECTURE.md §8). The real-data band (7–30,000 s vs a 1-minute Nyquist
+short-line error mechanism identified in Kelbert & Lucas (2020) Table 3.
+The real-data band (7–30,000 s vs a 1-minute Nyquist
 of 120 s) is truncated far less severely than this stress test, so the
 production-scale effect is smaller but the direction is unambiguous.
 
