@@ -97,6 +97,17 @@ method-comparison results behind the defaults.
   telluric response functions (Kelbert & Lucas 2020), with netCDF round-trip
   and FFT-grid caching; `TransmissionLine.resampled` great-circle
   densification; `filter_bbox`/`filter_polygon` (no geopandas).
+- Multi-input telluric kernels (roadmap 2.1): `SECSInterpolator.transfer_matrix`
+  exposes the constant, frequency- and time-independent observatory-to-site B
+  map that a `method="lstsq"` fit with a time-invariant uncertainty pattern
+  reduces to (raises clearly for `method="kalman"` or a gappy/robust fit,
+  which don't reduce to one matrix). `TelluricResponse.from_lines(...,
+  secs=)`/`M=` folds it into tau, which gains an `obs` axis, so line voltages
+  come from several observatories' B directly (`V(ω) = Σ_k [τ_x^k(ω) Bx^k(ω)
+  + τ_y^k(ω) By^k(ω)]`); the single-input path and old single-input `.nc`
+  files are unaffected. See `ROADMAP.md` 2.1 for what's follow-on (the
+  Level-1 `secs+local-z` E-interpolation scheme and its D7 harness entry,
+  `pipeline` integration).
 - `bezpy.data` — observatory archive (USGS/NRCan/INTERMAGNET, provenance-
   and level-aware merge), activity indices (Kp/ap/Dst), EMTF XML archive with
   SPUD download, HIFLD transmission-line download, IAGA ingest.

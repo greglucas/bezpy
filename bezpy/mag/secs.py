@@ -329,6 +329,7 @@ class SECSInterpolator:
 
         self.obs_latlons_ = latlons
         self.obs_names_ = obs_names
+        self._obs_std_ = std.copy()
         obs_loc = np.column_stack([latlons, np.full(len(latlons), R_EARTH)])
         self._secs = pysecs.SECS(sec_df_loc=self._grid_latlonr(latlons))
         self._kalman = None
@@ -445,6 +446,77 @@ class SECSInterpolator:
             for i, name in enumerate(("Bx", "By", "Bz")):
                 out[f"{name}_var"] = (dims, var[..., i], {"units": "nT2"})
         return out
+
+    def transfer_matrix(self, locations):
+        """Constant linear map from observed B to predicted horizontal B.
+
+        Valid only when the fit reduces to a single frequency- and
+        time-independent matrix: ``method="lstsq"`` with an observation-
+        uncertainty pattern that is uniform across time (no NaN gaps, or
+        ``gaps="drop"`` with none remaining; ``weight_gaps=False``;
+        ``robust=None``). In that case ``pysecs`` repeats the identical
+        per-sample snapshot solve at every sample, so the whole fit/predict
+        chain collapses to one matrix: ``B_pred[t] = B_obs[t] @ M``
+        (flattened over the observatory/component axis). ``method="kalman"``
+        couples samples temporally via the RTS smoother and has no such
+        matrix; NaN gaps (the default ``gaps="mask"``), ``weight_gaps=True``,
+        or ``robust=`` all vary the uncertainty pattern sample-to-sample,
+        fragmenting the fit into more than one pattern-specific solve.
+
+        This is the constant-matrix contraction behind
+        :meth:`bezpy.tl.kernels.TelluricResponse.from_lines`'s ``secs=``
+        argument (roadmap 2.1): folding SECS interpolation into a per-line
+        kernel needs the linear map itself, not a prediction. For ordinary
+        interpolation use :meth:`predict`.
+
+        Reaches into ``pysecs.SECS``'s private fit internals
+        (``_VWU_patterns``, ``_pattern_index``, ``_calc_T``) since pysecs
+        does not expose this matrix publicly; pinned to ``pysecs>=0.4``
+        like the rest of this module.
+
+        :param locations: prediction locations, same accepted forms as
+            :meth:`predict`.
+        :return: real ndarray ``M``, shape ``(nobs, 2, npred, 2)``. Bz is
+            excluded on both sides (horizontal components only, matching
+            every other telluric use of B in this package):
+            ``B_pred[t, p, c] = sum_{o, c'} B_obs[t, o, c'] * M[o, c', p, c]``.
+            The ``nobs`` axis order matches ``self.obs_latlons_``/
+            ``self.obs_names_`` (post any ``gaps="drop"`` reduction made at
+            fit time).
+        :raises ValueError: not yet fit, ``method="kalman"``, or the fit
+            produced more than one observation-uncertainty pattern.
+        """
+        if self._secs is None:
+            raise ValueError("Interpolator has not been fit yet; call .fit(b_obs)")
+        if self.method != "lstsq":
+            raise ValueError(
+                "transfer_matrix requires method='lstsq'; method='kalman' "
+                "couples samples temporally (RTS smoother) and has no single "
+                "constant transfer matrix")
+        VWU_patterns = self._secs._VWU_patterns
+        if VWU_patterns is None or len(VWU_patterns) != 1:
+            n = 0 if VWU_patterns is None else len(VWU_patterns)
+            raise ValueError(
+                f"transfer_matrix requires a single time-invariant "
+                f"observation-uncertainty pattern; this fit produced {n} "
+                f"distinct pattern(s) (NaN gaps with gaps='mask', "
+                f"weight_gaps=True, or robust= all vary the uncertainty over "
+                f"time). Refit with gap-free input, gaps='drop' with no "
+                f"remaining NaNs, weight_gaps=False, robust=None; or compose "
+                f"predict() per sample instead.")
+
+        VWU = VWU_patterns[0]                                    # (nsec, nobs*3)
+        std_flat = self._obs_std_.reshape(len(self._obs_std_), -1)[0]  # (nobs*3,)
+
+        latlons = _extract_latlons(locations)
+        pred_loc = np.column_stack([latlons, np.full(len(latlons), R_EARTH)])
+        T_pred = self._secs._calc_T(pred_loc)                     # (npred, 3, nsec)
+        T_pred_flat = T_pred.reshape(-1, T_pred.shape[-1])        # (npred*3, nsec)
+
+        M_flat = (VWU.T / std_flat[:, None]) @ T_pred_flat.T      # (nobs*3, npred*3)
+        nobs, npred = len(self.obs_latlons_), len(latlons)
+        M = M_flat.reshape(nobs, 3, npred, 3)
+        return M[:, :2, :, :2]                                    # drop Bz in/out
 
     def loo_score(self, b_obs, obs_latlons=None, metric="rmse", **overrides):
         """Leave-one-out observatory skill score, for tuning the setup.

@@ -198,13 +198,49 @@ another constant-matrix contraction (SECS transfer matrix × local Z ×
 length vector); no new math, just plumbing and a storage format bump
 (`tau.nc` gains an `obs` dimension; keep reading the old single-input files).
 
-This simultaneously implements the `secs+local-z` interpolation scheme
-(interpolate B, apply Z locally) as a `how=` option for E-field/voltage
-calculations — the scheme suspected to beat Delaunay across sharp
-conductivity contrasts. Score it in the D7 harness tables before making any
-default claims. Acceptance: with one observatory, results reproduce the
-current single-input path to rounding error; the harness table gains a
-`secs+local-z` column.
+**Constant-matrix contraction: DONE (2026-07-19).** Shipped as
+`SECSInterpolator.transfer_matrix(locations)` (`bezpy/mag/secs.py`) -- the
+frequency- and time-independent obs→site B map, valid for `method="lstsq"`
+fits with a single time-invariant observation-uncertainty pattern (no NaN
+gaps, `weight_gaps=False`, `robust=None`; `method="kalman"` and gappy/robust
+fits raise a clear `ValueError` instead of silently composing a wrong
+answer -- they need `predict()` per sample, not a constant matrix). It
+reaches into `pysecs.SECS`'s private `_VWU_patterns`/`_pattern_index`/
+`_calc_T` (no public accessor exists in pysecs 0.4); accepted as consistent
+with the existing `pysecs>=0.4` pin, with a regression test
+(`test_transfer_matrix_matches_predict`) that would fail loudly if pysecs's
+internals change. `TelluricResponse` (`bezpy/tl/kernels.py`) gains
+`M=`/`secs=` on `__init__`/`from_lines`; `tau_master`, `_build_tau`,
+`calc_voltages`, and `to_netcdf`/`from_netcdf` all grew an `obs` axis
+additively (the single-input path is unchanged code, gated on `self.M is
+None`), and old single-input `.nc` files keep loading exactly as before --
+the array's own dimensionality (`tau_master.ndim`) is the format signal, no
+version flag needed. Acceptance test passes exactly as specified: with one
+observatory (identity `M`), results reproduce the classic single-input path
+to rounding error (`test_telluric_multi_obs_identity_matches_single_input`);
+an independent check composing `SECSInterpolator.predict()` sample-by-sample
+with the *unmodified* single-input kernel also matches the new multi-input
+path to rounding error
+(`test_telluric_multi_obs_matches_secs_plus_single_input`), proving the
+`_build_tau` einsum against ground truth rather than just the identity
+shortcut.
+
+**Not built in this pass (follow-on):**
+
+- The `how="secs+local-z"` **Level-1** scheme (SECS-predicted B at arbitrary
+  points along a line's own geometry + nearest-site Z lookup) and its
+  `score_interpolation_methods`/D7 harness column. This is a genuinely
+  separate code path from the Level-2 τ-folding above -- no line-geometry
+  quadrature work landed here, only the observatory-to-site kernel
+  contraction. Still needed before any `secs+local-z` default claim.
+- `pipeline.calc_geoelectric_field`/`scan` integration of the multi-input
+  `TelluricResponse` as a fast path -- anticipated by item 2.2's sequencing
+  note ("2.2 benefits from 2.1's per-observatory τ"), not done here.
+- `return_var=True` on the multi-obs kernel (1.2 phase 2 already deferred
+  this for the single-input case).
+- A "recompose per-sample" fallback for gappy/Kalman/robust SECS fits that
+  don't reduce to a constant matrix -- `transfer_matrix()` raises clearly
+  instead of attempting one.
 
 ### 2.2 Operational / real-time mode
 

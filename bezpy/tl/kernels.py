@@ -31,6 +31,21 @@ be contracted out ahead of time.
   operations, reassociated -- so the exact-mode kernel reproduces the current
   pipeline to rounding error.
 
+  Multiple observatories fold in the same way: SECS interpolation from
+  observatories to sites is itself a linear, and (for a fit with a single
+  time-invariant observation-uncertainty pattern) frequency- and
+  time-independent map ``B_site = M B_obs``
+  (``bezpy.mag.SECSInterpolator.transfer_matrix``). Composing it with the
+  local impedance gives an effective per-site, per-observatory response
+  ``Z'^k_s(omega) = Z_s(omega) @ M_{s,k}``, and tau gains an observatory axis:
+
+      tau^k_N,l = sum_s (L_lsx Z'^k_xx,s + L_lsy Z'^k_yx,s)
+      tau^k_E,l = sum_s (L_lsx Z'^k_xy,s + L_lsy Z'^k_yy,s)
+      V_l(omega) = sum_k [tau^k_N,l(omega) Bx^k(omega) + tau^k_E,l(omega) By^k(omega)]
+
+  With one observatory (``M`` the identity) this reduces exactly to the
+  single-input case above.
+
 Reference: Kelbert, A., & Lucas, G. M. (2020). Modified GIC estimation using
 3-D Earth conductivity. Space Weather, 18, e2020SW002467.
 https://doi.org/10.1029/2020SW002467
@@ -158,13 +173,27 @@ class TelluricResponse:
         half-space sqrt(f) asymptote anchored at the band edge (see
         ``Site3d.calcZ``), preserving the short-period content a band-stop
         truncates; ``"zeros"`` is the legacy hard band-stop.
-    tau_master : ndarray (nlines, 2, nperiods), optional
+    tau_master : ndarray (nlines, 2, nperiods) or (nlines, nobs, 2, nperiods), optional
         Precomputed master-grid tau (as restored by :meth:`from_netcdf`);
         when given, ``L``/``sites`` may be None and no construction happens.
+        A 4-D array (with a leading-after-line ``obs`` axis) restores a
+        multi-input response and sets :attr:`n_obs` accordingly.
+    M : ndarray (nsites, nobs, 2, 2), optional
+        Constant observatory-to-site B transfer matrices (see
+        :meth:`bezpy.mag.SECSInterpolator.transfer_matrix`), folding SECS
+        interpolation into tau so it gains an ``obs`` axis:
+        ``B_site = M[s, k] @ B_obs[k]`` (column-vector convention). None
+        (default) is the classic single, spatially-uniform-B input. Building
+        from an :class:`~bezpy.mag.SECSInterpolator` directly is easier via
+        :meth:`from_lines`'s ``secs=`` argument.
+    obs_names : sequence, optional
+        Names for the ``obs`` axis (from ``SECSInterpolator.obs_names_``),
+        carried through to :meth:`to_netcdf`. Purely informational --
+        :meth:`calc_voltages` matches observatory columns positionally.
     """
 
     def __init__(self, L, sites, valid=None, periods=None, extrapolate="asymptotic",
-                 tau_master=None):
+                 tau_master=None, M=None, obs_names=None):
         if extrapolate not in ("zeros", "asymptotic"):
             raise ValueError("extrapolate must be one of: zeros, asymptotic")
         self.L = None if L is None else np.asarray(L)
@@ -173,6 +202,12 @@ class TelluricResponse:
         self.periods = None if periods is None else np.sort(np.asarray(periods, float))
         self.extrapolate = extrapolate
 
+        self.M = None if M is None else np.asarray(M, dtype=float)
+        if self.M is not None and self.L is not None and self.M.shape[0] != self.L.shape[1]:
+            raise ValueError("M's site axis must match L's site axis")
+        self.n_obs = None if self.M is None else self.M.shape[1]
+        self.obs_names = None if obs_names is None else list(obs_names)
+
         # tau on the most recent FFT frequency grid, keyed by (nfft, dt);
         # a historical scan over equal-length chunks reuses it thousands of
         # times, removing the per-chunk spline/calcZ cost.
@@ -180,8 +215,14 @@ class TelluricResponse:
         self._tau_grid = None
 
         if tau_master is not None:
-            # Restored product (from_netcdf): tau is already built.
+            # Restored product (from_netcdf): tau is already built. A 4-D
+            # array (nlines, nobs, 2, nperiods) is a multi-input response;
+            # this is the only signal needed to distinguish it from a
+            # single-input (nlines, 2, nperiods) file, so old files keep
+            # loading as single-input with no format-version flag.
             self.tau_master = np.asarray(tau_master)
+            if self.tau_master.ndim == 4:
+                self.n_obs = self.tau_master.shape[1]
         elif self.periods is not None:
             # Build tau once at the master periods (ascending period order)
             self.tau_master = self._build_tau(1. / self.periods)
@@ -190,14 +231,24 @@ class TelluricResponse:
 
     @classmethod
     def from_lines(cls, lines, sites, how="delaunay", periods=None,
-                   extrapolate="asymptotic", resample_km=None):
+                   extrapolate="asymptotic", resample_km=None, secs=None, M=None):
         """Build from TransmissionLines and Sites, setting weights as needed.
 
         :param resample_km: if given, densify each line's geometry to at most
             this segment length (great-circle interpolation) before building
             the length vectors, refining the integration quadrature (Kelbert
             & Lucas, 2020, used 1 km). The input lines are not modified.
+        :param secs: an already-fit :class:`~bezpy.mag.SECSInterpolator`; folds
+            its observatory-to-site transfer matrix
+            (:meth:`~bezpy.mag.SECSInterpolator.transfer_matrix`) into tau, so
+            the result is a multi-input response (see :meth:`calc_voltages`).
+            Mutually exclusive with ``M``.
+        :param M: an explicit ``(nsites, nobs, 2, 2)`` transfer matrix (see the
+            class docstring), for callers building it another way. Mutually
+            exclusive with ``secs``.
         """
+        if secs is not None and M is not None:
+            raise ValueError("give at most one of secs=, M=")
         site_xys = np.array([[site.latitude, site.longitude] for site in sites])
         if resample_km is not None:
             lines = [line.resampled(resample_km) for line in lines]
@@ -207,7 +258,14 @@ class TelluricResponse:
             elif how == "nn" and line.nearest_sites is None:
                 line.set_nearest_sites(site_xys)
         L, valid = voltage_matrix(lines, len(sites), how=how)
-        return cls(L, sites, valid=valid, periods=periods, extrapolate=extrapolate)
+
+        obs_names = None
+        if secs is not None:
+            M2 = secs.transfer_matrix(sites)               # (nobs, 2, nsites, 2)
+            M = np.transpose(M2, (2, 0, 3, 1))              # (nsites, nobs, 2, 2)
+            obs_names = list(secs.obs_names_) if secs.obs_names_ is not None else None
+        return cls(L, sites, valid=valid, periods=periods, extrapolate=extrapolate,
+                   M=M, obs_names=obs_names)
 
     @property
     def nlines(self):
@@ -226,24 +284,48 @@ class TelluricResponse:
             return site.calcZ(freqs)
 
     def _build_tau(self, freqs, lines=slice(None)):
-        """tau (nsel, 2, nfreq) accumulated site by site from calcZ."""
+        """tau accumulated site by site from calcZ.
+
+        Shape ``(nsel, 2, nfreq)`` for a single-input response, or
+        ``(nsel, nobs, 2, nfreq)`` when :attr:`M` folds in a SECS transfer
+        matrix.
+        """
         L = self.L[lines]
-        tau = np.zeros((L.shape[0], 2, len(freqs)), dtype=complex)
+        nfreq = len(freqs)
+        multi = self.M is not None
+        shape = (L.shape[0], self.n_obs, 2, nfreq) if multi else (L.shape[0], 2, nfreq)
+        tau = np.zeros(shape, dtype=complex)
         for s, site in enumerate(self.sites):
             Lx, Ly = L[:, s, 0], L[:, s, 1]
             touched = np.nonzero((Lx != 0.) | (Ly != 0.))[0]
             if touched.size == 0:
                 continue
             Z = self._calcZ(site, freqs)  # (xx, xy, yx, yy) x nfreq
-            # V = Lx*Ex + Ly*Ey with Ex = Zxx Bx + Zxy By, Ey = Zyx Bx + Zyy By
-            tau[touched, 0, :] += Lx[touched, None]*Z[0] + Ly[touched, None]*Z[2]
-            tau[touched, 1, :] += Lx[touched, None]*Z[1] + Ly[touched, None]*Z[3]
+            if not multi:
+                # V = Lx*Ex + Ly*Ey with Ex = Zxx Bx + Zxy By, Ey = Zyx Bx + Zyy By
+                tau[touched, 0, :] += Lx[touched, None]*Z[0] + Ly[touched, None]*Z[2]
+                tau[touched, 1, :] += Lx[touched, None]*Z[1] + Ly[touched, None]*Z[3]
+            else:
+                # Effective response to observatory k's B: Z'^k = Z @ M[s, k],
+                # i.e. fold the (frequency-independent) SECS transfer matrix
+                # into the site's impedance before the L-weighted site sum.
+                Ms = self.M[s]                                  # (nobs, 2, 2)
+                Zmat = np.array([[Z[0], Z[1]], [Z[2], Z[3]]])   # (2, 2, nfreq)
+                Zp = np.einsum('abf,kbc->kacf', Zmat, Ms)       # (nobs, 2, 2, nfreq)
+                tau[touched, :, 0, :] += (Lx[touched, None, None]*Zp[None, :, 0, 0, :]
+                                          + Ly[touched, None, None]*Zp[None, :, 1, 0, :])
+                tau[touched, :, 1, :] += (Lx[touched, None, None]*Zp[None, :, 0, 1, :]
+                                          + Ly[touched, None, None]*Zp[None, :, 1, 1, :])
         return tau
 
     def calc_tau(self, freqs, lines=slice(None)):
         """Evaluate tau^N, tau^E on the given frequencies.
 
-        :return: complex array, shape ``(nselected_lines, 2, nfreqs)``, V/nT
+        :return: complex array, shape ``(nselected_lines, 2, nfreqs)`` for a
+            single-input response, or ``(nselected_lines, nobs, 2, nfreqs)``
+            for a multi-input one (:attr:`n_obs` not None), V/nT. The
+            spline/extrapolation logic below is axis-agnostic to the extra
+            leading ``obs`` axis.
         """
         if self.periods is None:
             return self._build_tau(freqs, lines)
@@ -278,7 +360,7 @@ class TelluricResponse:
         Returns None when the full array would exceed the cache budget; the
         caller then evaluates tau chunkwise per call instead.
         """
-        nbytes = self.nlines * 2 * len(freqs) * 16
+        nbytes = self.nlines * (self.n_obs or 1) * 2 * len(freqs) * 16
         if nbytes > _TAU_CACHE_MAX_BYTES:
             return None
         if self._tau_grid_key != (nfft, dt):
@@ -296,8 +378,11 @@ class TelluricResponse:
         with the same length and dt (up to a memory budget), so scanning a
         long record in equal-length chunks pays the tau construction once.
 
-        :param mag_x: northward magnetic field, nT
-        :param mag_y: eastward magnetic field, nT
+        :param mag_x: northward magnetic field, nT. Shape ``(ntimes,)`` for a
+            single-input response, or ``(ntimes, nobs)`` (columns matching
+            :attr:`obs_names`/the ``secs=``/``M=`` build order) for a
+            multi-input one.
+        :param mag_y: eastward magnetic field, nT; same shape as ``mag_x``
         :param dt: sample interval in seconds
         :param line_chunk: number of lines processed per block, to bound the
             ``(chunk, nfreq)`` complex workspace for long time series
@@ -311,20 +396,33 @@ class TelluricResponse:
                 "magnetic field input contains NaNs, which would corrupt the "
                 "FFT; interpolate them (bezpy.mag.prepare(gaps='interpolate')) "
                 "or predict gap-free fields with SECS first")
-        N0 = len(mag_x)
+        multi = self.n_obs is not None
+        if multi and (mag_x.ndim != 2 or mag_x.shape[1] != self.n_obs):
+            raise ValueError(f"this response has {self.n_obs} observatory "
+                             f"inputs; mag_x/mag_y must have shape "
+                             f"(ntimes, {self.n_obs})")
+        if not multi and mag_x.ndim != 1:
+            raise ValueError("this response is single-input; mag_x/mag_y must "
+                             "be 1-D (build with secs= or M= for multi-"
+                             "observatory input)")
+        N0 = mag_x.shape[0]
         # Same padding rule as Site.convolve_fft (prevents circular convolution)
         N = 2**(int(np.log2(N0))+2)
         freqs = scipy.fft.rfftfreq(N, d=dt)
 
-        mag_x_fft = scipy.fft.rfft(mag_x, n=N, workers=-1)
-        mag_y_fft = scipy.fft.rfft(mag_y, n=N, workers=-1)
+        mag_x_fft = scipy.fft.rfft(mag_x, n=N, axis=0, workers=-1)
+        mag_y_fft = scipy.fft.rfft(mag_y, n=N, axis=0, workers=-1)
 
         tau_grid = self._tau_on_fft_grid(N, dt, freqs)
         voltages = np.empty((N0, self.nlines))
         for i0 in range(0, self.nlines, line_chunk):
             sel = slice(i0, min(i0 + line_chunk, self.nlines))
             tau = tau_grid[sel] if tau_grid is not None else self.calc_tau(freqs, lines=sel)
-            V_fft = tau[:, 0, :]*mag_x_fft + tau[:, 1, :]*mag_y_fft
+            if multi:
+                V_fft = (np.einsum('lof,fo->lf', tau[:, :, 0, :], mag_x_fft)
+                        + np.einsum('lof,fo->lf', tau[:, :, 1, :], mag_y_fft))
+            else:
+                V_fft = tau[:, 0, :]*mag_x_fft + tau[:, 1, :]*mag_y_fft
             voltages[:, sel] = scipy.fft.irfft(V_fft, axis=-1, workers=-1)[:, :N0].T
 
         if self.valid is not None:
@@ -346,13 +444,19 @@ class TelluricResponse:
                 "building); exact mode is tied to a run's FFT grid.")
         import xarray as xr
         valid = np.ones(self.nlines, dtype=bool) if self.valid is None else self.valid
+        multi = self.n_obs is not None
+        dims = ("line", "obs", "component", "period") if multi \
+            else ("line", "component", "period")
+        coords = {"period": ("period", self.periods, {"units": "s"}),
+                  "component": ["N", "E"]}
+        if multi and self.obs_names is not None:
+            coords["obs"] = ("obs", self.obs_names)
         # Complex data split into real/imag so any netCDF engine can store it
         ds = xr.Dataset(
-            {"tau_real": (("line", "component", "period"), self.tau_master.real),
-             "tau_imag": (("line", "component", "period"), self.tau_master.imag),
+            {"tau_real": (dims, self.tau_master.real),
+             "tau_imag": (dims, self.tau_master.imag),
              "valid": (("line",), valid)},
-            coords={"period": ("period", self.periods, {"units": "s"}),
-                    "component": ["N", "E"]},
+            coords=coords,
             attrs={"title": "Power line telluric response functions",
                    "units": "V/nT",
                    "extrapolate": self.extrapolate,
@@ -364,12 +468,15 @@ class TelluricResponse:
         """Load a response saved by :meth:`to_netcdf`.
 
         The result computes tau and voltages directly from the stored master
-        grid; it carries no line geometry or MT sites.
+        grid; it carries no line geometry or MT sites. A multi-input
+        response (``obs`` dimension present) restores with :attr:`n_obs` set;
+        older single-input files (no ``obs`` dimension) restore unchanged.
         """
         import xarray as xr
         with xr.open_dataset(path) as ds:
             ds.load()
         tau = ds["tau_real"].values + 1j*ds["tau_imag"].values
+        obs_names = ds["obs"].values.tolist() if "obs" in ds.coords else None
         return cls(L=None, sites=None, valid=ds["valid"].values,
                    periods=ds["period"].values, extrapolate=ds.attrs["extrapolate"],
-                   tau_master=tau)
+                   tau_master=tau, obs_names=obs_names)

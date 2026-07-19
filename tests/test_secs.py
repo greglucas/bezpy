@@ -348,3 +348,55 @@ def test_repr(synthetic):
 
     robust = repr(SECSInterpolator(robust="huber"))
     assert "robust='huber'" in robust
+
+
+# ---------------------------------------------------------------------
+# transfer_matrix: the constant obs -> prediction linear map (roadmap 2.1)
+# ---------------------------------------------------------------------
+
+def test_transfer_matrix_matches_predict(synthetic):
+    B_obs, _ = synthetic
+    interp = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS)
+    M = interp.transfer_matrix(TEST_LATLONS)
+    assert M.shape == (len(OBS_LATLONS), 2, len(TEST_LATLONS), 2)
+
+    B_pred_direct = interp.predict(TEST_LATLONS)[:, :, :2]
+    B_pred_from_M = np.einsum('toc,ocpe->tpe', B_obs[:, :, :2], M)
+    np.testing.assert_allclose(B_pred_from_M, B_pred_direct, rtol=1e-10, atol=1e-8)
+
+
+def test_transfer_matrix_obs_order_matches_obs_latlons(synthetic):
+    B_obs, _ = synthetic
+    interp = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS)
+    M = interp.transfer_matrix(TEST_LATLONS)
+    assert M.shape[0] == len(interp.obs_latlons_)
+
+
+def test_transfer_matrix_before_fit_raises():
+    with pytest.raises(ValueError, match="not been fit"):
+        SECSInterpolator().transfer_matrix(TEST_LATLONS)
+
+
+def test_transfer_matrix_rejects_kalman(synthetic):
+    B_obs, _ = synthetic
+    times = np.arange(len(B_obs), dtype=float)
+    interp = SECSInterpolator(method="kalman").fit(
+        B_obs, obs_latlons=OBS_LATLONS, times=times)
+    with pytest.raises(ValueError, match="kalman"):
+        interp.transfer_matrix(TEST_LATLONS)
+
+
+def test_transfer_matrix_rejects_gappy_pattern(synthetic):
+    B_obs, _ = synthetic
+    gappy = B_obs.copy()
+    gappy[5, 2, 0] = np.nan
+    interp = SECSInterpolator().fit(gappy, obs_latlons=OBS_LATLONS)
+    with pytest.raises(ValueError, match="pattern"):
+        interp.transfer_matrix(TEST_LATLONS)
+
+
+def test_transfer_matrix_rejects_robust(synthetic):
+    B_obs, _ = synthetic
+    interp = SECSInterpolator(robust="huber").fit(B_obs, obs_latlons=OBS_LATLONS)
+    with pytest.raises(ValueError, match="pattern"):
+        interp.transfer_matrix(TEST_LATLONS)

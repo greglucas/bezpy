@@ -399,3 +399,160 @@ def test_telluric_response_rejects_nan_input():
         response.calc_voltages(bad, np.ones(256))
     with pytest.raises(ValueError, match="same shape"):
         response.calc_voltages(np.ones(256), np.ones(128))
+
+
+# ---------------------------------------------------------------------
+# Multi-input kernels: tau gains an obs axis via a SECS transfer matrix
+# (roadmap 2.1)
+# ---------------------------------------------------------------------
+
+def test_telluric_multi_obs_identity_matches_single_input(site_grid, site_xys):
+    """Acceptance test from ROADMAP.md 2.1: one observatory (identity M)
+    must reproduce the classic single-input path to rounding error."""
+    lines = make_lines()
+    mag_x = RNG.standard_normal(1000)
+    mag_y = RNG.standard_normal(1000)
+    M = np.tile(np.eye(2), (len(site_grid), 1, 1, 1))  # (nsites, 1, 2, 2)
+
+    classic = TelluricResponse.from_lines(lines, site_grid, how="delaunay")
+    multi = TelluricResponse.from_lines(lines, site_grid, how="delaunay", M=M)
+    assert multi.n_obs == 1
+
+    V_classic = classic.calc_voltages(mag_x, mag_y, dt=60)
+    V_multi = multi.calc_voltages(mag_x[:, None], mag_y[:, None], dt=60)
+    np.testing.assert_allclose(V_multi, V_classic, atol=1e-9*np.max(np.abs(V_classic)))
+
+
+def test_telluric_multi_obs_identity_matches_single_input_master_grid(site_grid, site_xys):
+    lines = make_lines()
+    mag_x = RNG.standard_normal(1000)
+    mag_y = RNG.standard_normal(1000)
+    M = np.tile(np.eye(2), (len(site_grid), 1, 1, 1))
+    periods = site_grid[0].periods
+
+    classic = TelluricResponse.from_lines(lines, site_grid, how="delaunay", periods=periods)
+    multi = TelluricResponse.from_lines(lines, site_grid, how="delaunay", periods=periods, M=M)
+    V_classic = classic.calc_voltages(mag_x, mag_y, dt=60)
+    V_multi = multi.calc_voltages(mag_x[:, None], mag_y[:, None], dt=60)
+    np.testing.assert_allclose(V_multi, V_classic, atol=1e-9*np.max(np.abs(V_classic)))
+
+
+def test_telluric_multi_obs_matches_secs_plus_single_input(site_grid, site_xys):
+    """Independent proof of the _build_tau einsum: compose SECSInterpolator
+    .predict() with the existing single-input kernel per sample and check the
+    multi-input kernel reproduces it, without sharing any code path."""
+    pytest.importorskip("pysecs")
+    from bezpy.mag import SECSInterpolator
+
+    lines = make_lines()
+    for line in lines:
+        line.set_delaunay_weights(site_xys)
+    obs_latlons = np.array([[36.0, -109.0], [44.0, -109.0],
+                            [40.0, -99.0], [40.0, -101.0]])
+    ntimes = 500
+    mag_x = RNG.standard_normal((ntimes, len(obs_latlons))) * 20
+    mag_y = RNG.standard_normal((ntimes, len(obs_latlons))) * 20
+    B_obs = np.stack([mag_x, mag_y], axis=-1)
+    secs = SECSInterpolator().fit(B_obs, obs_latlons=obs_latlons)
+
+    B_pred = secs.predict(site_xys)[:, :, :2]
+    ex, ey = SiteCollection(site_grid).convolve_fft(B_pred[:, :, 0], B_pred[:, :, 1], dt=60)
+    E = np.stack([ex.T, ey.T], axis=-1)
+    L, valid = voltage_matrix(lines, len(site_grid), how="delaunay")
+    V_ref = apply_voltage_matrix(E, L, valid)
+
+    multi = TelluricResponse.from_lines(lines, site_grid, how="delaunay", secs=secs)
+    assert multi.n_obs == len(obs_latlons)
+    assert multi.obs_names is None  # bare-array fit: no obs names available
+    V_new = multi.calc_voltages(mag_x, mag_y, dt=60)
+
+    scale = np.max(np.abs(V_ref))
+    np.testing.assert_allclose(V_new, V_ref, atol=1e-8*scale)
+
+
+def test_telluric_master_grid_multi_obs(site_grid, site_xys):
+    pytest.importorskip("pysecs")
+    from bezpy.mag import SECSInterpolator
+
+    lines = make_lines()
+    obs_latlons = np.array([[36.0, -109.0], [44.0, -109.0], [40.0, -99.0]])
+    ntimes = 1000
+    mag_x = RNG.standard_normal((ntimes, len(obs_latlons)))
+    mag_y = RNG.standard_normal((ntimes, len(obs_latlons)))
+    B_obs = np.stack([mag_x, mag_y], axis=-1)
+    secs = SECSInterpolator().fit(B_obs, obs_latlons=obs_latlons)
+
+    exact = TelluricResponse.from_lines(lines, site_grid, how="delaunay", secs=secs)
+    master = TelluricResponse.from_lines(lines, site_grid, how="delaunay", secs=secs,
+                                         periods=site_grid[0].periods)
+    V_exact = exact.calc_voltages(mag_x, mag_y, dt=60)
+    V_master = master.calc_voltages(mag_x, mag_y, dt=60)
+    scale = np.sqrt(np.mean(V_exact**2))
+    assert np.sqrt(np.mean((V_master - V_exact)**2)) < 0.02*scale
+
+
+def test_telluric_multi_obs_shape_validation(site_grid, site_xys):
+    lines = make_lines()
+    M = np.tile(np.eye(2), (len(site_grid), 2, 1, 1))  # nobs=2
+    multi = TelluricResponse.from_lines(lines, site_grid, how="delaunay", M=M)
+    with pytest.raises(ValueError, match="observatory"):
+        multi.calc_voltages(RNG.standard_normal(200), RNG.standard_normal(200), dt=60)
+
+    classic = TelluricResponse.from_lines(lines, site_grid, how="delaunay")
+    with pytest.raises(ValueError, match="single-input"):
+        classic.calc_voltages(RNG.standard_normal((200, 2)),
+                              RNG.standard_normal((200, 2)), dt=60)
+
+
+def test_telluric_rejects_mismatched_M_shape(site_grid):
+    lines = make_lines()
+    bad_M = np.tile(np.eye(2), (len(site_grid) - 1, 1, 1, 1))
+    with pytest.raises(ValueError, match="site axis"):
+        TelluricResponse.from_lines(lines, site_grid, how="delaunay", M=bad_M)
+
+
+def test_from_lines_rejects_both_secs_and_M(site_grid):
+    lines = make_lines()
+    M = np.tile(np.eye(2), (len(site_grid), 1, 1, 1))
+    with pytest.raises(ValueError, match="at most one"):
+        TelluricResponse.from_lines(lines, site_grid, how="delaunay", secs="placeholder", M=M)
+
+
+def test_netcdf_roundtrip_multi_obs(site_grid, site_xys, tmp_path):
+    pytest.importorskip("xarray")
+    pytest.importorskip("pysecs")
+    from bezpy.mag import SECSInterpolator
+
+    lines = make_lines()
+    obs_latlons = np.array([[36.0, -109.0], [44.0, -109.0]])
+    ntimes = 500
+    mag_x = RNG.standard_normal((ntimes, len(obs_latlons)))
+    mag_y = RNG.standard_normal((ntimes, len(obs_latlons)))
+    B_obs = np.stack([mag_x, mag_y], axis=-1)
+    codes = [f"OB{i}" for i in range(len(obs_latlons))]
+    secs = SECSInterpolator().fit(B_obs, obs_latlons=obs_latlons)
+    secs.obs_names_ = np.array(codes)
+
+    tr = TelluricResponse.from_lines(lines, site_grid, how="delaunay", secs=secs,
+                                     periods=site_grid[0].periods)
+    path = tmp_path / "tau_multi.nc"
+    tr.to_netcdf(path)
+    restored = TelluricResponse.from_netcdf(path)
+
+    assert restored.n_obs == tr.n_obs == len(obs_latlons)
+    assert restored.obs_names == codes
+    np.testing.assert_allclose(restored.calc_voltages(mag_x, mag_y, dt=60),
+                               tr.calc_voltages(mag_x, mag_y, dt=60))
+
+
+def test_netcdf_from_netcdf_old_single_input_file_still_works(site_grid, tmp_path):
+    pytest.importorskip("xarray")
+    tr = TelluricResponse.from_lines(make_lines(), site_grid, how="delaunay",
+                                     periods=site_grid[0].periods)
+    path = tmp_path / "tau_classic.nc"
+    tr.to_netcdf(path)
+    restored = TelluricResponse.from_netcdf(path)
+    assert restored.n_obs is None
+    mag_x, mag_y = RNG.standard_normal(500), RNG.standard_normal(500)
+    np.testing.assert_allclose(restored.calc_voltages(mag_x, mag_y, dt=60),
+                               tr.calc_voltages(mag_x, mag_y, dt=60))
