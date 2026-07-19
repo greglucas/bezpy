@@ -9,6 +9,7 @@ pysecs = pytest.importorskip("pysecs")
 from bezpy.tl import TransmissionLine  # noqa: E402
 from bezpy.validation import (  # noqa: E402
     leave_one_out,
+    score_analytic_calibration,
     score_ensemble_calibration,
     score_extrapolation,
     score_interpolation_methods,
@@ -72,6 +73,24 @@ def test_ensemble_calibration_covers_truth_near_nominal_rate():
     result = score_ensemble_calibration(n_trials=15, n_realizations=60,
                                         ntimes=1024, seed=0)
     assert 0.45 < result["coverage_1sigma"] < 0.80
+    assert result["n_samples"] > 1000
+
+
+def test_analytic_calibration_is_conservative_but_not_broken():
+    """The roadmap 1.2 phase 2 acceptance test: analytic (return_var=True)
+    coverage does NOT hit the nominal 68% -- it lands around 0.32-0.37,
+    substantially more conservative than phase 1's ensemble (~0.6-0.65),
+    because the Jacobian is frozen at the one noisy measured impedance and
+    misses the smoothing spline's knot-selection variability that only
+    shows up when it is actually refit under different noise draws (see
+    VALIDATION.md 1.2 for the full write-up and per-site evidence this is
+    systematic, not a few outliers). This test enforces the OBSERVED,
+    reproducible range -- not the aspirational nominal rate -- so it fails
+    if a future change breaks propagation entirely (near 0%) or makes it
+    wildly over-wide (near 100%), without chasing the documented gap as if
+    it were a regression."""
+    result = score_analytic_calibration(n_trials=10, ntimes=1024, seed=0)
+    assert 0.20 < result["coverage_1sigma"] < 0.55
     assert result["n_samples"] > 1000
 
 

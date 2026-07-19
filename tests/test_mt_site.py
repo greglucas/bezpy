@@ -182,6 +182,75 @@ def test_perturbed_draws_within_reported_variance(site3d):
         draws[:, ~valid], np.broadcast_to(original_Z[~valid], draws[:, ~valid].shape))
 
 
+def test_z_param_jacobian_matches_independent_finite_difference(site3d):
+    """_z_param_jacobian must match a hand-rolled central difference through
+    calcZ directly (roadmap 1.2 phase 2) -- and must hold Z_var identical
+    between the two (Z_var None vs given selects different spline smoothing,
+    see spline_interp; comparing across that mismatch is the wrong test)."""
+    freqs = np.logspace(-4, -1, 20)
+    component, period_idx, part, eps = 1, 3, "real", 1e-4
+    jac = site3d._z_param_jacobian(freqs, "asymptotic", component, period_idx, part, eps)
+
+    Zp, Zm = site3d.Z.copy(), site3d.Z.copy()
+    Zp[component, period_idx] += eps
+    Zm[component, period_idx] -= eps
+    plus = bezpy.mt.Site3d("p", periods=site3d.periods, Z=Zp, Z_var=site3d.Z_var)
+    minus = bezpy.mt.Site3d("m", periods=site3d.periods, Z=Zm, Z_var=site3d.Z_var)
+    brute = (plus.calcZ(freqs, extrapolate="asymptotic")[component]
+            - minus.calcZ(freqs, extrapolate="asymptotic")[component]) / (2 * eps)
+
+    np.testing.assert_allclose(jac, brute)
+    # Real/imag are independently-fit splines: perturbing the real part must
+    # leave the output's imaginary part exactly unperturbed.
+    np.testing.assert_allclose(jac.imag, 0., atol=1e-12)
+
+
+def test_z_sensitivities_empty_without_variance():
+    site = bezpy.mt.Site3d("plain", latitude=40., longitude=-105.,
+                           periods=np.logspace(1, 4, 6),
+                           Z=np.ones((4, 6), dtype=complex))
+    assert site.z_sensitivities(np.logspace(-4, -1, 10)) == []
+
+
+def test_convolve_fft_return_var_matches_ensemble_in_linear_regime(rng):
+    """Analytic Ex_var/Ey_var (roadmap 1.2 phase 2) must agree with the
+    Monte Carlo ensemble spread (phase 1) in the small-relative-variance
+    regime where the production spline's nonlinearity is negligible --
+    the two propagation methods derive from the same Z_var and should
+    converge as the perturbation shrinks."""
+    from bezpy.mt.site import Site3d, SiteCollection
+    periods = np.logspace(1, 4, 10)
+    Z = np.zeros((4, len(periods)), dtype=complex)
+    Z[1, :] = (1. + 0.5j) * (1. + 0.1 * np.arange(len(periods)))
+    Z[2, :] = -Z[1, :]
+    Z_var = (0.02 * np.abs(Z))**2 + 1e-8
+    site = Site3d("S0", latitude=40., longitude=-100., periods=periods, Z=Z, Z_var=Z_var)
+
+    mag_x, mag_y = rng.standard_normal(1024) * 20, rng.standard_normal(1024) * 20
+    ex, ey, ex_var, ey_var = SiteCollection([site]).convolve_fft(
+        mag_x, mag_y, dt=60., return_var=True)
+    assert (ex_var > 0).all() and (ey_var > 0).all()
+
+    draws = np.stack([SiteCollection([site.perturbed(rng)]).convolve_fft(
+        mag_x, mag_y, dt=60.)[0][0] for _ in range(300)])
+    mc_var = draws.var(axis=0)
+    ratio = ex_var[0].mean() / mc_var.mean()
+    assert ratio == pytest.approx(1.0, rel=0.3)
+
+
+def test_convolve_fft_return_var_zero_without_variance():
+    """Site1d sites (and Site3d without Z_var) have nothing to propagate,
+    so their analytic variance must be exactly zero, not fabricated."""
+    from bezpy.mt.site import SiteCollection
+    site = bezpy.mt.Site1d("hs", thicknesses=[1e9], resistivities=[100.])
+    site.latitude, site.longitude = 40., -100.
+    ex, ey, ex_var, ey_var = SiteCollection([site]).convolve_fft(
+        np.sin(np.arange(256) / 20.), np.cos(np.arange(256) / 20.),
+        dt=60, return_var=True)
+    np.testing.assert_array_equal(ex_var, 0.)
+    np.testing.assert_array_equal(ey_var, 0.)
+
+
 def test_collection_site_chunk_equivalence():
     """Blocked processing returns the same fields as one block (P1)."""
     rng = np.random.default_rng(3)

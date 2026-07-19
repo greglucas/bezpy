@@ -230,6 +230,37 @@ def test_calc_geoelectric_field_perturb_b_widens_spread():
         z_only["Ex"].std("realization").mean()
 
 
+def test_calc_geoelectric_field_return_var():
+    """roadmap 1.2 phase 2: return_var=True adds Ex_var/Ey_var, zero for
+    sites without Z_var, mutually exclusive with n_realizations."""
+    b_obs = make_b_obs()
+    sites = make_var_sites(n_lat=2, n_lon=2)
+    e = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h", return_var=True)
+    assert {"Ex_var", "Ey_var"}.issubset(e.data_vars)
+    assert (e["Ex_var"].values > 0).all()
+    assert (e["Ey_var"].values > 0).all()
+
+    e_no_var = bezpy.calc_geoelectric_field(
+        make_b_obs(), make_sites(n_lat=2, n_lon=2), pad="1h", return_var=True)
+    np.testing.assert_array_equal(e_no_var["Ex_var"].values, 0.)
+
+
+def test_calc_voltages_return_var():
+    b_obs = make_b_obs()
+    sites = make_var_sites(n_lat=2, n_lon=2)
+    lines = make_lines()
+    e = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h", return_var=True)
+    v, v_var = bezpy.calc_voltages(lines, e, return_var=True)
+    assert v.dims == v_var.dims == ("time", "line")
+    finite = np.isfinite(v.values)
+    assert finite.any()
+    assert (v_var.values[finite] >= 0).all()
+
+    e_point = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h")
+    with pytest.raises(ValueError, match="Ex_var/Ey_var"):
+        bezpy.calc_voltages(lines, e_point, return_var=True)
+
+
 def test_calc_geoelectric_field_sitecollection(setup):
     """A SiteCollection passed as sites= must match the list path exactly."""
     b_obs, sites, _ = setup

@@ -61,7 +61,8 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
                            pad="auto", detrend="linear", taper="tukey",
                            gaps="mask", despike_obs=False, extrapolate="asymptotic",
                            secs=None, leave_one_out=None, collection=None,
-                           n_realizations=None, perturb_b=False, seed=None):
+                           n_realizations=None, perturb_b=False, seed=None,
+                           return_var=False):
     """Geoelectric fields at MT sites from observatory magnetic fields.
 
     The full chain: :func:`bezpy.mag.prepare` (detrend/taper/pad) ->
@@ -121,14 +122,36 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
         only impedance uncertainty is propagated.
     :param seed: RNG seed for reproducible realizations (default None: a
         fresh, unseeded draw each call)
+    :param return_var: analytic uncertainty propagation (roadmap 1.2 phase
+        2 -- the deterministic, "linear chain" counterpart of
+        ``n_realizations``'s Monte Carlo draws). Adds ``Ex_var``/``Ey_var``
+        ((mV/km)^2) computed via ``SiteCollection.convolve_fft(...,
+        return_var=True)``: a first-order propagation of each site's
+        ``Z_var`` through the same spline/extrapolation/FFT-convolution
+        pipeline used for the point estimate (see
+        ``Site3d.z_sensitivities``), treating E as linear in Z at fixed B
+        (B uncertainty is not included -- use ``n_realizations`` +
+        ``perturb_b`` for that). Mutually exclusive with
+        ``n_realizations`` (the ensemble mode already gives an empirical
+        variance via ``.std("realization")**2``; combining both is
+        redundant). Substantially more expensive than the point estimate
+        (roughly one extra FFT convolution per valid impedance
+        measurement per site), so this is meant for single-window/case-
+        study use, not wired into ``scan``. See ``VALIDATION.md`` 1.2 for
+        the calibration test and its measured coverage.
     :return: Dataset with ``Ex``/``Ey`` in mV/km; site latitude/longitude
         coordinates; pad metadata already trimmed. Dims ``(time, site)``, or
         ``(realization, time, site)`` when ``n_realizations`` is set.
+        ``Ex_var``/``Ey_var`` (time, site) are added when ``return_var=True``.
     """
     if perturb_b and interp != "secs":
         raise ValueError("perturb_b=True requires interp='secs'")
     if perturb_b and n_realizations is None:
         raise ValueError("perturb_b=True has no effect without n_realizations=")
+    if return_var and n_realizations is not None:
+        raise ValueError("return_var=True and n_realizations= are mutually "
+                         "exclusive (n_realizations already gives an "
+                         "empirical variance via .std('realization')**2)")
 
     xr = _require_xarray()
     if hasattr(sites, "sites"):  # a SiteCollection was passed
@@ -177,9 +200,15 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
               "site": [site.name for site in sites],
               "latitude": ("site", latlons[:, 0]),
               "longitude": ("site", latlons[:, 1])}
+    ex_var_out = ey_var_out = None
     if n_realizations is None:
         collection = collection if collection is not None else SiteCollection(sites)
-        ex, ey = collection.convolve_fft(mag_x, mag_y, dt=dt, extrapolate=extrapolate)
+        if return_var:
+            ex, ey, ex_var, ey_var = collection.convolve_fft(
+                mag_x, mag_y, dt=dt, extrapolate=extrapolate, return_var=True)
+            ex_var_out, ey_var_out = ex_var.T, ey_var.T
+        else:
+            ex, ey = collection.convolve_fft(mag_x, mag_y, dt=dt, extrapolate=extrapolate)
         dims = ("time", "site")
         ex_out, ey_out = ex.T, ey.T
     else:
@@ -201,16 +230,19 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
         dims = ("realization", "time", "site")
         coords["realization"] = np.arange(n_realizations)
 
+    data_vars = {"Ex": (dims, ex_out, {"units": "mV/km"}),
+                 "Ey": (dims, ey_out, {"units": "mV/km"})}
+    if return_var:
+        data_vars["Ex_var"] = (dims, ex_var_out, {"units": "(mV/km)^2"})
+        data_vars["Ey_var"] = (dims, ey_var_out, {"units": "(mV/km)^2"})
     e = xr.Dataset(
-        {"Ex": (dims, ex_out, {"units": "mV/km"}),
-         "Ey": (dims, ey_out, {"units": "mV/km"})},
-        coords=coords,
+        data_vars, coords=coords,
         attrs={key: prepared.attrs[key]
                for key in ("pad_left", "pad_right", "dt_seconds")})
     return trim_pad(e)
 
 
-def calc_voltages(lines, e, how="delaunay"):
+def calc_voltages(lines, e, how="delaunay", return_var=False):
     """Voltages across transmission lines from site electric fields.
 
     Applies the precomputed Level-1 voltage kernels
@@ -222,10 +254,29 @@ def calc_voltages(lines, e, how="delaunay"):
     :param e: ``Ex``/``Ey`` Dataset from :func:`calc_geoelectric_field`
         (or a bare ``(ntimes, nsites, 2)`` array in mV/km)
     :param how: E interpolation scheme (``"delaunay"`` default, ``"nn"``)
+    :param return_var: also propagate ``Ex_var``/``Ey_var`` (from
+        ``calc_geoelectric_field(..., return_var=True)``) into a per-line
+        voltage variance (roadmap 1.2 phase 2), via the closed form
+        ``var(V) = sum_j L_j^2 var(E_j)`` -- exact given the E-site
+        variances (``L`` is the same static, real, known kernel used for
+        the point estimate, and the site-to-site independence assumption
+        already made when drawing each site's ``Z_var`` separately in
+        phase 1/2). Requires a Dataset ``e`` carrying ``Ex_var``/``Ey_var``.
+        This is the propagated **data** variance only -- the delaunay-vs-nn
+        interpolation-*scheme* divergence is a separate, **structural**
+        uncertainty not included here (see ``VALIDATION.md`` D7 for its
+        measured magnitude); add it yourself if you need one combined
+        number, since how large it is depends on your own site geometry.
     :return: DataArray ``(time, line)`` of voltages in volts (NaN for lines
-        outside the site coverage); bare-array input returns an ndarray
+        outside the site coverage); bare-array input returns an ndarray.
+        With ``return_var=True``, a ``(V, V_var)`` tuple of DataArrays
+        (units V and V^2).
     """
     is_dataset = hasattr(e, "data_vars")
+    if return_var and not (is_dataset and "Ex_var" in e and "Ey_var" in e):
+        raise ValueError("return_var=True requires a Dataset e= carrying "
+                         "Ex_var/Ey_var (calc_geoelectric_field(..., "
+                         "return_var=True)'s output)")
     if is_dataset:
         E = np.stack([e["Ex"].values, e["Ey"].values], axis=-1)
         site_xys = np.column_stack([e["latitude"].values, e["longitude"].values])
@@ -251,9 +302,17 @@ def calc_voltages(lines, e, how="delaunay"):
     if not is_dataset:
         return V
     xr = _require_xarray()
-    return xr.DataArray(V, dims=("time", "line"),
+    v_da = xr.DataArray(V, dims=("time", "line"),
                         coords={"time": e["time"].values},
                         attrs={"units": "V"}, name="voltage")
+    if not return_var:
+        return v_da
+    E_var = np.stack([e["Ex_var"].values, e["Ey_var"].values], axis=-1)
+    V_var = apply_voltage_matrix(E_var, L**2, valid)
+    v_var_da = xr.DataArray(V_var, dims=("time", "line"),
+                            coords={"time": e["time"].values},
+                            attrs={"units": "V^2"}, name="voltage_var")
+    return v_da, v_var_da
 
 
 def _chunk_edges(times, chunk):

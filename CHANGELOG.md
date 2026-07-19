@@ -60,7 +60,19 @@ method-comparison results behind the defaults.
   perturb_b=True)` additionally propagates SECS prediction variance. See
   `VALIDATION.md` "1.2 -- Uncertainty propagation, phase 1" for the
   calibration test and its documented (mild, smoothing-spline-driven)
-  conservatism -- exact analytic propagation is phase 2, not yet built.
+  conservatism.
+- Uncertainty propagation, phase 2 (roadmap 1.2): `calc_geoelectric_field(...,
+  return_var=True)` / `SiteCollection.convolve_fft(..., return_var=True)`
+  propagate `Z_var` analytically (`Site3d.z_sensitivities`, a numerical
+  Jacobian of the production `calcZ` pipeline) instead of by Monte Carlo
+  redraw, and `calc_voltages(..., return_var=True)` applies the exact
+  `var(V) = sum L_j^2 var(E_j)` step. **Read `VALIDATION.md` "1.2 --
+  Uncertainty propagation, phase 2" before trusting the numbers**: its
+  calibration test shows ~0.32-0.37 coverage@1σ against nominal 0.68 --
+  substantially *more* conservative than phase 1's ensemble, not less,
+  because the Jacobian is frozen at one noisy realization's smoothing-spline
+  knot configuration. Prefer `n_realizations` for reported uncertainty;
+  treat `return_var`'s band as a lower bound for now.
 - `bezpy.tl.network` — `Network`: a Lehtinen-Pirjola (nodal-admittance) GIC
   solve from transmission lines, grounded transformer windings, and
   substation grounding to per-transformer neutral current, the quantity

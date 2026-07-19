@@ -89,6 +89,15 @@ class Site:
         """
         return self
 
+    def z_sensitivities(self, freqs, extrapolate="asymptotic", eps_scale=1e-2):
+        """First-order sensitivity of the interpolated impedance to each
+        reported measurement (roadmap 1.2 phase 2).
+
+        Base implementation: no variance information on this site type, so
+        there are no sensitivities to report (returns ``[]``).
+        """
+        return []
+
 
 # ---------------------------------
 # 3d EarthScope Sites
@@ -359,6 +368,74 @@ class Site3d(Site):
         site.Z = np.where(valid, self.Z + noise * std, self.Z)
         return site
 
+    def _z_param_jacobian(self, freqs, extrapolate, component, period_idx, part, eps):
+        """Central-difference derivative of ``calcZ(freqs)[component]`` with
+        respect to ``Z[component, period_idx].{real,imag}`` (``part``),
+        holding everything else fixed.
+
+        Real and imaginary parts of ``Z`` are fit by independent splines
+        (see ``spline_interp``), so perturbing one part leaves the other
+        component of the *output* unperturbed -- the returned complex array
+        has only its matching part (``.real`` for ``part="real"``, ``.imag``
+        for ``part="imag"``) populated; the other is ~0 to floating-point
+        precision. That means ``jacobian * B_fft`` (``B_fft`` complex, fixed)
+        already equals ``d(E_fft)/d(param)`` for either part without
+        branching -- used directly by :meth:`z_sensitivities`'s callers.
+        """
+        plus, minus = copy.copy(self), copy.copy(self)
+        for obj in (plus, minus):
+            obj._prev_freqs = None  # pylint: disable=protected-access
+            obj._prev_Z = None  # pylint: disable=protected-access
+            obj._prev_extrapolate = None  # pylint: disable=protected-access
+        Zp, Zm = self.Z.copy(), self.Z.copy()
+        delta = eps if part == "real" else 1j * eps
+        Zp[component, period_idx] += delta
+        Zm[component, period_idx] -= delta
+        plus.Z, minus.Z = Zp, Zm
+        zp = plus.calcZ(freqs, extrapolate=extrapolate)[component]
+        zm = minus.calcZ(freqs, extrapolate=extrapolate)[component]
+        return (zp - zm) / (2. * eps)
+
+    def z_sensitivities(self, freqs, extrapolate="asymptotic", eps_scale=1e-2):
+        """First-order sensitivity of the interpolated impedance to each
+        reported measurement (roadmap 1.2 phase 2 -- the "analytic variance"
+        counterpart of :meth:`perturbed`'s Monte Carlo draws).
+
+        For every period/component with a finite, positive ``Z_var``, a
+        numerical (central-difference) Jacobian column of the *production*
+        ``calcZ`` pipeline (spline fit + band-edge extrapolation, exactly as
+        used everywhere else) is computed for the real and imaginary parts
+        independently. This is deliberately the true local derivative of the
+        actual production code path rather than a hand-derived closed form
+        for the spline -- FITPACK's automatic smoothing makes an exact
+        symbolic derivative fragile to depend on, and the numerical Jacobian
+        captures whatever that smoothing actually does (including its
+        noise-damping effect -- see ``VALIDATION.md`` 1.2 for why the
+        propagated variance runs a bit conservative as a result, matching
+        phase 1's ensemble finding).
+
+        :param eps_scale: finite-difference step as a fraction of each
+            measurement's own reported standard deviation (default 1%);
+            small enough to stay local, large enough to avoid float noise
+        :return: list of ``(component, param_var, jacobian)`` -- ``component``
+            indexes ``Z``'s first axis (0=xx, 1=xy, 2=yx, 3=yy), ``param_var``
+            is ``Z_var/2`` (the real-valued measurement's own variance), and
+            ``jacobian`` is the complex array from ``_z_param_jacobian``
+            (shape matching ``freqs``); empty list if ``Z_var`` is None
+        """
+        if self.Z_var is None:
+            return []
+        freqs = np.asarray(freqs, dtype=float)
+        valid = np.isfinite(self.Z_var) & (self.Z_var > 0.)
+        out = []
+        for i, k in zip(*np.nonzero(valid)):
+            param_var = self.Z_var[i, k] / 2.
+            eps = max(np.sqrt(param_var) * eps_scale, 1e-8)
+            for part in ("real", "imag"):
+                jac = self._z_param_jacobian(freqs, extrapolate, i, k, part, eps)
+                out.append((int(i), param_var, jac))
+        return out
+
     def calc_resistivity(self):
         """Calculate the apparent resistivity and phase of the transfer function."""
         self.resistivity, self.resistivity_var, self.phase, self.phase_var = \
@@ -602,7 +679,7 @@ class SiteCollection:
         return Z
 
     def convolve_fft(self, mag_x, mag_y, dt=60, extrapolate="asymptotic",
-                     site_chunk=None):
+                     site_chunk=None, return_var=False):
         """Convolution in frequency space for all sites at once.
 
         Memory scales with ``nsites * nfft`` (``nfft`` is roughly 4x the input
@@ -624,7 +701,19 @@ class SiteCollection:
         :param site_chunk: number of sites processed per block (default:
             sized from a ~512 MB workspace budget). The interpolated-impedance
             cache is kept only when all sites fit in one block.
-        :return: ``(Ex, Ey)`` in mV/km, each with shape ``(nsites, ntimes)``
+        :param return_var: also propagate each ``Site3d``'s ``Z_var`` into a
+            first-order Ex/Ey variance (roadmap 1.2 phase 2; see
+            ``Site3d.z_sensitivities``). E is treated as linear in Z at fixed
+            B (this does not include B uncertainty -- that stays ensemble-
+            only, ``calc_geoelectric_field``'s ``perturb_b=``). Sites without
+            ``Z_var`` (including every ``Site1d``) contribute exactly zero,
+            not a fabricated number. This costs roughly one extra FFT
+            convolution per valid (period, component) measurement per site
+            -- substantially more than the point estimate -- so it is scoped
+            to single-window calls, not wired into ``scan``.
+        :return: ``(Ex, Ey)`` in mV/km, each with shape ``(nsites, ntimes)``;
+            with ``return_var=True``, ``(Ex, Ey, Ex_var, Ey_var)`` (units
+            (mV/km)^2).
         """
         mag_x, mag_y = np.asarray(mag_x, dtype=float), np.asarray(mag_y, dtype=float)
         if mag_x.shape != mag_y.shape:
@@ -673,6 +762,9 @@ class SiteCollection:
 
         Ex_t = np.empty((nsites, N0))
         Ey_t = np.empty((nsites, N0))
+        if return_var:
+            Ex_var = np.zeros((nsites, N0))
+            Ey_var = np.zeros((nsites, N0))
         for i0 in range(0, nsites, site_chunk):
             sel = slice(i0, min(i0 + site_chunk, nsites))
             Z_interp = self._Z_interp[:, sel, :] if use_cache else \
@@ -691,6 +783,21 @@ class SiteCollection:
             Ex_t[sel] = scipy.fft.irfft(Ex_fft, axis=-1, workers=-1)[:, :N0]
             Ey_t[sel] = scipy.fft.irfft(Ey_fft, axis=-1, workers=-1)[:, :N0]
 
+            if return_var:
+                for local_i, site in enumerate(self.sites[sel.start:sel.stop]):
+                    bx_fft = mag_x_fft if mag_x.ndim == 1 else mag_x_fft[local_i]
+                    by_fft = mag_y_fft if mag_x.ndim == 1 else mag_y_fft[local_i]
+                    for component, param_var, jac in site.z_sensitivities(
+                            freqs, extrapolate):
+                        # component: 0=xx, 1=xy (-> Ex, via Bx/By respectively),
+                        # 2=yx, 3=yy (-> Ey, via Bx/By respectively).
+                        b_fft = bx_fft if component in (0, 2) else by_fft
+                        sensitivity = scipy.fft.irfft(jac * b_fft, n=N, workers=-1)[:N0]
+                        target = Ex_var if component in (0, 1) else Ey_var
+                        target[i0 + local_i] += sensitivity**2 * param_var
+
+        if return_var:
+            return Ex_t, Ey_t, Ex_var, Ey_var
         return (Ex_t, Ey_t)
 
 

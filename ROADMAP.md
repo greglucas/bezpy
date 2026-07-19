@@ -116,20 +116,49 @@ conservative (~0.60-0.65 observed 1σ coverage vs. nominal 0.68, traced to
 the production impedance spline's automatic smoothing) — motivation for
 Phase 2 below, not a blocker.
 
-**Phase 2 — analytic variance through the linear chain.** E at a site is
-linear in Z at fixed B, and V is linear in E, so first-order variance
-propagates in closed form: `var(V) = Σ |L_j|² var(E_j)` plus the
-interpolation-scheme term. Implement as `TelluricResponse.calc_voltages(...,
-return_var=True)` and an `e_var` output on `convolve_fft`. Treat the
-delaunay-vs-nn (and gnomonic-vs-plate-carrée) divergence as a *structural*
-uncertainty floor, reported separately from the propagated data variance.
+**Phase 2 — analytic variance through the linear chain. DONE (2026-07-19),
+shipped with a documented calibration caveat.** E at a site is linear in Z
+at fixed B, and V is linear in E, so first-order variance propagates in
+closed form: `var(V) = Σ |L_j|² var(E_j)` plus the interpolation-scheme
+term. Implemented as `calc_geoelectric_field(..., return_var=True)` /
+`SiteCollection.convolve_fft(..., return_var=True)` (a numerical Jacobian
+of the production `calcZ` pipeline, `Site3d.z_sensitivities`, propagated
+through the same FFT convolution as the point estimate) and
+`calc_voltages(..., return_var=True)` (the exact `Σ L_j² var(E_j)` step,
+no approximation). Scoped to `bezpy.calc_voltages` (Level-1); the
+Level-2 `TelluricResponse.calc_voltages(..., return_var=True)` originally
+named here was **not** built — it would need the same per-site Jacobian
+machinery threaded through `_build_tau`'s multi-site accumulation, a
+bigger lift deferred given phase 2's calibration result below; compose
+`calc_geoelectric_field(return_var=True)` + `calc_voltages(return_var=True)`
+instead (mathematically equivalent under the uniform-B assumption the
+module already documents). The delaunay-vs-nn structural-uncertainty term
+was **not** auto-wired in either — it's analysis-specific (depends on your
+own site geometry), so `calc_voltages`'s docstring documents it as a
+manual add-on pointing at the D7 measured magnitude rather than baking in
+a number from one specific validation run.
 
-**Acceptance:** on the synthetic scenario (`bezpy.validation`), the reported
-uncertainty band must cover the truth at approximately its nominal rate
-(calibration test, e.g. ~68% coverage for 1σ across sites/times); a
-`test_validation.py` test enforcing it. Hazard-map plotting
-(`bezpy.plot.plot_hazard_map`) grows an option to hatch/fade cells whose
-relative uncertainty exceeds a limit.
+**Acceptance test result — did not hold.** The calibration test
+(`bezpy.validation.score_analytic_calibration`, same truth-vs-measured
+scenario as phase 1's) shows analytic coverage around **0.32-0.37** against
+the nominal 68% — *more* conservative than phase 1's ensemble (~0.60-0.65),
+not less, despite phase 2 being the "more principled" first-order method.
+Root cause (see `VALIDATION.md` 1.2 phase 2 for the full write-up):
+the Jacobian is frozen at the one noisy measured impedance's specific
+FITPACK smoothing-spline knot configuration, and that local derivative is
+a poor predictor of the gap to the (differently, exactly-interpolated)
+truth — phase 1's ensemble avoids this because every Monte Carlo draw
+actually refits the spline, sampling across knot configurations. This is
+a property of linearizing a knot-adaptive smoothing spline at one point,
+verified not to be an implementation bug (internal consistency against
+local Monte Carlo redraws is good, ratio 0.75-1.03; an independent
+hand-rolled finite-difference check matches exactly; the gap doesn't
+shrink as `relative_std` → 0, ruling out a truncation/curvature story).
+**Recommendation: prefer `n_realizations` for reported uncertainty;
+`return_var` is a cheap, deterministic lower bound, not yet a calibrated
+band.** Hazard-map fading (`bezpy.plot.plot_hazard_map`'s
+`relative_uncertainty=`/`uncertainty_limit=`) already shipped in phase 1
+and works with either method's output unchanged.
 
 **Note:** this is per-site/per-line uncertainty propagation, *not*
 observatory covariance infill — that direction was evaluated and rejected

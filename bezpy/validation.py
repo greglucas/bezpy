@@ -16,7 +16,8 @@ Two tools:
 
 __all__ = ["leave_one_out", "synthetic_scenario",
            "score_interpolation_methods", "score_extrapolation",
-           "score_fitting_methods", "score_ensemble_calibration"]
+           "score_fitting_methods", "score_ensemble_calibration",
+           "score_analytic_calibration"]
 
 import numpy as np
 import pandas as pd
@@ -348,48 +349,20 @@ def score_extrapolation(scenario, periods=None):
     return pd.DataFrame(rows).set_index("extrapolate")
 
 
-def score_ensemble_calibration(n_trials=30, n_realizations=150, ntimes=2048,
-                               dt=60., relative_std=0.05, periods=None, seed=0):
-    """Coverage of ``calc_geoelectric_field``'s ``n_realizations`` ensemble
-    against known truth (roadmap 1.2 phase 1 acceptance test).
+def _calibration_scenario(n_trials, ntimes, dt, relative_std, periods, rng):
+    """Shared truth-vs-measured setup for :func:`score_ensemble_calibration`
+    and :func:`score_analytic_calibration`: one true layered impedance
+    (exact, from a known ``Site1d`` profile) corrupted with independent
+    complex Gaussian noise -- the noise model either propagation method
+    itself draws from -- into ``n_trials`` "measured" ``Site3d`` sites
+    sharing one band-limited source field.
 
-    Simulates the actual estimation process the ensemble represents: one
-    true layered impedance (exact, from a known ``Site1d`` profile) is
-    corrupted with independent complex Gaussian noise to produce the
-    "measured" ``Z``/``Z_var`` an MT survey would report for ``n_trials``
-    synthetic sites -- the same noise model :meth:`Site3d.perturbed` itself
-    draws from -- sharing one band-limited source field. A well-calibrated
-    ensemble should cover the (otherwise unknown) truth within its +-1
-    standard deviation about 68% of the time, pooled over every site/time
-    sample.
-
-    Note: ``Site3d.calcZ`` fits a weighted smoothing spline through the
-    (noisy) measured impedance (``smooth_factor=None`` when ``Z_var`` is
-    given -- see ``Site3d.spline_interp``), which damps propagated noise
-    somewhat; observed coverage runs a bit under the nominal 68% (roughly
-    0.6-0.65 across period counts and noise levels) as a result. This is a
-    property of reusing the *production* impedance-interpolation path (the
-    same one every real analysis goes through), not a test artifact -- see
-    ``VALIDATION.md`` for the measured values. Exact analytic propagation
-    (roadmap 1.2 phase 2) is the intended fix.
-
-    :param n_trials: independent noisy-impedance draws (pooled samples)
-    :param n_realizations: ensemble draws per trial
-    :param ntimes: length of the shared band-limited source signal
-    :param dt: sample interval in seconds
-    :param relative_std: reported measurement std as a fraction of |Z_true|
-        (sets ``Z_var``)
-    :param periods: sampling periods in seconds (default 31 log-spaced over
-        the EMTF band 7--30,000 s, as in :func:`score_extrapolation`)
-    :param seed: RNG seed
-    :return: dict with ``coverage_1sigma`` (fraction of true samples inside
-        the ensemble's +-1 std band) and ``n_samples`` (site x time pairs
-        pooled, across both E components)
+    :return: ``(b_obs, measured, truth)`` -- ``measured``/``truth`` are
+        lists of ``n_trials`` ``Site3d`` objects (measured carries the
+        noisy ``Z``/reported ``Z_var``; truth carries the exact ``Z``)
     """
-    from .pipeline import calc_geoelectric_field
     if periods is None:
         periods = np.logspace(np.log10(7.), np.log10(30000.), 31)
-    rng = np.random.default_rng(seed)
 
     true_site = Site1d("truth", [20e3, 1e5], [30., 300.])
     freqs = 1./periods
@@ -430,6 +403,51 @@ def score_ensemble_calibration(n_trials=30, n_realizations=150, ntimes=2048,
          "By": (("time", "obs"), mag_y[:, np.newaxis])},
         coords={"time": times, "obs": ["OB0"],
                 "latitude": ("obs", [40.]), "longitude": ("obs", [-100.])})
+    return b_obs, measured, truth
+
+
+def score_ensemble_calibration(n_trials=30, n_realizations=150, ntimes=2048,
+                               dt=60., relative_std=0.05, periods=None, seed=0):
+    """Coverage of ``calc_geoelectric_field``'s ``n_realizations`` ensemble
+    against known truth (roadmap 1.2 phase 1 acceptance test).
+
+    Simulates the actual estimation process the ensemble represents: one
+    true layered impedance (exact, from a known ``Site1d`` profile) is
+    corrupted with independent complex Gaussian noise to produce the
+    "measured" ``Z``/``Z_var`` an MT survey would report for ``n_trials``
+    synthetic sites -- the same noise model :meth:`Site3d.perturbed` itself
+    draws from -- sharing one band-limited source field. A well-calibrated
+    ensemble should cover the (otherwise unknown) truth within its +-1
+    standard deviation about 68% of the time, pooled over every site/time
+    sample.
+
+    Note: ``Site3d.calcZ`` fits a weighted smoothing spline through the
+    (noisy) measured impedance (``smooth_factor=None`` when ``Z_var`` is
+    given -- see ``Site3d.spline_interp``), which damps propagated noise
+    somewhat; observed coverage runs a bit under the nominal 68% (roughly
+    0.6-0.65 across period counts and noise levels) as a result. This is a
+    property of reusing the *production* impedance-interpolation path (the
+    same one every real analysis goes through), not a test artifact -- see
+    ``VALIDATION.md`` for the measured values. Exact analytic propagation
+    (roadmap 1.2 phase 2) is the intended fix.
+
+    :param n_trials: independent noisy-impedance draws (pooled samples)
+    :param n_realizations: ensemble draws per trial
+    :param ntimes: length of the shared band-limited source signal
+    :param dt: sample interval in seconds
+    :param relative_std: reported measurement std as a fraction of |Z_true|
+        (sets ``Z_var``)
+    :param periods: sampling periods in seconds (default 31 log-spaced over
+        the EMTF band 7--30,000 s, as in :func:`score_extrapolation`)
+    :param seed: RNG seed
+    :return: dict with ``coverage_1sigma`` (fraction of true samples inside
+        the ensemble's +-1 std band) and ``n_samples`` (site x time pairs
+        pooled, across both E components)
+    """
+    from .pipeline import calc_geoelectric_field
+    rng = np.random.default_rng(seed)
+    b_obs, measured, truth = _calibration_scenario(
+        n_trials, ntimes, dt, relative_std, periods, rng)
 
     e_ensemble = calc_geoelectric_field(b_obs, measured, interp="uniform",
                                         n_realizations=n_realizations,
@@ -441,5 +459,49 @@ def score_ensemble_calibration(n_trials=30, n_realizations=150, ntimes=2048,
         mean = e_ensemble[comp].values.mean(axis=0)
         std = e_ensemble[comp].values.std(axis=0)
         covered.append(np.abs(e_truth[comp].values - mean) <= std)
+    covered = np.concatenate([c.ravel() for c in covered])
+    return {"coverage_1sigma": float(covered.mean()), "n_samples": int(covered.size)}
+
+
+def score_analytic_calibration(n_trials=15, ntimes=1024, dt=60.,
+                               relative_std=0.05, periods=None, seed=0):
+    """Coverage of ``calc_geoelectric_field(..., return_var=True)``'s
+    analytic +-1 std band against known truth (roadmap 1.2 phase 2
+    acceptance test) -- the deterministic counterpart of
+    :func:`score_ensemble_calibration`, same scenario (see
+    :func:`_calibration_scenario`), so the two numbers are directly
+    comparable in ``VALIDATION.md``.
+
+    Uses the point estimate's own ``Ex_var``/``Ey_var`` (no Monte Carlo
+    draws) as the +-1 std band and checks how often the known truth falls
+    inside it, pooled over every site/time sample.
+
+    :param n_trials: independent noisy-impedance draws (pooled samples).
+        Analytic propagation costs roughly one extra FFT convolution per
+        valid (period, component) measurement per site (see
+        ``Site3d.z_sensitivities``), so this defaults much smaller than
+        ``score_ensemble_calibration``'s ``n_trials``.
+    :param ntimes: length of the shared band-limited source signal
+    :param dt: sample interval in seconds
+    :param relative_std: reported measurement std as a fraction of |Z_true|
+    :param periods: sampling periods in seconds (default 31 log-spaced over
+        the EMTF band 7--30,000 s)
+    :param seed: RNG seed
+    :return: dict with ``coverage_1sigma`` and ``n_samples``, same shape as
+        :func:`score_ensemble_calibration`'s return
+    """
+    from .pipeline import calc_geoelectric_field
+    rng = np.random.default_rng(seed)
+    b_obs, measured, truth = _calibration_scenario(
+        n_trials, ntimes, dt, relative_std, periods, rng)
+
+    e_analytic = calc_geoelectric_field(b_obs, measured, interp="uniform",
+                                        return_var=True, pad="2h")
+    e_truth = calc_geoelectric_field(b_obs, truth, interp="uniform", pad="2h")
+
+    covered = []
+    for comp in ("Ex", "Ey"):
+        std = np.sqrt(e_analytic[f"{comp}_var"].values)
+        covered.append(np.abs(e_truth[comp].values - e_analytic[comp].values) <= std)
     covered = np.concatenate([c.ravel() for c in covered])
     return {"coverage_1sigma": float(covered.mean()), "n_samples": int(covered.size)}

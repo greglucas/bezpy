@@ -439,6 +439,94 @@ scope guards); `tests/test_plotting.py::test_plot_hazard_map_fades_uncertain_sit
 (the `relative_uncertainty=`/`uncertainty_limit=` fade on `plot_hazard_map`,
 the scatter-plot analogue of "hatch the untrustworthy cells").
 
+## 1.2 — Uncertainty propagation, phase 2 (`return_var=`) -- ship with a caveat
+
+**What it is.** `calc_geoelectric_field(..., return_var=True)` and
+`SiteCollection.convolve_fft(..., return_var=True)` propagate `Z_var`
+analytically instead of by Monte Carlo redraw: for every valid
+(period, component) measurement, a central-difference Jacobian of the
+*production* `calcZ` pipeline (`Site3d.z_sensitivities` --
+spline fit + band-edge extrapolation, exactly as used everywhere else) is
+run through the same complex-multiply + irfft convolution used for the
+point estimate (reusing the convolution, not summing frequency-marginal
+variances, is what correctly captures the cross-frequency correlation a
+single shared spline fit induces) and accumulated in quadrature.
+`calc_voltages(..., return_var=True)` then applies the exact closed form
+`var(V) = sum_j L_j^2 var(E_j)` (`L` real and already known, no
+approximation in this step). E is treated as linear in Z at fixed B, same
+scope as phase 1's default (no B uncertainty; that stays
+`n_realizations` + `perturb_b`).
+
+**Internal consistency: good.** In the small-relative-variance regime
+(`relative_std` ~0.02-0.03, where the production spline's response is
+close to linear), the analytic `Ex_var`/`Ey_var` at a site agrees with the
+Monte Carlo spread of *further redraws around that same measured site*
+to ~3-25% (ratio 0.75-1.03 across configurations tried, correlation
+0.77-0.99) -- confirming `z_sensitivities`' Jacobian is computed correctly
+(also checked directly against an independent hand-rolled finite
+difference, `test_z_param_jacobian_matches_independent_finite_difference`).
+
+**Calibration against real ground truth: substantially conservative.**
+`bezpy.validation.score_analytic_calibration` runs the *same* truth-vs-
+measured scenario as phase 1's `score_ensemble_calibration` (shared code,
+`_calibration_scenario`), using `Ex_var` directly as the +-1 std band
+instead of an ensemble std:
+
+| seed | coverage@1σ |
+|---:|---:|
+| 0 | 0.325 |
+| 1 | 0.372 |
+| 2 | 0.360 |
+
+**~0.32-0.37 against nominal 0.68 -- worse than phase 1's ensemble
+(~0.60-0.65), not better,** despite phase 2 being the more mathematically
+principled first-order propagation. Per-site breakdown
+(10 sites, one seed) shows the actual truth-vs-measured squared error
+running **3-5x** the analytic `Ex_var` at *every* site (ratios 2.9-5.3, no
+outlier-driven artifact), and the gap does not shrink as `relative_std` is
+lowered toward 0.01 (coverage stays 0.32-0.37 across 0.01-0.1) -- ruling
+out both a finite-difference step-size artifact (`z_sensitivities`'
+`eps_scale` was swept 0.001-2.0 with the resulting `Ex_var` essentially
+flat, 0.284-0.289) and a first-order-truncation/curvature explanation
+(which would vanish as `relative_std` shrinks).
+
+**Root cause.** The measured-site spline is fit with automatic FITPACK
+smoothing (`smooth_factor=None`), which chooses knot placement based on
+*that one noisy realization's* residuals -- a data-dependent, effectively
+discrete choice. Phase 1's ensemble captures this correctly because every
+Monte Carlo draw *actually refits* the smoothing spline, sampling across
+whatever knot configurations different noise draws produce. Phase 2's
+Jacobian is evaluated at a *single frozen* knot configuration (the one
+FITPACK picked for the actual measured data) and is an accurate *local*
+derivative there (confirmed above) -- but that local derivative is a poor
+predictor of how far the true (differently-smoothed, since truth's
+`Z_var=None` forces exact interpolation rather than smoothing) spline
+sits from it. This is a property of linearizing a knot-adaptive smoothing
+spline at one point, not an implementation bug.
+
+**Recommendation.** Prefer `n_realizations` (ensemble) as the reliable
+default for reported uncertainty; `return_var` (analytic) is available for
+its determinism and lower cost (no repeated FFT convolutions per
+realization) but should currently be read as **a lower bound**, not a
+calibrated band -- true uncertainty is likely several times larger.
+Improving this (e.g. averaging Jacobians over a few resampled knot
+configurations, closing some of the gap with phase 1 while staying
+cheaper than a full ensemble) is future work, not yet attempted.
+`tests/test_validation.py::test_analytic_calibration_is_conservative_but_not_broken`
+enforces the *observed* range (0.20-0.55) rather than the nominal rate --
+loose enough not to flag the documented gap as a regression, tight enough
+to catch propagation breaking entirely (near 0%) or becoming wildly
+over-wide (near 100%).
+
+**Coverage.** `tests/test_mt_site.py::
+test_z_param_jacobian_matches_independent_finite_difference`,
+`test_z_sensitivities_empty_without_variance`,
+`test_convolve_fft_return_var_matches_ensemble_in_linear_regime`,
+`test_convolve_fft_return_var_zero_without_variance`;
+`tests/test_pipeline.py::test_calc_geoelectric_field_return_var`,
+`test_calc_voltages_return_var`;
+`tests/test_validation.py::test_analytic_calibration_is_conservative_but_not_broken`.
+
 ## D1 / D2 / D4 / D5 — covered by comparison tests
 
 These decisions are exercised directly in the test suite rather than the
@@ -510,11 +598,18 @@ around it or split the window. Unit coverage:
   `bezpy.data` source work (roadmap 3.2) if the product has a stable API.
 - D7's `secs+local-z` scheme and the multi-input kernel work it depends on
   (roadmap 2.1) still only has the synthetic D7-extension evidence above.
-- Roadmap 1.2 phase 2 (exact analytic variance propagation through the
-  linear E/V chain) -- would remove phase 1's mild smoothing-spline
-  conservatism (see "1.2 -- Uncertainty propagation, phase 1" above) and
-  add a `structural` (delaunay-vs-nn divergence) uncertainty term separate
-  from the propagated data variance.
+- ~~Roadmap 1.2 phase 2 (analytic variance propagation through the linear
+  E/V chain)~~ -- done 2026-07-19 (`calc_geoelectric_field(...,
+  return_var=True)`, `calc_voltages(..., return_var=True)`), but did NOT
+  remove phase 1's conservatism as hoped -- it is substantially *more*
+  conservative than the ensemble (~0.32-0.37 vs ~0.60-0.65 coverage@1σ),
+  see "1.2 -- Uncertainty propagation, phase 2" above. Improving the
+  analytic method (e.g. Jacobians averaged over a few resampled knot
+  configurations) is still open.
+- A `structural` (delaunay-vs-nn divergence) uncertainty term, separate
+  from the propagated data variance covered by phases 1/2 -- not yet
+  implemented as a first-class output; `calc_voltages`'s docstring points
+  to the D7 measured magnitude as a manual add-on for now.
 - Phase 1's `perturb_b=` uses i.i.d. per-sample noise; a temporally
   correlated SECS-error model (matching real prediction-error persistence)
   would be a more honest B-uncertainty term if it turns out to matter next
