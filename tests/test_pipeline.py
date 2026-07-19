@@ -16,6 +16,7 @@ import bezpy  # noqa: E402
 from bezpy.mt.site import Site1d, SiteCollection  # noqa: E402
 from bezpy.pipeline import scan, storm_scan  # noqa: E402
 from bezpy.tl import TransmissionLine, filter_bbox, filter_polygon  # noqa: E402
+from bezpy.tl.network import Network  # noqa: E402
 
 RNG = np.random.default_rng(3)
 
@@ -40,6 +41,28 @@ def make_lines():
         [(-104.0, 42.0), (-102.9, 41.0)],
     ]
     return [TransmissionLine(shapely.geometry.LineString(c)) for c in coords]
+
+
+def make_network(lines):
+    """One independent grounded-GSU-to-GSU loop per line, so each line
+    drives exactly one transformer's neutral current (see
+    test_network.py::test_toy_series_loop for the same, hand-verified
+    topology)."""
+    for i, line in enumerate(lines):
+        line.metadata["id"] = f"branch{i}"
+    substations = [{"id": f"sub{i}a", "resistance": 1.0} for i in range(len(lines))] + \
+        [{"id": f"sub{i}b", "resistance": 1.0} for i in range(len(lines))]
+    transformers = []
+    for i in range(len(lines)):
+        transformers.append({"id": f"T{i}a", "type": "gsu", "hi_bus": f"bus{i}a",
+                             "lo_bus": None, "substation": f"sub{i}a",
+                             "r_hi": 0.5, "r_lo": None})
+        transformers.append({"id": f"T{i}b", "type": "gsu", "hi_bus": f"bus{i}b",
+                             "lo_bus": None, "substation": f"sub{i}b",
+                             "r_hi": 0.5, "r_lo": None})
+    branches = [{"id": f"branch{i}", "from_bus": f"bus{i}a", "to_bus": f"bus{i}b",
+                "resistance": 1.0} for i in range(len(lines))]
+    return Network(substations, transformers, branches)
 
 
 def make_b_obs(ntimes=1440, start="2024-05-10", freq="60s", amp=1e13):
@@ -310,6 +333,35 @@ def test_scan_workers_resume(setup, tmp_path):
 def test_scan_workers_invalid():
     with pytest.raises(ValueError, match="workers"):
         scan(make_b_obs(), make_sites(), workers=0)
+
+
+def test_scan_network_reduces_gic(setup):
+    """scan(..., network=) adds an I reducer group alongside E and V,
+    reporting one current per transformer, chunk-invariant like E and V
+    (D4 -- see test_scan_chunk_invariance for the same check on E)."""
+    b_obs, sites, lines = setup
+    network = make_network(lines)
+    kwargs = dict(lines=lines, network=network, reduce=("max",),
+                  detrend=None, taper=None, pad="12h")
+    fine = scan(b_obs, sites, chunk="4h", **kwargs)
+    coarse = scan(b_obs, sites, chunk="12h", **kwargs)
+
+    assert fine["I_max"].dims == ("transformer",)
+    assert fine.sizes["transformer"] == len(network.transformers)
+    assert (fine["I_max"].values > 0).all()
+    assert fine["I_max_time"].values.dtype.kind == "M"
+    np.testing.assert_allclose(fine["I_max"].values, coarse["I_max"].values, rtol=5e-3)
+
+    # The two ends of each independent series loop (see make_network) carry
+    # the same current magnitude -- the same invariant test_network.py
+    # checks on the EPRI-21 benchmark, now exercised end to end through scan().
+    np.testing.assert_allclose(fine["I_max"].values[0::2], fine["I_max"].values[1::2],
+                               rtol=1e-10)
+
+
+def test_scan_network_requires_lines():
+    with pytest.raises(ValueError, match="network= requires lines="):
+        scan(make_b_obs(), make_sites(), network=make_network(make_lines()))
 
 
 def test_storm_scan(setup):

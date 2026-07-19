@@ -1,0 +1,379 @@
+{
+  "title": "EPRI 21-bus GIC test system",
+  "source": "Horton, Boteler, Overbye, Pirjola & Dugan (2012), IEEE Trans. Power Delivery 27(4), 2368-2373, doi:10.1109/TPWRD.2012.2206407; topology as distributed in lanl-ansi/PowerModelsGMD.jl test/data/matpower/epri21.m",
+  "substations": [
+    {
+      "id": 1,
+      "resistance": 0.2
+    },
+    {
+      "id": 2,
+      "resistance": 0.2
+    },
+    {
+      "id": 3,
+      "resistance": 0.2
+    },
+    {
+      "id": 4,
+      "resistance": 1.0
+    },
+    {
+      "id": 5,
+      "resistance": 0.1
+    },
+    {
+      "id": 6,
+      "resistance": 0.1
+    },
+    {
+      "id": 7,
+      "resistance": 0.21637
+    },
+    {
+      "id": 8,
+      "resistance": 0.1
+    }
+  ],
+  "buses": [
+    {
+      "id": 1,
+      "latitude": 33.6135,
+      "longitude": -87.37367
+    },
+    {
+      "id": 2,
+      "latitude": 33.6135,
+      "longitude": -87.37367
+    },
+    {
+      "id": 3,
+      "latitude": 33.54789,
+      "longitude": -86.07461
+    },
+    {
+      "id": 4,
+      "latitude": 33.54789,
+      "longitude": -86.07461
+    },
+    {
+      "id": 5,
+      "latitude": 32.70509,
+      "longitude": -84.6634
+    },
+    {
+      "id": 6,
+      "latitude": 33.3773,
+      "longitude": -82.6188
+    },
+    {
+      "id": 7,
+      "latitude": 33.3773,
+      "longitude": -82.6188
+    },
+    {
+      "id": 8,
+      "latitude": 33.3773,
+      "longitude": -82.6188
+    },
+    {
+      "id": 11,
+      "latitude": 34.2522,
+      "longitude": -82.8363
+    },
+    {
+      "id": 12,
+      "latitude": 34.1956,
+      "longitude": -81.098
+    },
+    {
+      "id": 13,
+      "latitude": 34.1956,
+      "longitude": -81.098
+    },
+    {
+      "id": 14,
+      "latitude": 34.1956,
+      "longitude": -81.098
+    },
+    {
+      "id": 15,
+      "latitude": 33.95506,
+      "longitude": -84.67935
+    },
+    {
+      "id": 16,
+      "latitude": 33.95506,
+      "longitude": -84.67935
+    },
+    {
+      "id": 17,
+      "latitude": 34.31044,
+      "longitude": -86.36576
+    },
+    {
+      "id": 18,
+      "latitude": 34.31044,
+      "longitude": -86.36576
+    },
+    {
+      "id": 19,
+      "latitude": 34.31044,
+      "longitude": -86.36576
+    },
+    {
+      "id": 20,
+      "latitude": 32.70509,
+      "longitude": -84.6634
+    },
+    {
+      "id": 21,
+      "latitude": 32.70509,
+      "longitude": -84.6634
+    }
+  ],
+  "transformers": [
+    {
+      "hi_bus": 1,
+      "lo_bus": 2,
+      "k": 1.2,
+      "type": "gsu",
+      "r_hi": null,
+      "r_lo": null,
+      "substation": null,
+      "id": "xf-1-2-0"
+    },
+    {
+      "hi_bus": 4,
+      "lo_bus": 3,
+      "k": 1.6,
+      "type": "wye-wye",
+      "r_hi": 0.066667,
+      "r_lo": 0.033333,
+      "substation": 4,
+      "id": "xf-4-3-1"
+    },
+    {
+      "hi_bus": 4,
+      "lo_bus": 3,
+      "k": 1.6,
+      "type": "wye-wye",
+      "r_hi": 0.066667,
+      "r_lo": 0.033333,
+      "substation": 4,
+      "id": "xf-4-3-2"
+    },
+    {
+      "hi_bus": 4,
+      "lo_bus": 3,
+      "k": 1.6,
+      "type": "auto",
+      "r_series": 0.02,
+      "r_common": 0.013333,
+      "substation": 4,
+      "id": "xf-4-3-3"
+    },
+    {
+      "hi_bus": 4,
+      "lo_bus": 3,
+      "k": 1.6,
+      "type": "auto",
+      "r_series": 0.02,
+      "r_common": 0.013333,
+      "substation": 4,
+      "id": "xf-4-3-4"
+    },
+    {
+      "hi_bus": 5,
+      "lo_bus": 20,
+      "k": 1.6,
+      "type": "wye-wye",
+      "r_hi": 0.013333,
+      "r_lo": 0.02,
+      "substation": 5,
+      "id": "xf-5-20-5"
+    },
+    {
+      "hi_bus": 5,
+      "lo_bus": 20,
+      "k": 1.6,
+      "type": "wye-wye",
+      "r_hi": 0.013333,
+      "r_lo": 0.02,
+      "substation": 5,
+      "id": "xf-5-20-6"
+    },
+    {
+      "hi_bus": 6,
+      "lo_bus": 7,
+      "k": 0.8,
+      "type": "gsu",
+      "r_hi": 0.05,
+      "r_lo": null,
+      "substation": 6,
+      "id": "xf-6-7-7"
+    },
+    {
+      "hi_bus": 6,
+      "lo_bus": 8,
+      "k": 0.8,
+      "type": "gsu",
+      "r_hi": 0.05,
+      "r_lo": null,
+      "substation": 6,
+      "id": "xf-6-8-8"
+    },
+    {
+      "hi_bus": 12,
+      "lo_bus": 13,
+      "k": 0.8,
+      "type": "gsu",
+      "r_hi": 0.033333,
+      "r_lo": null,
+      "substation": 8,
+      "id": "xf-12-13-9"
+    },
+    {
+      "hi_bus": 12,
+      "lo_bus": 14,
+      "k": 0.8,
+      "type": "gsu",
+      "r_hi": 0.033333,
+      "r_lo": null,
+      "substation": 8,
+      "id": "xf-12-14-10"
+    },
+    {
+      "hi_bus": 15,
+      "lo_bus": 16,
+      "k": 1.1,
+      "type": "auto",
+      "r_series": 0.02,
+      "r_common": 0.013333,
+      "substation": 3,
+      "id": "xf-15-16-11"
+    },
+    {
+      "hi_bus": 15,
+      "lo_bus": 16,
+      "k": 1.1,
+      "type": "auto",
+      "r_series": 0.02,
+      "r_common": 0.013333,
+      "substation": 3,
+      "id": "xf-15-16-12"
+    },
+    {
+      "hi_bus": 17,
+      "lo_bus": 18,
+      "k": 1.2,
+      "type": "gsu",
+      "r_hi": 0.033333,
+      "r_lo": null,
+      "substation": 2,
+      "id": "xf-17-18-13"
+    },
+    {
+      "hi_bus": 17,
+      "lo_bus": 19,
+      "k": 1.2,
+      "type": "gsu",
+      "r_hi": 0.033333,
+      "r_lo": null,
+      "substation": 2,
+      "id": "xf-17-19-14"
+    }
+  ],
+  "branches": [
+    {
+      "id": "line-2-3-0",
+      "from_bus": 2,
+      "to_bus": 3,
+      "resistance": 1.170413
+    },
+    {
+      "id": "line-4-5-1",
+      "from_bus": 4,
+      "to_bus": 5,
+      "resistance": 0.783333
+    },
+    {
+      "id": "line-4-5-2",
+      "from_bus": 4,
+      "to_bus": 5,
+      "resistance": 0.783333
+    },
+    {
+      "id": "line-4-6-3",
+      "from_bus": 4,
+      "to_bus": 6,
+      "resistance": 1.558333
+    },
+    {
+      "id": "line-5-6-4",
+      "from_bus": 5,
+      "to_bus": 6,
+      "resistance": 0.991667
+    },
+    {
+      "id": "line-6-11-5",
+      "from_bus": 6,
+      "to_bus": 11,
+      "resistance": 0.483333
+    },
+    {
+      "id": "line-11-12-6",
+      "from_bus": 11,
+      "to_bus": 12,
+      "resistance": 0.775
+    },
+    {
+      "id": "line-15-4-7",
+      "from_bus": 15,
+      "to_bus": 4,
+      "resistance": 0.658333
+    },
+    {
+      "id": "line-15-6-8",
+      "from_bus": 15,
+      "to_bus": 6,
+      "resistance": 0.975
+    },
+    {
+      "id": "line-15-6-9",
+      "from_bus": 15,
+      "to_bus": 6,
+      "resistance": 0.975
+    },
+    {
+      "id": "line-16-20-10",
+      "from_bus": 16,
+      "to_bus": 20,
+      "resistance": 1.34895
+    },
+    {
+      "id": "line-16-17-11",
+      "from_bus": 16,
+      "to_bus": 17,
+      "resistance": 1.55526
+    },
+    {
+      "id": "line-17-20-12",
+      "from_bus": 17,
+      "to_bus": 20,
+      "resistance": 2.313052
+    },
+    {
+      "id": "line-17-2-13",
+      "from_bus": 17,
+      "to_bus": 2,
+      "resistance": 1.17438
+    },
+    {
+      "id": "line-21-11-14",
+      "from_bus": 21,
+      "to_bus": 11,
+      "resistance": 1.166667
+    }
+  ]
+}

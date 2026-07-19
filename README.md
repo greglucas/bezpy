@@ -305,6 +305,29 @@ and reproduces the classic convolve-then-interpolate pipeline to rounding
 error. tau evaluated on the FFT grid is cached between equal-length chunks,
 so scanning a long record pays the construction cost once.
 
+## Network GIC: line voltages to transformer amperes (`bezpy.tl.network`)
+
+Line voltages are the quantity most published hazard studies stop at; what
+NERC TPL-007 assessments need is amperes through each transformer neutral,
+which requires solving the DC-equivalent network of lines, grounded
+transformer windings, and substation grounding (Lehtinen & Pirjola, 1985).
+`Network` solves it and composes with the Level-1 voltage kernel exactly
+like `TelluricResponse` composes with the impedance:
+
+```python
+from bezpy.tl.network import Network, gic_matrix, apply_gic_matrix
+
+net = Network.epri21_benchmark()   # Horton et al. (2012) EPRI 21-bus test system
+
+K, valid = gic_matrix(net, lines, n_sites=len(sites), how="delaunay")
+I = apply_gic_matrix(E, K, valid)  # (ntimes, ntransformers) Amps
+```
+
+or reduce it continuously alongside E and V: `bezpy.pipeline.scan(...,
+network=net)` adds an `I_max`/`I_max_time` reducer group. See
+`docs/tutorials/network-gic.md` for building your own network and
+`VALIDATION.md` (item 1.1) for how the shipped benchmark is cross-validated.
+
 ## Development and testing
 
 The test suite uses [pytest](https://docs.pytest.org/) and

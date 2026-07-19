@@ -1,3 +1,4 @@
 include README.md LICENSE CITATION.cff
 include bezpy/mt/data_1d/earth_model*.txt
 include bezpy/mag/data/*.dat
+include bezpy/tl/data/*.json

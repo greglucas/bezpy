@@ -16,15 +16,18 @@ The package covers the full workflow:
 3. **Interpolate B** (`bezpy.mag.SECSInterpolator`): spherical elementary
    current systems carry the observatory field to any location, with missing
    samples masked rather than interpolated over.
-4. **Compute E and V** (`bezpy.mt`, `bezpy.tl`): batched FFT convolution with
-   each site's impedance — individual EMTF XML sites or whole gridded
+4. **Compute E, V, and I** (`bezpy.mt`, `bezpy.tl`): batched FFT convolution
+   with each site's impedance — individual EMTF XML sites or whole gridded
    impedance products read the same way, and any collection saves/loads as
    one canonical netCDF; line voltages via precomputed kernels (one sparse
    matmul for all lines) or per-line telluric response functions computed
-   straight from B.
+   straight from B; `bezpy.tl.network.Network` solves the DC-equivalent
+   power network (Lehtinen-Pirjola) for GIC through each transformer
+   neutral, the quantity NERC TPL-007 assessments need.
 5. **Scan and catalog** (`bezpy.pipeline`, `bezpy.storms`): process decades of
-   data in chunks with streaming reducers, or scan explicit storm windows;
-   catalog events by threshold exceedance.
+   data in chunks with streaming reducers (optionally in parallel across
+   processes), or scan explicit storm windows; catalog events by threshold
+   exceedance; add a network for a per-transformer GIC reducer alongside E/V.
 6. **Hazard statistics** (`bezpy.stats`): return levels with confidence
    intervals — GPD tail fits by default, the published lognormal method by
    name.

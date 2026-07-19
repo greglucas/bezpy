@@ -3,8 +3,8 @@
 ## 0.5.0 (unreleased)
 
 The first release of the rebuilt package: bezpy grows from a collection of
-per-paper utilities into a full B → E → V hazard-analysis pipeline with an
-evidence-driven validation story. See `VALIDATION.md` for the
+per-paper utilities into a full B → E → V → I hazard-analysis pipeline with
+an evidence-driven validation story. See `VALIDATION.md` for the
 method-comparison results behind the defaults.
 
 ### Result-changing fixes (read before reproducing published numbers)
@@ -52,6 +52,17 @@ method-comparison results behind the defaults.
   `storm_scan` for catalog windows. `scan(..., workers=)` parallelizes
   independent chunks across processes; results (and resumable checkpoints)
   are bit-identical to the sequential default.
+- `bezpy.tl.network` — `Network`: a Lehtinen-Pirjola (nodal-admittance) GIC
+  solve from transmission lines, grounded transformer windings, and
+  substation grounding to per-transformer neutral current, the quantity
+  NERC TPL-007 assessments need. `gic_matrix`/`apply_gic_matrix` compose it
+  with the Level-1 voltage kernel (same build-once/apply-per-chunk
+  factorization as `voltage_matrix`); `effective_gic` implements the
+  TPL-007 `|a*I_high + b*I_low|` combination. `scan(..., network=)` adds an
+  `I` reducer group next to `E`/`V`. Ships the Horton et al. (2012) EPRI
+  21-bus GIC test system as package data
+  (`Network.epri21_benchmark()`) with its own cross-tool validation (see
+  `VALIDATION.md` 1.1).
 - `bezpy.storms` — `find_storms` (index catalog) and `find_events`
   (threshold + runs declustering on any series).
 - `bezpy.stats.return_level` — GPD/POT with profile-likelihood or bootstrap

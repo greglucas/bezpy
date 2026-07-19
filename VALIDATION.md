@@ -306,6 +306,70 @@ where the synthetic scenario's stress applies, tune `tau` with
 here. `smoother=False` remains the causal real-time recommendation
 (unaffected by this measurement).
 
+## 1.1 — Network GIC (Lehtinen-Pirjola solve)
+
+`bezpy.tl.network.Network` (roadmap item 1.1): a nodal-admittance solve of
+the DC-equivalent network (transmission lines + grounded transformer
+windings + substation grounding) for the current through each transformer's
+neutral -- the quantity NERC TPL-007 assessments need, one step past line
+voltages. Composes with the existing Level-1 voltage kernel via
+`gic_matrix`/`apply_gic_matrix`, the same build-once/apply-per-chunk
+factorization as `voltage_matrix`.
+
+**The oracle.** Horton, Boteler, Overbye, Pirjola & Dugan (2012)'s EPRI
+21-bus GIC test system is the field's standard published benchmark, but the
+paper itself does not tabulate machine-readable numbers. bezpy ships the
+topology as package data (`Network.epri21_benchmark()`), sourced from
+`lanl-ansi/PowerModelsGMD.jl`'s `test/data/matpower/epri21.m` (an
+open-source, actively maintained GMD-modeling package built on the same
+benchmark) rather than re-deriving it from the paper's figures. That
+project also ships a separate, independently PowerWorld-computed
+verification file for this exact topology
+(`test/data/pw_csv/verification/EpriCase_Mar2012_GICXformer_1Vkm.csv`),
+which is what bezpy's acceptance tests check against
+(`tests/test_network.py`).
+
+**Reconciling the two.** A first attempt at matching bezpy's solved
+transformer currents against that verification data showed a mismatch --
+but a *consistent* one: every single-grounded-winding (GSU) transformer's
+current came out almost exactly 3x the verification value (2.995-2.996x
+across three independent transformer pairs, bus6/bus12/bus17). This is not
+a bug in either implementation: `Network` solves the single-line-equivalent
+circuit (all three phases lumped into one DC-resistance/EMF pair per
+branch, the standard simplification and the one the shipped topology data
+itself uses), while NERC TPL-007 "effective GIC" is conventionally reported
+*per phase*. Dividing bezpy's total by 3 matches the published per-phase
+values to <0.2% for every GSU transformer -- strong, externally-verified
+evidence the nodal-admittance solve (sign convention, KCL, Norton current
+injection) is correct. The two-winding (`"wye-wye"`) and autotransformer
+(`"auto"`) cases were not matched the same way, since NERC's "effective"
+value for those combines hi/lo (or series/common) currents through a
+turns-ratio-weighted formula (`effective_gic`, `I_eff = |a*I_high +
+b*I_low|`) that was not independently reverse-engineered with the same
+confidence; those are instead validated through exact internal invariants
+that hold regardless of any external convention: KCL residual at machine
+precision, identical parallel branches carrying exactly equal current, and
+a transformer with both windings ungrounded (delta or ungrounded-wye)
+carrying exactly zero current.
+
+**What `Network` reports.** Given this, `Network.neutral_currents` (and
+therefore `gic_matrix`) returns the **total single-line-equivalent
+current**, not a per-phase value -- consistent with every other bezpy
+electrical quantity being reported literally (`Ex`/`Ey` in mV/km, `V` in
+volts) rather than pre-scaled by an implicit convention. Divide by 3 (or
+apply your own transformer's actual per-phase model) if you need NERC's
+per-phase reporting convention to compare against other tools.
+
+**Coverage.** `tests/test_network.py`: a hand-verifiable two-substation
+series-loop network (exact Ohm's-law match); the EPRI-21 benchmark's KCL
+residual, symmetric-parallel-branch equality, isolated-winding zero-current
+check, and the GSU/3 cross-check above; and
+`test_gic_matrix_matches_direct_solve`, the linear-kernel-factorization
+invariant every bezpy kernel relies on (`apply_gic_matrix(E, K)` must
+exactly reproduce composing `voltage_matrix` and `Network.solve` directly).
+`tests/test_pipeline.py::test_scan_network_reduces_gic` checks the `scan(...,
+network=)` integration is chunk-invariant (D4) like `E` and `V`.
+
 ## D1 / D2 / D4 / D5 — covered by comparison tests
 
 These decisions are exercised directly in the test suite rather than the

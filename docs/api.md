@@ -24,6 +24,8 @@
 
 ::: bezpy.tl.kernels
 
+::: bezpy.tl.network
+
 ::: bezpy.tl.utils
 
 ## Magnetotellurics (`bezpy.mt`)

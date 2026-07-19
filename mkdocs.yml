@@ -51,5 +51,6 @@ nav:
       - Continuous scan to hazard map: tutorials/hazard-scan.md
       - Line voltages via kernels: tutorials/line-voltages.md
       - Gridded impedance and live maps: tutorials/gridded-impedance.md
+      - Network GIC: tutorials/network-gic.md
   - API reference: api.md
   - Validation results: validation.md

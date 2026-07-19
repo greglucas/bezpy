@@ -28,6 +28,7 @@ from .mag.processing import DEFAULT_MAX_PERIOD, combine_observatories, despike, 
 from .mag.secs import SECSInterpolator
 from .mt.site import SiteCollection
 from .tl.kernels import apply_voltage_matrix, voltage_matrix
+from .tl.network import apply_gic_matrix, gic_matrix
 
 # Histogram sketch used for streaming quantiles: log-spaced bins covering
 # any plausible |E| (mV/km) or |V| (volts) with ~1.5% resolution.
@@ -271,26 +272,42 @@ class _Reducers:
         return out
 
 
-def _build_line_kernel(lines, sites, how):
-    """Precompute the static (L, valid) voltage kernel for a set of lines.
+# The two optional secondary reductions scan() can produce alongside E,
+# keyed the same way throughout: reducer variable dimension, and the
+# apply_*_matrix function that turns a chunk's E into that quantity's
+# magnitude given its precomputed kernel.
+_EXTRA_DIMS = {"V": "line", "I": "transformer"}
 
-    Sets each line's interpolation weights (if not already set) and contracts
-    the geometry once, so :func:`_scan_chunk` never rebuilds it per chunk.
-    Returns None when there are no lines.
+
+def _build_extra_kernels(lines, sites, how, network):
+    """Precompute the optional V (line voltage) and I (transformer GIC)
+    kernels, keyed like :data:`_EXTRA_DIMS`. Both are static across chunks
+    (geometry and network topology never change), so :func:`_scan_chunk`
+    only ever applies them.
+
+    Sets each line's interpolation weights (if not already set) as a side
+    effect -- ``gic_matrix`` needs them set the same way, so building the V
+    kernel first (when both are requested) means it never redoes that work.
     """
-    if lines is None:
-        return None
-    site_xys = _site_latlons(sites)
-    for line in lines:
-        if how == "delaunay" and line.delaunay_vtx is None:
-            line.set_delaunay_weights(site_xys)
-        elif how == "nn" and line.nearest_sites is None:
-            line.set_nearest_sites(site_xys)
-    return voltage_matrix(lines, len(sites), how=how)
+    kernels = {}
+    if lines is not None:
+        site_xys = _site_latlons(sites)
+        for line in lines:
+            if how == "delaunay" and line.delaunay_vtx is None:
+                line.set_delaunay_weights(site_xys)
+            elif how == "nn" and line.nearest_sites is None:
+                line.set_nearest_sites(site_xys)
+        kernels["V"] = voltage_matrix(lines, len(sites), how=how)
+    if network is not None:
+        if lines is None:
+            raise ValueError("network= requires lines= (GIC is driven by "
+                             "line-integrated E, computed from the same lines)")
+        kernels["I"] = gic_matrix(network, lines, len(sites), how=how)
+    return kernels
 
 
-def _scan_chunk(b_obs, sites, collection, window, field_kwargs, line_kernel):
-    """One chunk's reduced inputs: ``(times, |E|, |V| or None)``.
+def _scan_chunk(b_obs, sites, collection, window, field_kwargs, extra_kernels):
+    """One chunk's reduced inputs: ``(times, |E|, {"V": |V|, "I": |I|, ...})``.
 
     The unit of work for both the sequential loop and each parallel worker
     in :func:`scan` -- raises ``ValueError`` ("no data in ...") for a chunk
@@ -300,20 +317,21 @@ def _scan_chunk(b_obs, sites, collection, window, field_kwargs, line_kernel):
                                collection=collection, **field_kwargs)
     times = pd.DatetimeIndex(e["time"].values).values
     magnitude = np.hypot(e["Ex"].values, e["Ey"].values)
-    v_mag = None
-    if line_kernel is not None:
-        L, valid = line_kernel
+    extras = {}
+    if extra_kernels:
         E = np.stack([e["Ex"].values, e["Ey"].values], axis=-1)
-        v_mag = np.abs(apply_voltage_matrix(E, L, valid))
-    return times, magnitude, v_mag
+        for name, (K, valid) in extra_kernels.items():
+            apply_fn = apply_voltage_matrix if name == "V" else apply_gic_matrix
+            extras[name] = np.abs(apply_fn(E, K, valid))
+    return times, magnitude, extras
 
 
-def _scan_chunk_or_skip(b_obs, sites, collection, window, field_kwargs, line_kernel):
+def _scan_chunk_or_skip(b_obs, sites, collection, window, field_kwargs, extra_kernels):
     """:func:`_scan_chunk`, but a record-gap chunk returns None instead of
     raising -- the shared skip policy for both the sequential loop and
     parallel workers."""
     try:
-        return _scan_chunk(b_obs, sites, collection, window, field_kwargs, line_kernel)
+        return _scan_chunk(b_obs, sites, collection, window, field_kwargs, extra_kernels)
     except ValueError as exc:
         if "no data in" in str(exc):  # record gap spanning the chunk
             return None
@@ -321,36 +339,41 @@ def _scan_chunk_or_skip(b_obs, sites, collection, window, field_kwargs, line_ker
 
 
 # Per-process state for parallel scan workers, set once by _init_scan_worker
-# (not per chunk) so the SiteCollection cache and line kernel are built only
-# once per worker rather than rebuilt on every task.
+# (not per chunk) so the SiteCollection cache and the V/I kernels are built
+# only once per worker rather than rebuilt on every task.
 _scan_worker_state = None
 
 
-def _init_scan_worker(b_obs, sites, field_kwargs, line_kernel):
+def _init_scan_worker(b_obs, sites, field_kwargs, extra_kernels):
     global _scan_worker_state
-    _scan_worker_state = (b_obs, sites, SiteCollection(sites), field_kwargs, line_kernel)
+    _scan_worker_state = (b_obs, sites, SiteCollection(sites), field_kwargs, extra_kernels)
 
 
 def _scan_chunk_worker(window):
-    b_obs, sites, collection, field_kwargs, line_kernel = _scan_worker_state
-    return _scan_chunk_or_skip(b_obs, sites, collection, window, field_kwargs, line_kernel)
+    b_obs, sites, collection, field_kwargs, extra_kernels = _scan_worker_state
+    return _scan_chunk_or_skip(b_obs, sites, collection, window, field_kwargs, extra_kernels)
 
 
-def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
+def scan(b_obs, sites, lines=None, network=None, chunk="1Y", reduce=("max",),
          threshold=None, quantiles=(0.5, 0.9, 0.99), out_path=None,
          how="delaunay", despike_obs=False, workers=None, **field_kwargs):
     """Continuous scan of the whole record with streaming reducers (D4).
 
     Processes ``b_obs`` chunk by chunk through
     :func:`calc_geoelectric_field` (and :func:`calc_voltages` when lines are
-    given), reducing |E| (and |V|) on the fly -- the full series are never
-    held in memory. Each chunk is padded and trimmed by the underlying
+    given, and :func:`bezpy.tl.network.gic_matrix` when a network is given
+    too), reducing |E| (and |V|, |I|) on the fly -- the full series are
+    never held in memory. Each chunk is padded and trimmed by the underlying
     machinery, so the result is invariant to the chunk size.
 
     :param b_obs: ``(time, obs)`` Dataset covering the whole record
     :param sites: list of MT sites (``Site3d``/``Site1d``) or a
         ``SiteCollection``
     :param lines: optional TransmissionLines to reduce voltages for
+    :param network: optional ``bezpy.tl.network.Network`` to reduce
+        per-transformer GIC for (requires ``lines``, since GIC is driven by
+        the same line-integrated E; each network branch is matched to one
+        of ``lines`` by ``line.metadata["id"]``)
     :param chunk: chunk length as a pandas period frequency (default one
         year; use e.g. ``"3M"`` to bound memory for dense site sets).
         Peak memory per chunk is roughly ``50 * nsites * chunk_samples``
@@ -359,7 +382,7 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
         and gridded products (10^4 sites) want ~daily ones
     :param reduce: any of ``"max"``, ``"exceedances"``, ``"quantiles"``
     :param threshold: exceedance level for ``"exceedances"``: a number
-        applied to both quantities, or ``{"E": mv_per_km, "V": volts}``
+        applied to every quantity, or ``{"E": mv_per_km, "V": volts, "I": amps}``
     :param quantiles: quantile levels reported for ``"quantiles"``
     :param out_path: write the (small) result Dataset to this netCDF path
         after every chunk, making long scans resumable: if the file already
@@ -382,10 +405,11 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
         behavior).
     :param field_kwargs: forwarded to :func:`calc_geoelectric_field`
         (``interp``, ``extrapolate``, ``leave_one_out``, ...)
-    :return: Dataset with per-site (and per-line) reductions: ``E_max``,
-        ``E_max_time`` [, ``E_qXX``, exceedance variables on their own
-        dimension]. Feed exceedances to ``bezpy.storms.find_events`` for an
-        event catalog and to ``bezpy.stats.return_level`` for hazard levels.
+    :return: Dataset with per-site (and per-line, per-transformer)
+        reductions: ``E_max``, ``E_max_time`` [, ``E_qXX``, exceedance
+        variables on their own dimension; likewise ``V_*``/``I_*``]. Feed
+        exceedances to ``bezpy.storms.find_events`` for an event catalog and
+        to ``bezpy.stats.return_level`` for hazard levels.
     """
     if workers is not None and workers < 1:
         raise ValueError("workers must be a positive integer or None")
@@ -398,14 +422,17 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
     b_obs = _maybe_despike(b_obs, despike_obs)
     chunks = _chunk_edges(b_obs["time"].values, chunk)
     thresholds = threshold if isinstance(threshold, dict) \
-        else {"E": threshold, "V": threshold}
+        else dict.fromkeys(("E", "V", "I"), threshold)
     site_reducer = _Reducers(len(sites), reduce, thresholds.get("E"))
-    line_reducer = _Reducers(len(lines), reduce, thresholds.get("V")) \
-        if lines is not None else None
 
-    # The voltage kernel is static across chunks: set interpolation weights
-    # and contract the geometry once, then apply per chunk (never rebuild).
-    line_kernel = _build_line_kernel(lines, sites, how)
+    # The V/I kernels are static across chunks: set interpolation weights,
+    # solve the network structure, and contract the geometry once, then
+    # apply per chunk (never rebuild).
+    extra_kernels = _build_extra_kernels(lines, sites, how, network)
+    extra_n = {"V": len(lines) if lines is not None else 0,
+              "I": len(network.transformers) if network is not None else 0}
+    extra_reducers = {name: _Reducers(extra_n[name], reduce, thresholds.get(name))
+                      for name in extra_kernels}
 
     done_until = None
     if out_path is not None:
@@ -418,7 +445,7 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
                     f"{out_path} exists but is not a scan result (no "
                     "scan_done_until attribute); refusing to overwrite it")
             done_until = pd.Timestamp(existing.attrs["scan_done_until"])
-            _restore_reducers(existing, site_reducer, line_reducer)
+            _restore_reducers(existing, site_reducer, extra_reducers)
 
     pending = [(c0, c1) for c0, c1 in chunks
               if done_until is None or c1 > done_until]
@@ -426,35 +453,35 @@ def scan(b_obs, sites, lines=None, chunk="1Y", reduce=("max",),
     def consume(result, c1):
         if result is None:
             return
-        times, magnitude, v_mag = result
+        times, magnitude, extras = result
         site_reducer.update(times, magnitude)
-        if line_reducer is not None:
-            line_reducer.update(times, v_mag)
+        for name, reducer in extra_reducers.items():
+            reducer.update(times, extras[name])
         if out_path is not None:
-            checkpoint = _scan_result(xr, site_reducer, line_reducer, sites,
+            checkpoint = _scan_result(xr, site_reducer, extra_reducers, sites,
                                       quantiles, threshold, done_until=c1)
             checkpoint.to_netcdf(out_path)
 
     if workers is None:
         for c0, c1 in pending:
             consume(_scan_chunk_or_skip(b_obs, sites, collection, (c0, c1),
-                                        field_kwargs, line_kernel), c1)
+                                        field_kwargs, extra_kernels), c1)
     else:
         # Submit every pending chunk up front (they run concurrently across
         # the pool), then consume results strictly in chunk order -- this is
         # what keeps output (and checkpoint) order identical to sequential.
         with concurrent.futures.ProcessPoolExecutor(
                 max_workers=workers, initializer=_init_scan_worker,
-                initargs=(b_obs, sites, field_kwargs, line_kernel)) as pool:
+                initargs=(b_obs, sites, field_kwargs, extra_kernels)) as pool:
             futures = [pool.submit(_scan_chunk_worker, w) for w in pending]
             for (c0, c1), future in zip(pending, futures):
                 consume(future.result(), c1)
 
-    return _scan_result(xr, site_reducer, line_reducer, sites, quantiles,
+    return _scan_result(xr, site_reducer, extra_reducers, sites, quantiles,
                         threshold, done_until=chunks[-1][1])
 
 
-def _scan_result(xr, site_reducer, line_reducer, sites, quantiles, threshold,
+def _scan_result(xr, site_reducer, extra_reducers, sites, quantiles, threshold,
                  done_until):
     """Assemble the (small) output Dataset from reducer state."""
     latlons = _site_latlons(sites)
@@ -464,7 +491,7 @@ def _scan_result(xr, site_reducer, line_reducer, sites, quantiles, threshold,
     ds.attrs["scan_done_until"] = str(done_until)
     ds.attrs["n_samples"] = site_reducer.n_samples
     thresholds = threshold if isinstance(threshold, dict) \
-        else {"E": threshold, "V": threshold}
+        else dict.fromkeys(("E", "V", "I"), threshold)
     for key, value in thresholds.items():
         if value is not None:
             ds.attrs[f"threshold_{key}"] = value
@@ -488,16 +515,18 @@ def _scan_result(xr, site_reducer, line_reducer, sites, quantiles, threshold,
             ds[f"{edim}_value"] = ((edim,), np.array([v for _, _, v in events]))
 
     add(site_reducer, "site", "E")
-    if line_reducer is not None:
-        ds = ds.assign_coords(line=np.arange(line_reducer.n))
-        add(line_reducer, "line", "V")
+    for name, reducer in extra_reducers.items():
+        dim = _EXTRA_DIMS[name]
+        ds = ds.assign_coords(**{dim: np.arange(reducer.n)})
+        add(reducer, dim, name)
     return ds
 
 
-def _restore_reducers(existing, site_reducer, line_reducer):
+def _restore_reducers(existing, site_reducer, extra_reducers):
     """Load accumulated reducer state from a partially-completed scan file."""
-    for reducer, prefix in ((site_reducer, "E"), (line_reducer, "V")):
-        if reducer is None or f"{prefix}_max" not in existing:
+    reducers = {"E": site_reducer, **extra_reducers}
+    for prefix, reducer in reducers.items():
+        if f"{prefix}_max" not in existing:
             continue
         reducer.max = existing[f"{prefix}_max"].values.copy()
         reducer.max_time = existing[f"{prefix}_max_time"].values.copy()
