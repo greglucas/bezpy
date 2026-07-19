@@ -9,6 +9,7 @@ pysecs = pytest.importorskip("pysecs")
 from bezpy.tl import TransmissionLine  # noqa: E402
 from bezpy.validation import (  # noqa: E402
     leave_one_out,
+    score_ensemble_calibration,
     score_extrapolation,
     score_interpolation_methods,
     synthetic_scenario,
@@ -59,6 +60,19 @@ def test_extrapolation_asymptotic_beats_zeros(scenario):
     table = score_extrapolation(scenario)
     assert table.loc["asymptotic", "rel_rms_error"] < \
         table.loc["zeros", "rel_rms_error"]
+
+
+def test_ensemble_calibration_covers_truth_near_nominal_rate():
+    """The roadmap 1.2 phase 1 acceptance test: the n_realizations ensemble's
+    +-1 std band must cover known truth at approximately the nominal 68%
+    rate -- not exactly (the production spline-smoothing path damps
+    propagated noise a bit, see score_ensemble_calibration's docstring and
+    VALIDATION.md), but nowhere near 0% (no propagation happening) or 100%
+    (grossly overstated uncertainty)."""
+    result = score_ensemble_calibration(n_trials=15, n_realizations=60,
+                                        ntimes=1024, seed=0)
+    assert 0.45 < result["coverage_1sigma"] < 0.80
+    assert result["n_samples"] > 1000
 
 
 def test_leave_one_out_scores():

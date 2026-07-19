@@ -131,7 +131,9 @@ def plot_lines(ax, lines, values=None, cmap="viridis", norm=None, **kwargs):
 
 
 def plot_hazard_map(ax, latlons, values, log=True, cmap="magma_r",
-                    add_colorbar=True, colorbar_label=None, **kwargs):
+                    add_colorbar=True, colorbar_label=None,
+                    relative_uncertainty=None, uncertainty_limit=None,
+                    faded_alpha=0.25, **kwargs):
     """Scatter per-site hazard values (e.g. 100-year |E|) on a map.
 
     :param ax: matplotlib axes (or cartopy GeoAxes)
@@ -139,6 +141,16 @@ def plot_hazard_map(ax, latlons, values, log=True, cmap="magma_r",
     :param values: per-site scalars
     :param log: color on a log scale (hazard values span decades)
     :param add_colorbar: attach a colorbar to the axes' figure
+    :param relative_uncertainty: optional per-site relative uncertainty
+        (e.g. ``E_max_std / E_max`` from an ensemble ``scan``, roadmap 1.2).
+        Sites at or above ``uncertainty_limit`` are faded (see
+        ``faded_alpha``) instead of dropped, so untrustworthy cells stay on
+        the map but read as visually de-emphasized -- a scatter has no
+        "cell" to hatch, so fading is the marker-level analogue.
+    :param uncertainty_limit: relative-uncertainty threshold triggering the
+        fade; no effect without ``relative_uncertainty``
+    :param faded_alpha: marker alpha for sites at/above ``uncertainty_limit``
+        (default 0.25); sites below it keep ``kwargs.get("alpha", 1.0)``
     :param kwargs: forwarded to ``ax.scatter`` (``s``, ``marker``, ...);
         ``vmin``/``vmax`` set the log color limits (values outside saturate
         at the colormap ends rather than being dropped), and a ``norm``
@@ -157,8 +169,14 @@ def plot_hazard_map(ax, latlons, values, log=True, cmap="magma_r",
             norm = matplotlib.colors.LogNorm(
                 vmin=positive.min() if vmin is None else vmin,
                 vmax=positive.max() if vmax is None else vmax)
+    alpha = kwargs.pop("alpha", None)
     artist = ax.scatter(latlons[:, 1], latlons[:, 0], c=values, cmap=cmap,
-                        norm=norm, **_crs_kwargs(ax), **kwargs)
+                        norm=norm, alpha=alpha, **_crs_kwargs(ax), **kwargs)
+    if relative_uncertainty is not None and uncertainty_limit is not None:
+        relative_uncertainty = np.asarray(relative_uncertainty, dtype=float)
+        alphas = np.where(relative_uncertainty >= uncertainty_limit,
+                          faded_alpha, 1.0 if alpha is None else alpha)
+        artist.set_alpha(alphas)
     if add_colorbar:
         ax.figure.colorbar(artist, ax=ax, label=colorbar_label)
     return artist

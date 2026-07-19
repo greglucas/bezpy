@@ -52,6 +52,15 @@ method-comparison results behind the defaults.
   `storm_scan` for catalog windows. `scan(..., workers=)` parallelizes
   independent chunks across processes; results (and resumable checkpoints)
   are bit-identical to the sequential default.
+- Uncertainty propagation, phase 1 (roadmap 1.2): `calc_geoelectric_field(...,
+  n_realizations=)` and `scan(..., n_realizations=)` redraw each site's `Z`
+  within its reported `Z_var` (`Site3d.perturbed`) and rerun the chain per
+  draw, adding a `realization` dimension (`scan` also gains `*_max_mean`/
+  `*_max_std` convenience variables). `calc_geoelectric_field(...,
+  perturb_b=True)` additionally propagates SECS prediction variance. See
+  `VALIDATION.md` "1.2 -- Uncertainty propagation, phase 1" for the
+  calibration test and its documented (mild, smoothing-spline-driven)
+  conservatism -- exact analytic propagation is phase 2, not yet built.
 - `bezpy.tl.network` — `Network`: a Lehtinen-Pirjola (nodal-admittance) GIC
   solve from transmission lines, grounded transformer windings, and
   substation grounding to per-transformer neutral current, the quantity
@@ -98,7 +107,9 @@ method-comparison results behind the defaults.
   site collections (`to_dataset`/`from_netcdf`), `extrapolate="asymptotic"`
   band-edge continuation, per-site fields in `SiteCollection.convolve_fft`.
 - `bezpy.plot` — map helpers (cartopy optional); `plot_hazard_map` accepts
-  `vmin`/`vmax` (saturating log color limits) or a full `norm` override.
+  `vmin`/`vmax` (saturating log color limits) or a full `norm` override, and
+  `relative_uncertainty=`/`uncertainty_limit=` to fade sites whose ensemble
+  spread (roadmap 1.2) exceeds a limit.
 - Runnable example scripts (`scripts/mt_site_example.py`,
   `scripts/japan_halloween.py`) replace the old Jupyter notebooks.
 - Documentation site (mkdocs-material) with tutorials; CI (lint, 3.10–3.14,

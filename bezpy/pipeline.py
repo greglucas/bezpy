@@ -60,7 +60,8 @@ def _max_site_period(sites):
 def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
                            pad="auto", detrend="linear", taper="tukey",
                            gaps="mask", despike_obs=False, extrapolate="asymptotic",
-                           secs=None, leave_one_out=None, collection=None):
+                           secs=None, leave_one_out=None, collection=None,
+                           n_realizations=None, perturb_b=False, seed=None):
     """Geoelectric fields at MT sites from observatory magnetic fields.
 
     The full chain: :func:`bezpy.mag.prepare` (detrend/taper/pad) ->
@@ -96,10 +97,39 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
         (validation hook)
     :param collection: optionally a reused ``SiteCollection`` (keeps its
         interpolated-impedance cache warm across equal-length windows);
-        takes precedence over a ``SiteCollection`` passed as ``sites``
-    :return: Dataset with ``Ex``/``Ey`` (time, site) in mV/km; site
-        latitude/longitude coordinates; pad metadata already trimmed
+        takes precedence over a ``SiteCollection`` passed as ``sites``.
+        Ignored when ``n_realizations`` is set -- each realization builds
+        its own perturbed collection, so there is no cache to reuse.
+    :param n_realizations: uncertainty propagation (roadmap 1.2 phase 1,
+        "ensemble mode"). When set, each site's impedance is redrawn
+        ``n_realizations`` times within its ``Z_var`` (independent complex
+        Gaussian per period/component; see ``Site3d.perturbed``) and the
+        whole chain reran per draw, adding a leading ``realization``
+        dimension to ``Ex``/``Ey``. Sites without ``Z_var`` are identical
+        across every realization -- their contribution to the ensemble
+        spread is honestly zero, not fabricated. Memory and compute cost is
+        linear in ``n_realizations`` (a full extra FFT convolution per
+        draw), so bound it the same way ``scan``'s ``chunk`` bounds memory
+        for long records. Default None: the original single point-estimate
+        path (no ``realization`` dimension, no extra cost).
+    :param perturb_b: also perturb each site's SECS-interpolated B within
+        its prediction variance (``SECSInterpolator.predict(return_var=True)``),
+        independent per time/site/component -- a cheap, honest but
+        temporally-uncorrelated approximation (real SECS prediction errors
+        are correlated in time; document this when interpreting the spread).
+        Requires ``interp="secs"`` and ``n_realizations`` set. Default False:
+        only impedance uncertainty is propagated.
+    :param seed: RNG seed for reproducible realizations (default None: a
+        fresh, unseeded draw each call)
+    :return: Dataset with ``Ex``/``Ey`` in mV/km; site latitude/longitude
+        coordinates; pad metadata already trimmed. Dims ``(time, site)``, or
+        ``(realization, time, site)`` when ``n_realizations`` is set.
     """
+    if perturb_b and interp != "secs":
+        raise ValueError("perturb_b=True requires interp='secs'")
+    if perturb_b and n_realizations is None:
+        raise ValueError("perturb_b=True has no effect without n_realizations=")
+
     xr = _require_xarray()
     if hasattr(sites, "sites"):  # a SiteCollection was passed
         if collection is None:
@@ -123,12 +153,16 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
     else:
         fit_input = prepared
 
+    mag_x_var = mag_y_var = None
     if interp == "secs":
         interpolator = secs if secs is not None else SECSInterpolator()
         interpolator.fit(fit_input, gaps="mask")
-        b_sites = interpolator.predict(latlons)
+        b_sites = interpolator.predict(latlons, return_var=perturb_b)
         mag_x = b_sites["Bx"].values
         mag_y = b_sites["By"].values
+        if perturb_b:
+            mag_x_var = b_sites["Bx_var"].values
+            mag_y_var = b_sites["By_var"].values
     elif interp == "uniform":
         if fit_input.sizes["obs"] != 1:
             raise ValueError(
@@ -139,16 +173,38 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
     else:
         raise ValueError("interp must be one of: secs, uniform")
 
-    collection = collection if collection is not None else SiteCollection(sites)
-    ex, ey = collection.convolve_fft(mag_x, mag_y, dt=dt, extrapolate=extrapolate)
+    coords = {"time": prepared["time"].values,
+              "site": [site.name for site in sites],
+              "latitude": ("site", latlons[:, 0]),
+              "longitude": ("site", latlons[:, 1])}
+    if n_realizations is None:
+        collection = collection if collection is not None else SiteCollection(sites)
+        ex, ey = collection.convolve_fft(mag_x, mag_y, dt=dt, extrapolate=extrapolate)
+        dims = ("time", "site")
+        ex_out, ey_out = ex.T, ey.T
+    else:
+        if n_realizations < 1:
+            raise ValueError("n_realizations must be a positive integer")
+        rng = np.random.default_rng(seed)
+        ntimes = mag_x.shape[0]
+        ex_out = np.empty((n_realizations, ntimes, len(sites)))
+        ey_out = np.empty((n_realizations, ntimes, len(sites)))
+        for r in range(n_realizations):
+            realized = SiteCollection([site.perturbed(rng) for site in sites])
+            if perturb_b:
+                mx = mag_x + rng.normal(size=mag_x.shape) * np.sqrt(np.maximum(mag_x_var, 0.))
+                my = mag_y + rng.normal(size=mag_y.shape) * np.sqrt(np.maximum(mag_y_var, 0.))
+            else:
+                mx, my = mag_x, mag_y
+            rex, rey = realized.convolve_fft(mx, my, dt=dt, extrapolate=extrapolate)
+            ex_out[r], ey_out[r] = rex.T, rey.T
+        dims = ("realization", "time", "site")
+        coords["realization"] = np.arange(n_realizations)
 
     e = xr.Dataset(
-        {"Ex": (("time", "site"), ex.T, {"units": "mV/km"}),
-         "Ey": (("time", "site"), ey.T, {"units": "mV/km"})},
-        coords={"time": prepared["time"].values,
-                "site": [site.name for site in sites],
-                "latitude": ("site", latlons[:, 0]),
-                "longitude": ("site", latlons[:, 1])},
+        {"Ex": (dims, ex_out, {"units": "mV/km"}),
+         "Ey": (dims, ey_out, {"units": "mV/km"})},
+        coords=coords,
         attrs={key: prepared.attrs[key]
                for key in ("pad_left", "pad_right", "dt_seconds")})
     return trim_pad(e)
@@ -354,9 +410,49 @@ def _scan_chunk_worker(window):
     return _scan_chunk_or_skip(b_obs, sites, collection, window, field_kwargs, extra_kernels)
 
 
+def _scan_ensemble(b_obs, sites, lines, network, chunk, reduce, threshold,
+                   quantiles, out_path, how, despike_obs, workers,
+                   n_realizations, seed, **field_kwargs):
+    """``n_realizations`` independent :func:`scan` runs over impedance draws
+    fixed for the whole record, stacked on a new ``realization`` dimension.
+
+    See the ``n_realizations`` entry of :func:`scan`'s docstring for the
+    fixed-per-scan-not-per-chunk rationale and current limitations.
+    """
+    if out_path is not None:
+        raise ValueError("out_path (resumability) is not supported with "
+                         "n_realizations yet")
+    if "exceedances" in reduce:
+        raise ValueError(
+            "reduce='exceedances' is not supported with n_realizations "
+            "(each realization collects a different number of exceedances, "
+            "which cannot stack on a shared dimension); run per-realization "
+            "scans separately if exceedance ensembles are needed")
+    xr = _require_xarray()
+    if hasattr(sites, "sites"):
+        sites = sites.sites
+    rng = np.random.default_rng(seed)
+    results = [
+        scan(b_obs, [site.perturbed(rng) for site in sites], lines=lines,
+            network=network, chunk=chunk, reduce=reduce, threshold=threshold,
+            quantiles=quantiles, how=how, despike_obs=despike_obs,
+            workers=workers, **field_kwargs)
+        for _ in range(n_realizations)
+    ]
+    stacked = xr.concat(results, dim="realization")
+    stacked = stacked.assign_coords(realization=np.arange(n_realizations))
+    for prefix in ("E", "V", "I"):
+        maxvar = f"{prefix}_max"
+        if maxvar in stacked:
+            stacked[f"{prefix}_max_mean"] = stacked[maxvar].mean("realization")
+            stacked[f"{prefix}_max_std"] = stacked[maxvar].std("realization")
+    return stacked
+
+
 def scan(b_obs, sites, lines=None, network=None, chunk="1Y", reduce=("max",),
          threshold=None, quantiles=(0.5, 0.9, 0.99), out_path=None,
-         how="delaunay", despike_obs=False, workers=None, **field_kwargs):
+         how="delaunay", despike_obs=False, workers=None,
+         n_realizations=None, seed=None, **field_kwargs):
     """Continuous scan of the whole record with streaming reducers (D4).
 
     Processes ``b_obs`` chunk by chunk through
@@ -405,14 +501,39 @@ def scan(b_obs, sites, lines=None, network=None, chunk="1Y", reduce=("max",),
         behavior).
     :param field_kwargs: forwarded to :func:`calc_geoelectric_field`
         (``interp``, ``extrapolate``, ``leave_one_out``, ...)
+    :param n_realizations: uncertainty propagation (roadmap 1.2 phase 1).
+        When set, each site's impedance is redrawn ``n_realizations`` times
+        within its ``Z_var`` *once, up front* (the perturbed sites are fixed
+        for the whole scan -- a site's true impedance does not fluctuate
+        chunk to chunk, so each realization must stay internally consistent
+        across the record) and the whole scan is rerun per draw via
+        ``n_realizations`` recursive calls to :func:`scan`, adding a leading
+        ``realization`` dimension to every reduced variable. Convenience
+        ``*_max_mean``/``*_max_std`` variables summarize the spread.
+        Not compatible with ``reduce="exceedances"`` (variable-length per
+        realization) or ``out_path`` (resumability) in this phase; B-field
+        uncertainty (``calc_geoelectric_field``'s ``perturb_b``) is not
+        propagated here either -- use ``calc_geoelectric_field`` directly
+        for storm-window ensembles that need it. Cost is linear in
+        ``n_realizations`` (a full extra scan per draw).
+    :param seed: RNG seed for reproducible realizations (default None)
     :return: Dataset with per-site (and per-line, per-transformer)
         reductions: ``E_max``, ``E_max_time`` [, ``E_qXX``, exceedance
         variables on their own dimension; likewise ``V_*``/``I_*``]. Feed
         exceedances to ``bezpy.storms.find_events`` for an event catalog and
-        to ``bezpy.stats.return_level`` for hazard levels.
+        to ``bezpy.stats.return_level`` for hazard levels. With
+        ``n_realizations`` set, every reduced variable gains a leading
+        ``realization`` dimension (plus ``*_max_mean``/``*_max_std``).
     """
     if workers is not None and workers < 1:
         raise ValueError("workers must be a positive integer or None")
+    if n_realizations is not None:
+        return _scan_ensemble(b_obs, sites, lines=lines, network=network,
+                              chunk=chunk, reduce=reduce, threshold=threshold,
+                              quantiles=quantiles, out_path=out_path, how=how,
+                              despike_obs=despike_obs, workers=workers,
+                              n_realizations=n_realizations, seed=seed,
+                              **field_kwargs)
     xr = _require_xarray()
     if hasattr(sites, "sites"):  # a SiteCollection was passed
         collection = sites

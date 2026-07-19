@@ -150,6 +150,38 @@ def test_spline_ignores_bad_variance_periods():
     assert np.all(np.isfinite(plain.calcZ(1.0 / np.logspace(1.2, 3.8, 7))))
 
 
+def test_perturbed_no_variance_returns_self():
+    """Site1d (and a Site3d without Z_var) has nothing to propagate, so
+    every ensemble realization must be identical (roadmap 1.2 phase 1)."""
+    rng = np.random.default_rng(0)
+    site1d = bezpy.mt.Site1d("hs", thicknesses=[1e9], resistivities=[100.])
+    assert site1d.perturbed(rng) is site1d
+
+    site3d = bezpy.mt.Site3d("plain", latitude=40., longitude=-105.,
+                             periods=np.logspace(1, 4, 8),
+                             Z=np.ones((4, 8), dtype=complex))
+    assert site3d.perturbed(rng) is site3d
+
+
+def test_perturbed_draws_within_reported_variance(site3d):
+    """Site3d.perturbed must actually move Z, by roughly the reported std,
+    and leave the original site untouched (a fresh copy each draw)."""
+    rng = np.random.default_rng(0)
+    original_Z = site3d.Z.copy()
+    draws = np.stack([site3d.perturbed(rng).Z for _ in range(200)])
+    np.testing.assert_array_equal(site3d.Z, original_Z)  # unmutated
+
+    valid = np.isfinite(site3d.Z_var) & (site3d.Z_var > 0.)
+    empirical_var = draws.real.var(axis=0) + draws.imag.var(axis=0)
+    # Loose tolerance: 200 draws gives a noisy variance estimate, this only
+    # needs to catch a badly wrong scale factor (e.g. missing the /2 split).
+    ratio = empirical_var[valid] / site3d.Z_var[valid]
+    assert np.median(ratio) == pytest.approx(1.0, rel=0.5)
+    # Components without a usable Z_var are never perturbed.
+    np.testing.assert_array_equal(
+        draws[:, ~valid], np.broadcast_to(original_Z[~valid], draws[:, ~valid].shape))
+
+
 def test_collection_site_chunk_equivalence():
     """Blocked processing returns the same fields as one block (P1)."""
     rng = np.random.default_rng(3)

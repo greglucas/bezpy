@@ -5,6 +5,7 @@ Magnetotelluric site classes.
 __all__ = ["Site", "Site1d", "Site3d", "SiteCollection", "ConductivityModel",
            "sites_to_dataset", "sites_from_dataset"]
 
+import copy
 import pathlib
 import warnings
 
@@ -77,6 +78,16 @@ class Site:
     def calcZ(self, freqs):  # pylint: disable=invalid-name
         """Calculates transfer function, Z, from the input frequencies."""
         raise NotImplementedError("calcZ not implemented for this object yet.")
+
+    def perturbed(self, rng):  # pylint: disable=unused-argument
+        """A copy with impedance perturbed within its reported variance.
+
+        Base implementation: no variance information on this site type, so
+        every ensemble realization is identical (returns ``self``).
+
+        :param rng: ``numpy.random.Generator``
+        """
+        return self
 
 
 # ---------------------------------
@@ -318,6 +329,35 @@ class Site3d(Site):
                 low = (freqs < f_lo) & (freqs > 0.)
                 Z_interp[i, low] = Z_lo * np.sqrt(freqs[low]/f_lo)
         return Z_interp
+
+    def perturbed(self, rng):
+        """A copy with ``Z`` perturbed within ``Z_var`` (roadmap 1.2 phase 1).
+
+        Draws an independent complex Gaussian per period/component with
+        variance ``Z_var`` (real and imaginary parts each get half the
+        variance, matching the ``Z_std = sqrt(Z_var/2)`` convention used by
+        :func:`bezpy.mt.utils.apparent_resistivity`). Periods without a
+        finite, positive ``Z_var`` are left unperturbed -- ensemble spread
+        only reflects components with a reported estimation error, so a
+        site with no ``Z_var`` at all is identical across every realization.
+
+        :param rng: ``numpy.random.Generator``
+        :return: a new ``Site3d`` with perturbed ``Z``; ``self`` if
+            ``Z_var`` is None
+        """
+        if self.Z_var is None:
+            return self
+        site = copy.copy(self)
+        # Force calcZ to recompute for the perturbed Z instead of reusing
+        # the cache inherited by the shallow copy.
+        site._prev_freqs = None  # pylint: disable=protected-access
+        site._prev_Z = None  # pylint: disable=protected-access
+        site._prev_extrapolate = None  # pylint: disable=protected-access
+        valid = np.isfinite(self.Z_var) & (self.Z_var > 0.)
+        std = np.sqrt(np.where(valid, self.Z_var, 0.) / 2.)
+        noise = rng.normal(size=self.Z.shape) + 1j * rng.normal(size=self.Z.shape)
+        site.Z = np.where(valid, self.Z + noise * std, self.Z)
+        return site
 
     def calc_resistivity(self):
         """Calculate the apparent resistivity and phase of the transfer function."""

@@ -88,6 +88,22 @@ def test_plot_hazard_map():
     matplotlib.pyplot.close(fig)
 
 
+def test_plot_hazard_map_fades_uncertain_sites():
+    """roadmap 1.2: sites at/above uncertainty_limit are faded, others keep
+    full opacity; no effect without both relative_uncertainty and the limit."""
+    fig, ax = matplotlib.pyplot.subplots()
+    artist = plot_hazard_map(ax, LATLONS, [1., 10., 100.],
+                             relative_uncertainty=[0.05, 0.5, 0.9],
+                             uncertainty_limit=0.3)
+    np.testing.assert_array_equal(artist.get_alpha(), [1.0, 0.25, 0.25])
+    matplotlib.pyplot.close(fig)
+
+    fig, ax = matplotlib.pyplot.subplots()
+    plain = plot_hazard_map(ax, LATLONS, [1., 10., 100.])
+    assert plain.get_alpha() is None
+    matplotlib.pyplot.close(fig)
+
+
 def test_add_map_features_requires_cartopy():
     pytest.importorskip("cartopy")
     import cartopy.crs as ccrs

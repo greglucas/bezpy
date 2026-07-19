@@ -35,6 +35,24 @@ def make_sites(n_lat=4, n_lon=4):
     return sites
 
 
+def make_var_sites(n_lat=4, n_lon=4, relative_std=0.1):
+    """Site3d sites with Z_var (roadmap 1.2 ensemble tests need real
+    impedance uncertainty; make_sites' Site1d sites have none by design)."""
+    from bezpy.mt.site import Site3d
+    periods = np.logspace(1, 4, 10)
+    sites = []
+    for i, lat in enumerate(np.linspace(36, 44, n_lat)):
+        for j, lon in enumerate(np.linspace(-108, -98, n_lon)):
+            Z = np.zeros((4, len(periods)), dtype=complex)
+            Z[1, :] = (1. + 0.5j) * (1. + 0.1*(i + j))
+            Z[2, :] = -Z[1, :]
+            Z_var = (relative_std * np.abs(Z))**2 + 1e-6
+            site = Site3d(f"S{i}{j}", latitude=lat, longitude=lon,
+                         periods=periods, Z=Z, Z_var=Z_var)
+            sites.append(site)
+    return sites
+
+
 def make_lines():
     coords = [
         [(-106.0, 38.0), (-104.8, 38.9), (-103.5, 39.8)],
@@ -159,6 +177,59 @@ def test_leave_one_out_changes_fit(setup):
     assert not np.allclose(e_all["Ex"].values, e_loo["Ex"].values)
 
 
+def test_calc_geoelectric_field_n_realizations_no_variance_is_deterministic(setup):
+    """Site1d sites carry no Z_var, so n_realizations must add the dimension
+    but every draw is identical (Site.perturbed's base-class no-op) and
+    matches the plain point-estimate call exactly."""
+    b_obs, sites, _ = setup
+    point = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h")
+    ensemble = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h",
+                                            n_realizations=4, seed=0)
+    assert ensemble["Ex"].dims == ("realization", "time", "site")
+    assert ensemble.sizes["realization"] == 4
+    for r in range(4):
+        np.testing.assert_allclose(ensemble["Ex"].values[r], point["Ex"].values)
+
+
+def test_calc_geoelectric_field_n_realizations_spreads_with_variance():
+    """Sites with Z_var must produce a nonzero ensemble spread centered
+    near the point estimate, and be reproducible under a fixed seed."""
+    b_obs = make_b_obs()
+    sites = make_var_sites()
+    point = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h")
+    ensemble = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h",
+                                            n_realizations=8, seed=1)
+    std = ensemble["Ex"].std("realization").values
+    assert (std > 0).all()
+    mean = ensemble["Ex"].mean("realization").values
+    assert np.abs(mean - point["Ex"].values).max() < 3 * std.max()
+
+    repeat = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h",
+                                          n_realizations=8, seed=1)
+    np.testing.assert_array_equal(ensemble["Ex"].values, repeat["Ex"].values)
+
+
+def test_calc_geoelectric_field_perturb_b_validation(setup):
+    b_obs, sites, _ = setup
+    with pytest.raises(ValueError, match="requires interp='secs'"):
+        bezpy.calc_geoelectric_field(b_obs, sites, interp="uniform",
+                                     n_realizations=3, perturb_b=True, pad="1h")
+    with pytest.raises(ValueError, match="no effect without n_realizations"):
+        bezpy.calc_geoelectric_field(b_obs, sites, perturb_b=True, pad="1h")
+
+
+def test_calc_geoelectric_field_perturb_b_widens_spread():
+    b_obs = make_b_obs()
+    sites = make_var_sites()
+    z_only = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h",
+                                          n_realizations=8, seed=2)
+    z_and_b = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h",
+                                           n_realizations=8, seed=2,
+                                           perturb_b=True)
+    assert z_and_b["Ex"].std("realization").mean() > \
+        z_only["Ex"].std("realization").mean()
+
+
 def test_calc_geoelectric_field_sitecollection(setup):
     """A SiteCollection passed as sites= must match the list path exactly."""
     b_obs, sites, _ = setup
@@ -197,6 +268,42 @@ def test_scan_reducers(setup):
     assert (result["E_q50"].values <= result["E_q99"].values + 1e-12).all()
     assert (result["E_q99"].values <= result["E_max"].values * 1.05).all()
     assert result["E_exceedance_time"].size > 0
+
+
+def test_scan_n_realizations_spreads_and_matches_single_run():
+    """Ensemble scan (roadmap 1.2 phase 1): the realization dimension lands
+    on every reduced variable, the perturbed-sites-fixed-for-the-whole-scan
+    contract holds (each realization is one internally consistent E_max
+    series, not per-chunk noise), and the *_max_std spread is nonzero for
+    sites with reported Z_var."""
+    b_obs = make_b_obs()
+    sites = make_var_sites()
+    result = scan(b_obs, sites, lines=make_lines(), chunk="6h",
+                  reduce=("max", "quantiles"), n_realizations=5, seed=0,
+                  pad="1h")
+    assert result["E_max"].dims == ("realization", "site")
+    assert result["V_max"].dims == ("realization", "line")
+    assert result.sizes["realization"] == 5
+    assert (result["E_max_std"].values > 0).all()
+    np.testing.assert_allclose(result["E_max_mean"].values,
+                               result["E_max"].mean("realization").values)
+
+    rng = np.random.default_rng(0)
+    single = scan(b_obs, [site.perturbed(rng) for site in sites], chunk="6h",
+                 reduce=("max",), pad="1h")
+    # realization 0 of the ensemble must be exactly the scan of the same
+    # rng-drawn perturbed sites (both draw with a fresh Generator(seed=0)).
+    np.testing.assert_allclose(result["E_max"].isel(realization=0).values,
+                               single["E_max"].values)
+
+
+def test_scan_n_realizations_validation():
+    b_obs, sites = make_b_obs(), make_var_sites()
+    with pytest.raises(ValueError, match="exceedances"):
+        scan(b_obs, sites, reduce=("exceedances",), threshold=1e-9,
+            n_realizations=3, pad="1h")
+    with pytest.raises(ValueError, match="out_path"):
+        scan(b_obs, sites, out_path="unused.nc", n_realizations=3, pad="1h")
 
 
 def test_scan_chunk_invariance(setup):

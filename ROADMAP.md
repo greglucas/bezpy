@@ -90,7 +90,7 @@ already exist: `Z_var` on every `Site3d`, prediction variances from pysecs
 0.4 in `SECSInterpolator`, and measured scheme divergence (delaunay-vs-nn
 spreads in `~/.cache/bezpy/hazard/real_storm_divergence.csv`).
 
-**Phase 1 — ensemble mode (cheap, honest, do this first).**
+**Phase 1 — ensemble mode (cheap, honest, do this first). DONE (2026-07-19).**
 
 - `calc_geoelectric_field(..., n_realizations=None)`: when set, perturb each
   site's impedance within `Z_var` (complex Gaussian, independent per period
@@ -102,6 +102,19 @@ spreads in `~/.cache/bezpy/hazard/real_storm_divergence.csv`).
   caller can quantile). Memory cost is linear in realizations, so document
   the chunk-size interaction.
 - Keep the RNG seedable end to end; a `seed=` kwarg threaded through.
+
+Shipped as `Site.perturbed`/`Site3d.perturbed`, `calc_geoelectric_field(...,
+n_realizations=, perturb_b=, seed=)`, and `scan(..., n_realizations=, seed=)`
+(realizations fixed for the whole scan, not redrawn per chunk — see
+`VALIDATION.md` 1.2 for why that matters). `scan`'s ensemble mode does not
+yet support `reduce="exceedances"` (per-realization exceedance counts don't
+stack on a shared dimension) or `out_path` resumability; `perturb_b` is
+`calc_geoelectric_field`-only. `plot_hazard_map` gained
+`relative_uncertainty=`/`uncertainty_limit=` fading. The calibration
+acceptance test passes but documents Phase 1's ensemble as mildly
+conservative (~0.60-0.65 observed 1σ coverage vs. nominal 0.68, traced to
+the production impedance spline's automatic smoothing) — motivation for
+Phase 2 below, not a blocker.
 
 **Phase 2 — analytic variance through the linear chain.** E at a site is
 linear in Z at fixed B, and V is linear in E, so first-order variance

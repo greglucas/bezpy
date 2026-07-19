@@ -370,6 +370,75 @@ exactly reproduce composing `voltage_matrix` and `Network.solve` directly).
 `tests/test_pipeline.py::test_scan_network_reduces_gic` checks the `scan(...,
 network=)` integration is chunk-invariant (D4) like `E` and `V`.
 
+## 1.2 — Uncertainty propagation, phase 1 (`n_realizations=`)
+
+**The gap.** The D7 extension (below) concluded that where MT coverage is
+sparse relative to the field's spatial scale, "the voltage should be
+reported with matching uncertainty rather than trusted to any
+interpolation" -- but the pipeline emitted point estimates only. Phase 1
+(roadmap 1.2) closes that for the impedance term: `calc_geoelectric_field`
+and `scan` grow an `n_realizations=` ensemble mode that redraws each site's
+`Z` within its reported `Z_var` (`Site3d.perturbed`: independent complex
+Gaussian per period/component, `Z_std = sqrt(Z_var/2)` split across
+real/imaginary parts, matching the existing convention in
+`apparent_resistivity`) and reruns the whole chain per draw. `scan`'s
+realizations are fixed impedance draws for the *entire* record (built once,
+not per chunk) -- a site's true impedance is a fixed unknown, not something
+that fluctuates chunk to chunk, so each realization must stay internally
+consistent across the scan or the ensemble spread would be meaningless.
+`calc_geoelectric_field` additionally supports `perturb_b=True`, drawing
+each sample's SECS-predicted B within its prediction variance
+(`SECSInterpolator.predict(return_var=True)`), independent per
+time/site/component -- documented as a temporally-uncorrelated
+approximation (real SECS errors are correlated in time); `scan` does not
+propagate B uncertainty in this phase.
+
+**Calibration test (acceptance criterion).**
+`bezpy.validation.score_ensemble_calibration` builds a known truth (a
+`Site1d` half-space/layer profile, exact `Z`), corrupts it into a
+"measured" `Site3d` with the *same* noise model the ensemble itself draws
+from (`Z_measured = Z_true + N(0, Z_var)`), and checks how often the true
+field at each site/time falls within +-1 ensemble standard deviation --
+nominally ~68% for a well-calibrated 1-sigma Gaussian band.
+
+| config | n_periods | relative Z std | coverage@1σ |
+|---|---:|---:|---:|
+| default band (7-30,000s) | 31 | 0.05 | 0.617-0.625 (2 seeds) |
+| wider band, denser | 60 | 0.05 | 0.647 |
+| larger reported error | 31 | 0.10 | 0.623 |
+| test-suite config (fast) | 31 | 0.05 | 0.607-0.627 (2 seeds) |
+
+Coverage clusters at **~0.60-0.65** across period counts and noise levels --
+consistently *below* the nominal 68%, not by a little in one config and a
+lot in another. The cause is identified, not mysterious:
+`Site3d.calcZ`/`spline_interp` fits a *weighted smoothing spline*
+(`smooth_factor=None` when `Z_var` is given, letting FITPACK choose knots
+to hit a target residual near `len(periods)`) rather than interpolating
+through every point -- the same production code path every real analysis
+uses. That smoothing damps noise in both the measured-Z spline and the
+ensemble redraws, but not symmetrically against a noise-free truth spline,
+so the propagated spread comes out mildly conservative (narrow) relative to
+the true error. This is an honest property of Phase 1, not a bug: it is
+exactly why the roadmap scopes exact analytic propagation through the
+linear chain as a separate **Phase 2** rather than declaring Phase 1's
+ensemble numbers exact. `tests/test_validation.py::
+test_ensemble_calibration_covers_truth_near_nominal_rate` enforces the
+bound (0.45-0.80) -- tight enough to catch a broken propagation (no
+perturbation happening reads as ~0%; a units/scale error, e.g. dropping the
+`/2` split, would read as a large, easily distinguished excursion), loose
+enough not to chase Phase 1's known mild conservatism as if it were a
+regression.
+
+**Coverage.** `tests/test_mt_site.py::test_perturbed_*` (the noise model
+itself: unperturbed when `Z_var` is absent, correct variance scale when
+present, original site untouched); `tests/test_pipeline.py::
+test_calc_geoelectric_field_n_realizations_*` and `test_scan_n_realizations_*`
+(shape, nonzero spread, seed reproducibility, the fixed-per-scan-not-per-chunk
+contract, `perturb_b` widening the spread, the `exceedances`/`out_path`
+scope guards); `tests/test_plotting.py::test_plot_hazard_map_fades_uncertain_sites`
+(the `relative_uncertainty=`/`uncertainty_limit=` fade on `plot_hazard_map`,
+the scatter-plot analogue of "hatch the untrustworthy cells").
+
 ## D1 / D2 / D4 / D5 — covered by comparison tests
 
 These decisions are exercised directly in the test suite rather than the
@@ -441,3 +510,12 @@ around it or split the window. Unit coverage:
   `bezpy.data` source work (roadmap 3.2) if the product has a stable API.
 - D7's `secs+local-z` scheme and the multi-input kernel work it depends on
   (roadmap 2.1) still only has the synthetic D7-extension evidence above.
+- Roadmap 1.2 phase 2 (exact analytic variance propagation through the
+  linear E/V chain) -- would remove phase 1's mild smoothing-spline
+  conservatism (see "1.2 -- Uncertainty propagation, phase 1" above) and
+  add a `structural` (delaunay-vs-nn divergence) uncertainty term separate
+  from the propagated data variance.
+- Phase 1's `perturb_b=` uses i.i.d. per-sample noise; a temporally
+  correlated SECS-error model (matching real prediction-error persistence)
+  would be a more honest B-uncertainty term if it turns out to matter next
+  to the impedance term.
