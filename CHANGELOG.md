@@ -108,6 +108,22 @@ method-comparison results behind the defaults.
   files are unaffected. See `ROADMAP.md` 2.1 for what's follow-on (the
   Level-1 `secs+local-z` E-interpolation scheme and its D7 harness entry,
   `pipeline` integration).
+- Operational/real-time mode (roadmap 2.2): `bezpy.pipeline.Nowcast` composes
+  `bezpy.mt.impulse.DTIR` (causal FIR) with `SECSInterpolator.transfer_matrix`
+  into a stateful engine -- `update(new_b)` appends B to a bounded rolling
+  buffer and returns only the newly causally-valid E (and V, via the static
+  Level-1 voltage kernel). Defaults to a fast, zero-added-latency SECS path
+  (`method="lstsq"` + `transfer_matrix`, one constant matrix applied as a
+  matmul per call); falls back to a per-call fit over the buffer for gappy
+  chunks or `method="kalman"`. `bezpy download`/`update`/`scan`/`nowcast`
+  (`bezpy/cli.py`, `pyproject.toml [project.scripts]`) wrap the data,
+  scan, and nowcast APIs for operational use without writing Python. See
+  `ROADMAP.md` 2.2 and `docs/tutorials/operational.md` for the measured
+  latency (~20h startup transient + `|nmin|`-sample steady-state lag for a
+  representative band) and accuracy (DTIR reconstructs broadband/storm-like
+  B to ~5% relative RMS vs the batch FFT path, but narrowband B far worse
+  -- 10-50% -- even within an otherwise well-sampled period band) numbers;
+  `despike_obs=` is not supported here (deferred, see `ROADMAP.md`).
 - `bezpy.data` — observatory archive (USGS/NRCan/INTERMAGNET, provenance-
   and level-aware merge), activity indices (Kp/ap/Dst), EMTF XML archive with
   SPUD download, HIFLD transmission-line download, IAGA ingest.

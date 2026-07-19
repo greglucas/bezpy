@@ -267,6 +267,60 @@ is a real consumer (the swx-trec live geoelectric map runs on bezpy).
   format already carries `sampling_period`; audit `prepare`/pad assumptions
   for dt ≠ 60 s — much of it is already dt-general).
 
+**Engine + CLI: DONE (2026-07-19).** Shipped as `bezpy.pipeline.Nowcast`
+(`bezpy/pipeline.py`) and `bezpy download`/`update`/`scan`/`nowcast`
+(`bezpy/cli.py`, `pyproject.toml [project.scripts]`). `Nowcast` composes
+`DTIR` (causal FIR) with `SECSInterpolator.transfer_matrix` (roadmap 2.1: a
+constant, per-sample obs->site B matrix) -- `update(new_b)` appends to a
+bounded rolling buffer and returns only the newly-causally-valid E (and V,
+via the static Level-1 `voltage_matrix`/`apply_voltage_matrix`, no new math).
+Two design points settled with real evidence, not assumption, since this
+item had no precedent in the codebase to copy:
+
+- **The buffer/finalization algorithm was verified against a whole-array
+  `DTIR.convolve()` reference to float64 noise (6.6e-16), and the minimum
+  buffer length before *any* output can appear is `2*max(nmax,|nmin|)+1`,
+  not `nmax+|nmin|`** -- `np.convolve(..., mode="same")` silently returns a
+  *different-length* array below that floor, which corrupted an early draft
+  of the indexing before this was caught. `Nowcast.warmup_samples` documents
+  the corrected value.
+- **DTIR reconstruction fidelity depends on how spectrally broadband the
+  input is, not just on periods being well-sampled relative to `dt`**:
+  measured ~5% relative RMS vs `calc_geoelectric_field` for a 15-tone
+  broadband synthetic (storm-like), but 10-50% for the *same* well-sampled
+  period band driven by just 1-2 dominant tones, at the same
+  `decay_factor` -- the regularized inversion's per-frequency error doesn't
+  average away when only a few frequencies carry the signal's energy. Real
+  storm B is broadband, which favors real operational use, but a narrowband
+  bench test of this class understates error and should not be read as
+  general accuracy. Separately (and independently confirmed), periods
+  closer than ~10x `dt` are an aliasing failure no `decay_factor`/`Q_choice`
+  tuning fixes (measured 50-65% relative RMS at that ratio) --
+  `nmin`/`nmax="auto"` warns when a site's band triggers this. See
+  `Nowcast`'s docstring "Accuracy" section and `docs/tutorials/operational.md`
+  for the full numbers and a worked latency example (~20 hours startup
+  transient, ~2 minute steady-state lag, for a representative 900-18000s
+  band at `dt=60`\ s).
+- SECS interpolation defaults to `method="lstsq"` +
+  `SECSInterpolator.transfer_matrix` (one constant matrix, computed once,
+  applied as a matmul every `update()` -- zero added latency beyond DTIR's
+  own); falls back to a per-call `fit()`/`predict()` over the rolling buffer
+  when a chunk has a gap or the caller configured `method="kalman"` (both
+  paths tested; verified matching to `rtol=1e-9` on gap-free input).
+
+**Not built in this pass (follow-on):**
+
+- `despike_obs=` support -- despike's centered rolling window needs its own
+  future-sample lookahead on the raw observatory stream, a second instance
+  of the buffering problem this item solves for DTIR; deferred rather than
+  bolted on without the same rigor. Callers run `bezpy.mag.despike`
+  themselves per chunk before calling `update()` for now.
+- Per-site `(nmin, nmax)` tuning -- one shared horizon across all sites in a
+  `Nowcast` (matching `calc_geoelectric_field`'s own `pad="auto"`
+  precedent); a `dtirs=` escape hatch allows fully custom per-site `DTIR`s
+  for advanced callers willing to share one `(dt, nmin, nmax)`.
+- 1-second data support end to end (unchanged from below).
+
 ### 2.3 Parallel `scan`
 
 `scan`'s chunks are independent by construction (pad-protected edges make

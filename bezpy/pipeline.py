@@ -1,6 +1,6 @@
 """The B -> E (-> V) pipeline: composition of the building blocks.
 
-Two scan modes cover the two ways these calculations are used:
+Three modes cover the ways these calculations are used:
 
 * :func:`scan` -- the statistics path. The **entire record** is processed in
   chunks with streaming reducers (running maxima, threshold exceedances,
@@ -11,22 +11,32 @@ Two scan modes cover the two ways these calculations are used:
   to the chunk size.
 * :func:`storm_scan` -- the case-study path: explicit windows from a storm
   catalog (or hand-picked), returning per-window maxima.
+* :class:`Nowcast` -- the operational path: both of the above are acausal
+  (FFT convolution needs future samples and a pad on both sides of the
+  analysis window), so neither can run as new B arrives in real time.
+  ``Nowcast`` composes ``bezpy.mt.impulse.DTIR`` (causal FIR convolution)
+  with ``SECSInterpolator.transfer_matrix`` (a constant, per-sample obs->site
+  B map) into a stateful engine: ``update(new_b)`` appends samples to a
+  bounded rolling buffer and returns E (and V) for whatever interval just
+  became causally valid, with no window recomputation.
 
 The single-window building blocks :func:`calc_geoelectric_field` and
 :func:`calc_voltages` are exposed at the top level as
 ``bezpy.calc_geoelectric_field`` / ``bezpy.calc_voltages``.
 """
 
-__all__ = ["calc_geoelectric_field", "calc_voltages", "scan", "storm_scan"]
+__all__ = ["calc_geoelectric_field", "calc_voltages", "scan", "storm_scan", "Nowcast"]
 
 import concurrent.futures
+import warnings
 
 import numpy as np
 import pandas as pd
 
 from .mag.processing import DEFAULT_MAX_PERIOD, combine_observatories, despike, prepare, trim_pad
-from .mag.secs import SECSInterpolator
-from .mt.site import SiteCollection
+from .mag.secs import SECSInterpolator, _extract_b
+from .mt.impulse import DTIR
+from .mt.site import Site3d, SiteCollection
 from .tl.kernels import apply_voltage_matrix, voltage_matrix
 from .tl.network import apply_gic_matrix, gic_matrix
 
@@ -788,3 +798,360 @@ def storm_scan(catalog, b_obs, sites, lines=None, how="delaunay",
     if lines is not None:
         ds["V_max"] = (("storm", "line"), np.array(v_max), {"units": "V"})
     return ds
+
+
+# ----------------------------------------------------------------------------
+# Nowcast: causal, streaming B -> E (-> V) (roadmap 2.2)
+# ----------------------------------------------------------------------------
+
+def _site_periods(site, periods):
+    """This site's impedance period band, or the ``periods=`` fallback.
+
+    Raises for a site with neither -- the caller (``Nowcast``) needs a band
+    to size the DTIR and to build it from an explicit ``Z``.
+    """
+    if getattr(site, "periods", None) is not None:
+        return np.asarray(site.periods, dtype=float)
+    if periods is not None:
+        return np.asarray(periods, dtype=float)
+    raise ValueError(
+        f"site {site.name!r} has no .periods (not a Site3d); pass periods= "
+        "for Site1d/period-less sites, or preconfigured dtirs=")
+
+
+def _resolve_nmin_nmax(sites, dt, nmin, nmax, periods):
+    """``(nmin, nmax)`` in samples, auto-derived from the sites' period band
+    when requested, plus the undersampled-period warning (see the DTIR
+    reconstruction-fidelity evidence in ``ROADMAP.md`` 2.2)."""
+    bands = [_site_periods(site, periods) for site in sites]
+    max_period = max(np.max(band) for band in bands)
+    min_period = min(np.min(band) for band in bands)
+    if nmax == "auto":
+        nmax = max(1, int(np.ceil(2.0 * max_period / dt)))
+    if nmin == "auto":
+        nmin = -max(1, int(np.ceil(0.1 * min_period / dt)))
+    if min_period < 10 * dt:
+        warnings.warn(
+            f"shortest site period ({min_period:.0f}s) is less than 10x dt "
+            f"({dt}s); DTIR reconstruction of periods this close to the "
+            "Nyquist limit is unreliable (measured 50-65% relative RMS "
+            "error vs the batch FFT path at this ratio -- see Nowcast's "
+            "Accuracy docstring section for the well-sampled-band numbers) "
+            "-- restrict the periods passed to DTIR (dtirs=) or use finer "
+            "B sampling", stacklevel=3)
+    return int(nmin), int(nmax)
+
+
+def _build_dtir(site, dt, nmin, nmax, decay_factor, Q_choice, periods):
+    """A calculated DTIR for one site: from the site's own Z if it's a
+    Site3d, else from ``periods=`` and ``site.calcZ`` (physical sites like
+    Site1d are valid at any frequency, so any band works)."""
+    dtir = DTIR(dt=dt, nmin=nmin, nmax=nmax, decay_factor=decay_factor, Q_choice=Q_choice)
+    if isinstance(site, Site3d):
+        dtir.calculate(site=site)
+    else:
+        p = _site_periods(site, periods)
+        dtir.calculate(periods=p, Z=site.calcZ(1. / p))
+    return dtir
+
+
+class Nowcast:
+    """Causal, streaming B -> E (-> V), for operational/real-time use.
+
+    ``calc_geoelectric_field``/``scan`` are acausal: FFT convolution needs
+    a pad of *future* samples on both sides of the analysis window, so
+    neither can produce a result as new B arrives live. ``Nowcast`` composes
+    the same site impedances differently -- through ``bezpy.mt.impulse.DTIR``
+    (a regularized time-domain impulse response, causal FIR convolution)
+    fed by ``SECSInterpolator.transfer_matrix`` (roadmap 2.1: a constant,
+    per-sample-independent observatory-to-site B map) -- into a stateful
+    engine: :meth:`update` appends new B to a bounded rolling buffer and
+    returns E (and V) for whatever interval just became causally valid.
+
+    **Latency.** Two independent sources, both fixed once built:
+
+    * A start-up transient of :attr:`warmup_samples` (``2 * max(nmax,
+      |nmin|) + 1``) samples before *any* output appears -- this is larger
+      than ``nmax`` alone because of how ``DTIR.convolve``'s ``mode="same"``
+      convolution is aligned, not a implementation looseness.
+    * Thereafter, a steady-state delay of ``|nmin|`` samples: DTIR is only
+      quasi-causal (Kelbert et al. 2017's design uses a small acausal lead),
+      so an output sample only becomes final once ``|nmin|`` further samples
+      have arrived.
+
+    **Accuracy.** Two independent effects, both measured directly, not
+    assumed:
+
+    * Periods close to ``dt``'s Nyquist limit are an aliasing failure no
+      amount of ``decay_factor``/``Q_choice`` tuning fixes (measured 50-65%
+      relative RMS error for a realistic EMTF band reaching ~100s periods at
+      ``dt=60``\\ s, vs ~a few percent for a band well above it, in practice
+      :math:`\\gtrsim 10 \\times dt`). ``nmin``/``nmax="auto"`` warns when
+      this applies; restrict the periods passed to DTIR (``dtirs=``) or use
+      finer B sampling (``dt``) if it does.
+    * Independently, even entirely within a well-sampled band, DTIR's
+      regularized inversion reconstructs **broadband** B (many active
+      frequencies at once, as in a real storm) much better than
+      **narrowband** B (one or two dominant frequencies): measured ~5%
+      relative RMS for a 15-tone broadband synthetic vs 10-50% for the same
+      band driven by just 1-2 tones at the same periods, same
+      ``decay_factor``. The regularized fit's per-frequency error doesn't
+      average away when only a few frequencies carry the signal's energy.
+      Real geomagnetic storm B is broadband, so this favors real operational
+      use over narrowband synthetic tests -- but it means a narrowband bench
+      test of this class understates error at unlucky frequencies and
+      should not be read as "DTIR is accurate to a few percent" in general.
+
+    ``despike_obs`` is not supported here: despike's centered rolling window
+    needs its own future-sample lookahead on the raw observatory stream, a
+    second instance of the buffering problem this class solves for DTIR.
+    Run :func:`bezpy.mag.despike` on each chunk yourself before calling
+    :meth:`update` if you need it.
+
+    Parameters
+    ----------
+    sites : list of Site3d/Site1d, or a SiteCollection
+        MT sites E/V are computed at.
+    secs : SECSInterpolator
+        An unfit-but-configured interpolator; ``Nowcast`` calls ``.fit()`` on
+        it (mutating it in place), same convention as
+        ``calc_geoelectric_field``'s own ``secs=``. Defaults to
+        ``method="lstsq"`` engaging the fast constant-matrix path
+        (:meth:`~bezpy.mag.SECSInterpolator.transfer_matrix`) once the first
+        gap-free chunk arrives; ``method="kalman"`` (or any chunk with a
+        gap) falls back to a per-call fit over the rolling buffer instead.
+    dt : float
+        Sample interval in seconds. Required -- unlike ``pad="auto"``, there
+        is no data-derived point at which to infer this before the DTIRs
+        are built.
+    nmin, nmax : int or "auto"
+        DTIR sample-offset window (see :class:`~bezpy.mt.impulse.DTIR`).
+        ``"auto"`` (default) derives them from the sites' period band: see
+        the accuracy note above.
+    decay_factor, Q_choice
+        Forwarded to every auto-built DTIR.
+    periods : array, optional
+        Fallback impedance periods for sites without ``.periods`` (Site1d or
+        other period-less sites).
+    dtirs : list of DTIR, optional
+        Pre-``.calculate()``'d DTIRs, one per site, for full manual control.
+        Must all share one ``(dt, nmin, nmax)`` -- the buffer/finalization
+        bookkeeping needs a single shared horizon.
+    lines : sequence of TransmissionLine, optional
+        Also reduce voltages via the existing static Level-1 kernel
+        (:func:`~bezpy.tl.kernels.voltage_matrix`) -- no new math, applied
+        per call.
+    how : str
+        E interpolation scheme for ``lines`` (``"delaunay"`` default, ``"nn"``).
+    force_slow_secs : bool
+        Testing-only: disable the fast constant-matrix SECS path
+        unconditionally, so it can be compared against the fallback on
+        identical input.
+    """
+
+    def __init__(self, sites, secs, dt, nmin="auto", nmax="auto",
+                decay_factor=1e-2, Q_choice=1, periods=None, dtirs=None,
+                lines=None, how="delaunay", force_slow_secs=False):
+        if hasattr(sites, "sites"):  # a SiteCollection was passed
+            sites = sites.sites
+        self.sites = list(sites)
+        self.secs = secs
+        self.dt = float(dt)
+        self.force_slow_secs = force_slow_secs
+
+        if dtirs is not None:
+            if len(dtirs) != len(self.sites):
+                raise ValueError("dtirs must have one entry per site")
+            dts = {d.dt for d in dtirs}
+            nmins = {d.nmin for d in dtirs}
+            nmaxs = {d.nmax for d in dtirs}
+            if len(dts) != 1 or len(nmins) != 1 or len(nmaxs) != 1:
+                raise ValueError(
+                    "all dtirs must share one (dt, nmin, nmax); Nowcast's "
+                    "rolling buffer needs a single shared finalization horizon")
+            self._dtirs = list(dtirs)
+            self.dt = dts.pop()
+            self.nmin, self.nmax = nmins.pop(), nmaxs.pop()
+        else:
+            self.nmin, self.nmax = _resolve_nmin_nmax(self.sites, self.dt, nmin, nmax, periods)
+            self._dtirs = [_build_dtir(site, self.dt, self.nmin, self.nmax,
+                                       decay_factor, Q_choice, periods)
+                          for site in self.sites]
+
+        self.warmup_samples = 2 * max(self.nmax, abs(self.nmin)) + 1
+
+        self._lines = lines
+        if lines is not None:
+            site_xys = _site_latlons(self.sites)
+            for line in lines:
+                if how == "delaunay" and line.delaunay_vtx is None:
+                    line.set_delaunay_weights(site_xys)
+                elif how == "nn" and line.nearest_sites is None:
+                    line.set_nearest_sites(site_xys)
+            self._L, self._valid = voltage_matrix(lines, len(self.sites), how=how)
+        else:
+            self._L = self._valid = None
+
+        n = len(self.sites)
+        self._M = None
+        self._M_flat = None
+        self._obs_latlons = None
+        self._obs_names = None
+        self._buf_bx = np.empty((0, n))
+        self._buf_by = np.empty((0, n))
+        self._buf_b_obs = None
+        self._buffer_start = 0
+        self._last_finalized_abs = -1
+        self._n_total = 0
+        self._t0 = None
+        self._is_xarray = None
+
+    def update(self, new_b, obs_latlons=None):
+        """Append new B samples and return E (and V) for the newly-valid interval.
+
+        :param new_b: same forms as ``SECSInterpolator.fit``'s ``b_obs``: an
+            xarray Dataset (``Bx``/``By``[/``Bz``] dimensioned ``(time, obs)``,
+            latitude/longitude coordinates), or a bare ``(nnew, nobs, 2 or 3)``
+            ndarray with ``obs_latlons=`` given. The observatory set (and, for
+            xarray input, the time axis contiguity) must stay fixed across
+            calls -- build a new ``Nowcast`` if the network changes.
+        :param obs_latlons: required for bare-array input (see above).
+        :return: an ``xr.Dataset`` (``Ex``/``Ey``[, ``V``], dims ``(time,
+            site[, line])``) when ``new_b`` is/was ever xarray, else a
+            ``(sample_index, Ex, Ey[, V])`` ndarray tuple. Zero newly-valid
+            samples returns a zero-length result, never ``None``, never an
+            exception -- this is the normal state during
+            :attr:`warmup_samples`.
+        """
+        B, latlons, times, obs_names = _extract_b(new_b, obs_latlons)
+        if self._is_xarray is None:
+            self._is_xarray = times is not None
+        if self._obs_latlons is None:
+            self._obs_latlons, self._obs_names = latlons, obs_names
+        elif not np.allclose(latlons, self._obs_latlons) or (
+                obs_names is not None and self._obs_names is not None
+                and list(obs_names) != list(self._obs_names)):
+            raise ValueError(
+                "Nowcast's observatory set must stay fixed across update() "
+                "calls; build a new Nowcast if the network changes")
+        if times is not None:
+            if self._t0 is None:
+                self._t0 = pd.Timestamp(times[0])
+            else:
+                expected = self._t0 + pd.to_timedelta(self._n_total * self.dt, unit="s")
+                if pd.Timestamp(times[0]) != expected:
+                    raise ValueError(
+                        f"gap or overlap in the input stream: expected "
+                        f"{expected}, got {pd.Timestamp(times[0])}")
+
+        site_latlons = _site_latlons(self.sites)
+        has_gap = np.isnan(B[:, :, :2]).any()
+
+        if (self._M is None and self.secs.method == "lstsq"
+                and not has_gap and not self.force_slow_secs):
+            self.secs.fit(B, obs_latlons=self._obs_latlons, gaps="mask")
+            self._M = self.secs.transfer_matrix(site_latlons)
+            self._M_flat = self._M.reshape(len(self._obs_latlons) * 2, -1)
+
+        if self._M is not None and not has_gap and not self.force_slow_secs:
+            B_site_new = (B[:, :, :2].reshape(len(B), -1) @ self._M_flat
+                         ).reshape(len(B), len(self.sites), 2)
+        elif self.secs.method == "kalman":
+            fit_input = (np.concatenate([self._buf_b_obs, B], axis=0)
+                        if self._buf_b_obs is not None else B)
+            # Kalman needs strictly-increasing times for its tau (seconds)
+            # correlation time; a synthetic sample-cadence axis is correct
+            # regardless of whether the caller's input was xarray or bare
+            # (KalmanSECS only uses differences between samples).
+            tmp = SECSInterpolator(**self.secs._config())
+            tmp.fit(fit_input, obs_latlons=self._obs_latlons, gaps="mask",
+                   times=np.arange(len(fit_input)) * self.dt)
+            B_site_new = tmp.predict(site_latlons)[-len(B):, :, :2]
+        else:
+            # lstsq is memoryless in time -- only this chunk is needed
+            tmp = SECSInterpolator(**self.secs._config())
+            tmp.fit(B, obs_latlons=self._obs_latlons, gaps="mask")
+            B_site_new = tmp.predict(site_latlons)[:, :, :2]
+
+        if np.isnan(B_site_new).any():
+            raise ValueError(
+                "SECS-interpolated B has NaN at a site (a simultaneous "
+                "all-observatory dropout) -- Nowcast is not gap-tolerant at "
+                "that granularity; despike/mask upstream removes single-"
+                "station artifacts but not a total network outage")
+
+        self._buf_bx = np.concatenate([self._buf_bx, B_site_new[:, :, 0]], axis=0)
+        self._buf_by = np.concatenate([self._buf_by, B_site_new[:, :, 1]], axis=0)
+        if self.secs.method == "kalman":
+            self._buf_b_obs = (B if self._buf_b_obs is None
+                               else np.concatenate([self._buf_b_obs, B], axis=0))
+        self._n_total += len(B)
+
+        ex_new = ey_new = np.empty((0, len(self.sites)))
+        abs_start_finalized = None
+        buf_len = len(self._buf_bx)
+
+        if buf_len >= self.warmup_samples:
+            prev_local = self._last_finalized_abs - self._buffer_start + 1
+            new_last_local = buf_len - 1 - abs(self.nmin)
+            if new_last_local >= prev_local:
+                ex_full = np.empty((buf_len, len(self.sites)))
+                ey_full = np.empty((buf_len, len(self.sites)))
+                for i, dtir in enumerate(self._dtirs):
+                    ex_full[:, i], ey_full[:, i] = dtir.convolve(
+                        self._buf_bx[:, i], self._buf_by[:, i])
+                ex_new = ex_full[prev_local:new_last_local + 1]
+                ey_new = ey_full[prev_local:new_last_local + 1]
+                abs_start_finalized = self._buffer_start + prev_local
+                self._last_finalized_abs = self._buffer_start + new_last_local
+
+            # Two independent floors: never trim past what a not-yet-
+            # finalized future index will need as left context, and never
+            # let the buffer drop below warmup_samples (that changes
+            # np.convolve(mode="same")'s output length -- see the
+            # warmup_samples docstring note above).
+            target_start_local = (self._last_finalized_abs + 1 - self.nmax) - self._buffer_start
+            keep_from_local = max(0, min(target_start_local, buf_len - self.warmup_samples))
+            if keep_from_local > 0:
+                self._buf_bx = self._buf_bx[keep_from_local:]
+                self._buf_by = self._buf_by[keep_from_local:]
+                if self._buf_b_obs is not None:
+                    self._buf_b_obs = self._buf_b_obs[keep_from_local:]
+                self._buffer_start += keep_from_local
+
+        V_new = None
+        if self._lines is not None and len(ex_new):
+            E_new = np.stack([ex_new, ey_new], axis=-1)
+            V_new = apply_voltage_matrix(E_new, self._L, self._valid)
+
+        return self._package(ex_new, ey_new, V_new, abs_start_finalized)
+
+    def _package(self, ex_new, ey_new, V_new, abs_start_finalized):
+        n = len(ex_new)
+        if not self._is_xarray:
+            idx = (np.arange(abs_start_finalized, abs_start_finalized + n)
+                  if abs_start_finalized is not None else np.arange(0))
+            if self._lines is not None:
+                return idx, ex_new, ey_new, V_new
+            return idx, ex_new, ey_new
+
+        xr = _require_xarray()
+        if abs_start_finalized is not None:
+            time = self._t0 + pd.to_timedelta(
+                (abs_start_finalized + np.arange(n)) * self.dt, unit="s")
+        else:
+            time = pd.DatetimeIndex([])
+        site_latlons = _site_latlons(self.sites)
+        coords = {"time": time, "site": [s.name for s in self.sites],
+                 "latitude": ("site", site_latlons[:, 0]),
+                 "longitude": ("site", site_latlons[:, 1])}
+        data_vars = {"Ex": (("time", "site"), ex_new, {"units": "mV/km"}),
+                    "Ey": (("time", "site"), ey_new, {"units": "mV/km"})}
+        if self._lines is not None:
+            v = V_new if V_new is not None else np.empty((n, len(self._lines)))
+            data_vars["V"] = (("time", "line"), v, {"units": "V"})
+            coords["line"] = np.arange(len(self._lines))
+        return xr.Dataset(
+            data_vars, coords=coords,
+            attrs={"dt_seconds": self.dt, "nmin": self.nmin, "nmax": self.nmax,
+                  "warmup_samples": self.warmup_samples, "n_total": self._n_total})

@@ -32,6 +32,8 @@
 
 ::: bezpy.mt.site
 
+::: bezpy.mt.impulse
+
 ::: bezpy.mt.io
 
 ::: bezpy.mt.legacy

@@ -44,6 +44,9 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.scripts]
+bezpy = "bezpy.cli:main"
+
 [project.optional-dependencies]
 # Plotting routines (Site.plot_apparent_resistivity, mt.plotting)
 plotting = ["matplotlib>=3.5"]
