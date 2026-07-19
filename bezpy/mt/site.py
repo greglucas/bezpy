@@ -263,20 +263,23 @@ class Site3d(Site):
                          ax_res.get_title())
         return (fig, ax_res, ax_phase)
 
-    def calcZ(self, freqs, extrapolate="zeros"):
+    def calcZ(self, freqs, extrapolate="asymptotic"):
         """Calculates transfer function, Z, from the input frequencies.
 
         :param extrapolate: how to treat frequencies outside the measured
             period band.
 
-            * ``"zeros"`` (default, the historical behavior): a hard band-stop,
-              Z = 0 outside the band.
-            * ``"asymptotic"``: physical band-edge continuation. |Z| follows
-              the half-space sqrt(omega) asymptote anchored at the band-edge
-              value (phase held at the edge), decaying to Z = 0 at DC on the
-              long-period side and growing as sqrt(f) on the short-period
-              side. This preserves the short-period content that dominates
-              dB/dt-driven E instead of truncating it.
+            * ``"asymptotic"`` (default): physical band-edge continuation.
+              |Z| follows the half-space sqrt(omega) asymptote anchored at
+              the band-edge value (phase held at the edge), decaying to
+              Z = 0 at DC on the long-period side and growing as sqrt(f) on
+              the short-period side. This preserves the short-period content
+              that dominates dB/dt-driven E instead of truncating it (see
+              ``VALIDATION.md`` D6: synthetic relative RMS error 0.03-0.07 vs
+              0.65-0.82 for ``"zeros"``, confirmed directionally on real
+              storms).
+            * ``"zeros"`` (legacy, the historical behavior): a hard
+              band-stop, Z = 0 outside the band.
         """
         if extrapolate not in ("zeros", "asymptotic"):
             raise ValueError("extrapolate must be one of: zeros, asymptotic")
@@ -558,7 +561,7 @@ class SiteCollection:
                 Z[:, i, :] = site.calcZ(freqs)
         return Z
 
-    def convolve_fft(self, mag_x, mag_y, dt=60, extrapolate="zeros",
+    def convolve_fft(self, mag_x, mag_y, dt=60, extrapolate="asymptotic",
                      site_chunk=None):
         """Convolution in frequency space for all sites at once.
 

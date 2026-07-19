@@ -3,8 +3,11 @@
 **What this is:** the evidence base for bezpy's method defaults.
 Every option where past practice and a proposed default diverge is scored
 against synthetic truth by `benchmarks/validation_harness.py` (built on
-`bezpy.validation`); this file records the current results. Re-run the
-harness and update this file when the relevant code changes.
+`bezpy.validation`), and where a synthetic result needs confirming against
+real observatory/MT data, by `benchmarks/validation_harness_real.py`
+(sections marked "real-storm"). This file records the current results;
+re-run the relevant harness and update this file when the underlying code
+changes.
 
 **The synthetic truth** (`bezpy.validation.synthetic_scenario`): a two-layer
 conductivity structure varying smoothly in space (surface resistivity,
@@ -39,9 +42,44 @@ The real-data band (7–30,000 s vs a 1-minute Nyquist
 of 120 s) is truncated far less severely than this stress test, so the
 production-scale effect is smaller but the direction is unambiguous.
 
-**Default:** unchanged (`"zeros"`) until a reference-storm comparison on
-real EMTF impedances is added; the harness evidence supports switching for
-dB/dt-dominated applications. Use `extrapolate="asymptotic"` explicitly.
+### D6 real-storm confirmation (2026-07-18)
+
+The reference-storm comparison this section called for:
+`benchmarks/validation_harness_real.py`, real EMTF sites in the docs'
+example CONUS bbox (-110, 35, -100, 45; 342 sites), 5-station observatory
+network (BOU/FRD/TUC/NEW/FRN), peak |E| per site under each option for the
+2024-05 Gannon and 2003-10 Halloween storms:
+
+| storm | n sites | ratio median | ratio p90 | ratio max | ratio min |
+| --- | --- | --- | --- | --- | --- |
+| 2024-05 Gannon | 342 | 1.009 | 1.061 | 7.01 | 0.876 |
+| 2003-10 Halloween | 342 | 1.022 | 1.176 | 5.86 | 0.870 |
+
+(ratio = peak |E| under `"asymptotic"` / peak |E| under `"zeros"`; no
+non-finite values in either storm)
+
+**Reading:** the real-data band is indeed truncated far less severely than
+the synthetic stress test, as expected — the *typical* site barely moves
+(median ~1-2%). But the distribution has real tails in both directions, and
+they are explainable rather than numerical noise: the max-ratio sites in
+both storms belong to a single local survey (`NCP19*`) whose transfer
+functions were measured only out to ~1,190 s, well short of the network's
+typical ~5-hour long-period limit — exactly the truncated-band regime D6's
+synthetic test targets, and `"asymptotic"` recovers the storm-scale power
+`"zeros"` was hard-discarding there. The min-ratio sites (`"asymptotic"`
+~10-13% *below* `"zeros"`) have ordinary or long bands, so the small
+decrease there is the expected phase-interference effect of a physically
+continued (not just larger) out-of-band tail, not an artifact. No site in
+either storm produced a NaN/Inf or a runaway ratio unexplained by its band.
+
+**Default:** changed to `extrapolate="asymptotic"` (was `"zeros"`) --
+`Site3d.calcZ`, `SiteCollection.convolve_fft`, `calc_geoelectric_field`, and
+`TelluricResponse` all default to it now. The synthetic evidence was already
+unambiguous on direction; this real-storm run confirms the production-scale
+effect is small for a typically-banded site, large and correctly-directed
+for a narrow-banded one, and never unstable. `extrapolate="zeros"` remains
+available by name to reproduce pre-flip numbers. See `CHANGELOG.md` for the
+result-changing note.
 
 ## D7 — E-interpolation scheme for line voltages (`how=`, `resample_km=`)
 
@@ -222,13 +260,51 @@ gating does not help against a *persistent* baseline jump — after the
 first few steps the jump is absorbed into the forecast and stops looking
 like an innovation; gating is for transient spikes.
 
-**Default:** `method="lstsq"` retained — the Kalman smoother stores the
-full amplitude covariance (`8·ntimes·npoles²` bytes), which is a real
-constraint for multi-decade scans, and the noise regime of real
-1-minute observatory data should be measured before switching. Use
-`method="kalman"` explicitly for storm case studies on noisy/gappy
-networks (see `test_secs.py::test_kalman_beats_lstsq_on_noisy_gappy_data`),
-and `smoother=False` for causal real-time filtering.
+### 3.1 real-storm measurement (2026-07-18)
+
+The noise regime called for above: `benchmarks/validation_harness_real.py`,
+leave-one-out over the same 5-station CONUS network (BOU/FRD/TUC/NEW/FRN)
+on the 2024-05 Gannon and 2003-10 Halloween storms, B linearly detrended
+per-window first (SECS models the disturbance field only, not each
+station's very different core-field baseline -- comparing against raw B
+would just measure that offset):
+
+| storm | method | RMSE (nT) | MAE (nT) | correlation |
+| --- | --- | --- | --- | --- |
+| 2024-05 Gannon | lstsq (default) | 91.562 | 57.611 | 0.643 |
+| 2024-05 Gannon | lstsq robust=huber | 94.907 | 60.324 | 0.567 |
+| 2024-05 Gannon | kalman tau=3600 | 91.470 | 57.570 | 0.644 |
+| 2003-10 Halloween | lstsq (default) | 72.561 | 45.435 | 0.605 |
+| 2003-10 Halloween | lstsq robust=huber | 78.324 | 49.076 | 0.537 |
+| 2003-10 Halloween | kalman tau=3600 | 71.951 | 45.266 | 0.611 |
+
+epsilon/tau tuning curves (`SECSInterpolator.loo_score`, mean RMSE across
+observatories): **epsilon is flat** across 0.01-0.2 on both storms (this
+5-station network is sparse enough that the regularization strength in that
+range never binds); **tau helps monotonically but marginally**, 91.56 nT
+(tau=300s) -> 91.45 nT (tau=7200s) on Gannon, 72.12 -> 71.93 nT on
+Halloween.
+
+**Reading:** real observatory data is far cleaner than the synthetic stress
+test (which added ~40% white noise plus a dropout plus a baseline jump by
+construction) -- Kalman's real-storm win over lstsq is **<1%** here, not the
+~30% the synthetic scenario showed. That scenario measured Kalman's *upper
+bound* under heavy corruption, not what a real 1-minute CONUS network
+delivers. `robust=huber` is not a wash on real data the way it was on
+synthetic: it makes both storms measurably *worse* (+3.7% and +8.0% RMSE) --
+real storm excursions are large, genuine signal that IRLS partly downweights
+as if it were an outlier, exactly the failure mode the synthetic scenario's
+single-outlying-station design could not expose.
+
+**Default:** `method="lstsq"` retained -- now confirmed rather than assumed:
+on real data the memory/compute cost of `method="kalman"` buys a real but
+small win. The "use kalman for storm case studies" recommendation is
+**tempered**, not withdrawn: reach for it on genuinely sparse/gappy networks
+where the synthetic scenario's stress applies, tune `tau` with
+`loo_score` on your own network rather than assuming a large win, and do
+**not** reach for `robust=` in a storm case study -- it costs real skill
+here. `smoother=False` remains the causal real-time recommendation
+(unaffected by this measurement).
 
 ## D1 / D2 / D4 / D5 — covered by comparison tests
 
@@ -288,7 +364,16 @@ around it or split the window. Unit coverage:
 
 ## Still to add
 
-- Reference-storm comparison on real data (May 2024 or Halloween 2003)
-  under all method combinations, with a persisted results table.
-- `epsilon` and `tau` tuning curves via `SECSInterpolator.loo_score` on a
-  real storm (the Kalman-vs-lstsq call above is synthetic-only so far).
+- ~~Reference-storm comparison on real data (May 2024 or Halloween 2003)
+  under all method combinations~~ -- done 2026-07-18, see the "D6 real-storm
+  confirmation" and "3.1 real-storm measurement" subsections above
+  (`benchmarks/validation_harness_real.py`).
+- ~~`epsilon` and `tau` tuning curves via `SECSInterpolator.loo_score` on a
+  real storm~~ -- done 2026-07-18, same run (3.1 real-storm measurement).
+- Not measured: comparison against measured E (e.g. USGS geoelectric
+  monitoring at BOU) -- no reader exists yet for that product, so the
+  real-storm runs above use leave-one-out and cross-option comparison
+  instead of an independent E ground truth. Worth adding alongside other
+  `bezpy.data` source work (roadmap 3.2) if the product has a stable API.
+- D7's `secs+local-z` scheme and the multi-input kernel work it depends on
+  (roadmap 2.1) still only has the synthetic D7-extension evidence above.

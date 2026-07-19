@@ -70,7 +70,7 @@ behavior is available **by name** and at least one test compares the two:
 | Gap handling | `gaps="mask"` (infinite variance) | `gaps="interpolate"` (+ `max_gap`), `gaps="drop"` |
 | Detrending | `detrend="linear"` + `taper="tukey"` | `detrend="median"`, `taper=None` |
 | Convolution pad | `pad="auto"` (3 × longest impedance period) | `pad="2D"` |
-| Impedance band edges | `extrapolate="zeros"` | (`"asymptotic"` is the physical option) |
+| Impedance band edges | `extrapolate="asymptotic"` | `extrapolate="zeros"` (hard band-stop) |
 | Tail statistics | `method="gpd"` (POT + profile CI) | `method="lognormal-2019"` |
 
 Defaults change only with evidence from the

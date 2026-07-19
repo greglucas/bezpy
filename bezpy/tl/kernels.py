@@ -152,18 +152,18 @@ class TelluricResponse:
         Lines flagged invalid produce NaN voltages.
     periods : ndarray, optional
         Master period grid in seconds; None for exact mode.
-    extrapolate : {"zeros", "asymptotic"}
+    extrapolate : {"asymptotic", "zeros"}
         Band-edge handling for frequencies outside the impedance (or master
-        period) band. ``"zeros"`` is the historical hard band-stop;
-        ``"asymptotic"`` continues tau with the half-space sqrt(f) asymptote
-        anchored at the band edge (see ``Site3d.calcZ``), preserving the
-        short-period content that a band-stop truncates.
+        period) band. ``"asymptotic"`` (default) continues tau with the
+        half-space sqrt(f) asymptote anchored at the band edge (see
+        ``Site3d.calcZ``), preserving the short-period content a band-stop
+        truncates; ``"zeros"`` is the legacy hard band-stop.
     tau_master : ndarray (nlines, 2, nperiods), optional
         Precomputed master-grid tau (as restored by :meth:`from_netcdf`);
         when given, ``L``/``sites`` may be None and no construction happens.
     """
 
-    def __init__(self, L, sites, valid=None, periods=None, extrapolate="zeros",
+    def __init__(self, L, sites, valid=None, periods=None, extrapolate="asymptotic",
                  tau_master=None):
         if extrapolate not in ("zeros", "asymptotic"):
             raise ValueError("extrapolate must be one of: zeros, asymptotic")
@@ -190,7 +190,7 @@ class TelluricResponse:
 
     @classmethod
     def from_lines(cls, lines, sites, how="delaunay", periods=None,
-                   extrapolate="zeros", resample_km=None):
+                   extrapolate="asymptotic", resample_km=None):
         """Build from TransmissionLines and Sites, setting weights as needed.
 
         :param resample_km: if given, densify each line's geometry to at most

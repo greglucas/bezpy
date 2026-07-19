@@ -82,14 +82,19 @@ plt.show()
   `interp.loo_score(b, epsilon=...)` instead of trusting the default.
 - **Noisy or gappy networks**: `SECSInterpolator(method="kalman", tau=...)`
   couples the time steps with pysecs' Kalman filter/smoother — it averages
-  noise across time and rides through station dropouts (~30% better on the
-  synthetic benchmark, see [validation results](../validation.md)); pass it
-  to `calc_geoelectric_field(..., secs=interp)`. `robust="huber"` /
-  `"bisquare"` downweight single-station spikes in the default snapshot fit.
+  noise across time and rides through station dropouts. ~30% better than
+  `lstsq` on a synthetic network stressed with heavy noise/dropout/baseline
+  jump, but real observatory data is much cleaner: on two real storms
+  (5-station CONUS network) the gain was <1% (see
+  [validation results](../validation.md)) — worth tuning `tau` on your own
+  network rather than assuming a large win. `robust="huber"` / `"bisquare"`
+  downweight single-station spikes in the default snapshot fit, but actively
+  *hurt* on real storms (they downweight genuine large storm signal, not
+  just outliers) — don't reach for them by default in a storm case study.
 - **Uncertainty**: `interp.predict(latlons, return_var=True)` adds
   `Bx_var`/`By_var`/`Bz_var`, propagated from the fit's posterior
   covariance.
-- **Band edges**: pass `extrapolate="asymptotic"` to
-  `calc_geoelectric_field` to continue the impedances physically past the
-  measured band instead of hard band-stopping (see
+- **Band edges**: impedances are continued past the measured band with the
+  physical half-space asymptote by default (`extrapolate="asymptotic"`);
+  pass `extrapolate="zeros"` for the legacy hard band-stop (see
   [validation results](../validation.md)).

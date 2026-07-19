@@ -28,6 +28,17 @@ method-comparison results behind the defaults.
   sequence and is now computed per component and averaged. Coherence-based
   skill scores from earlier runs are unreliable; RMSE/MAE/correlation scores
   were always correct.
+- **`extrapolate` default changed `"zeros"` -> `"asymptotic"`** (not a bug --
+  a deferred default settled with evidence; see `VALIDATION.md` D6 and its
+  "D6 real-storm confirmation"). `Site3d.calcZ`, `SiteCollection.convolve_fft`,
+  `calc_geoelectric_field`, and `TelluricResponse` all switch: impedances are
+  now continued past the measured period band with the physical half-space
+  sqrt(f) asymptote instead of hard-zeroed. E computed from `Site3d`/gridded
+  (band-limited) impedances without an explicit `extrapolate=` will change --
+  typically a few percent, more for narrow-banded sites/surveys where the
+  measured band falls well short of the storm timescale. Pass
+  `extrapolate="zeros"` explicitly to reproduce old numbers; `Site1d`
+  (physical, always-valid) sites are unaffected.
 
 ### New
 
@@ -46,7 +57,10 @@ method-comparison results behind the defaults.
 - `bezpy.stats.return_level` — GPD/POT with profile-likelihood or bootstrap
   CIs; `lognormal-2019` and `gev` by name. CIs are mandatory in the output.
 - `bezpy.validation` — leave-one-out skill scores and a synthetic-truth
-  benchmark that arbitrates method defaults.
+  benchmark that arbitrates method defaults; `benchmarks/validation_harness_real.py`
+  extends the same discipline to real observatory/MT data (reference-storm
+  method comparison, epsilon/tau tuning) where synthetic truth alone can't
+  settle a default.
 - `bezpy.tl.kernels` — Level-1 voltage functionals and Level-2 power-line
   telluric response functions (Kelbert & Lucas 2020), with netCDF round-trip
   and FFT-grid caching; `TransmissionLine.resampled` great-circle

@@ -58,7 +58,7 @@ def _max_site_period(sites):
 
 def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
                            pad="auto", detrend="linear", taper="tukey",
-                           gaps="mask", despike_obs=False, extrapolate="zeros",
+                           gaps="mask", despike_obs=False, extrapolate="asymptotic",
                            secs=None, leave_one_out=None, collection=None):
     """Geoelectric fields at MT sites from observatory magnetic fields.
 
@@ -88,8 +88,8 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
         and steps that would otherwise inflate the interpolated E. Recommended
         for FDSN variometer inputs; a no-op cost on clean observatory data
         (nothing is flagged). Pass a dict to override despike keywords.
-    :param extrapolate: impedance band-edge handling (``"zeros"`` or
-        ``"asymptotic"``, see ``Site3d.calcZ``)
+    :param extrapolate: impedance band-edge handling, ``"asymptotic"``
+        (default) or the legacy ``"zeros"`` band-stop (see ``Site3d.calcZ``)
     :param secs: optionally a configured ``SECSInterpolator`` to use
     :param leave_one_out: observatory code to exclude from the SECS fit
         (validation hook)
