@@ -1,4 +1,5 @@
 """Tests for Site3d interpolation/caching, convolution, and collections."""
+
 import numpy as np
 import pytest
 
@@ -108,21 +109,24 @@ def test_short_period_list_interpolates():
     import numpy as np
 
     from bezpy.mt.site import Site3d, SiteCollection
+
     for nper in (2, 3):
         periods = np.logspace(1, 3, nper)
         Z = np.zeros((4, nper), dtype=complex)
-        Z[1] = (1 + 1j) * np.sqrt(1. / periods)
+        Z[1] = (1 + 1j) * np.sqrt(1.0 / periods)
         Z[2] = -Z[1]
-        site = Site3d("short", latitude=40., longitude=-105.,
-                      periods=periods, Z=Z)
+        site = Site3d("short", latitude=40.0, longitude=-105.0, periods=periods, Z=Z)
         ex, ey = SiteCollection([site]).convolve_fft(
-            np.sin(np.arange(256) / 20.), np.cos(np.arange(256) / 20.), dt=60)
+            np.sin(np.arange(256) / 20.0), np.cos(np.arange(256) / 20.0), dt=60
+        )
         assert np.isfinite(ex).all() and np.isfinite(ey).all()
 
     # A single valid estimate is not interpolable: clear error, names the site
     import pytest
-    bad = Site3d("lonely", periods=np.array([10., 100.]),
-                 Z=np.array([[1 + 1j, np.nan]] * 4, dtype=complex))
+
+    bad = Site3d(
+        "lonely", periods=np.array([10.0, 100.0]), Z=np.array([[1 + 1j, np.nan]] * 4, dtype=complex)
+    )
     with pytest.raises(ValueError, match="lonely"):
         bad.calcZ(np.array([0.01, 0.001]))
 
@@ -135,31 +139,53 @@ def test_spline_ignores_bad_variance_periods():
     """
     rng = np.random.default_rng(0)
     periods = np.logspace(1, 4, 12)
-    Z = (rng.normal(size=(4, 12)) + 1j * rng.normal(size=(4, 12)))
+    Z = rng.normal(size=(4, 12)) + 1j * rng.normal(size=(4, 12))
     Z_var = np.full((4, 12), 0.01)
-    Z_var[:, 5] = np.nan   # missing error column on one row
-    Z_var[:, 7] = 0.0      # degenerate (infinite-weight) variance
-    site = bezpy.mt.Site3d("mixed", latitude=40.0, longitude=-105.0,
-                           periods=periods, Z=Z, Z_var=Z_var)
+    Z_var[:, 5] = np.nan  # missing error column on one row
+    Z_var[:, 7] = 0.0  # degenerate (infinite-weight) variance
+    site = bezpy.mt.Site3d(
+        "mixed", latitude=40.0, longitude=-105.0, periods=periods, Z=Z, Z_var=Z_var
+    )
     Z_interp = site.calcZ(1.0 / np.logspace(1.2, 3.8, 7))
     assert np.all(np.isfinite(Z_interp))
 
     # Same Z without variances still interpolates (baseline sanity)
-    plain = bezpy.mt.Site3d("plain", latitude=40.0, longitude=-105.0,
-                            periods=periods, Z=Z)
+    plain = bezpy.mt.Site3d("plain", latitude=40.0, longitude=-105.0, periods=periods, Z=Z)
     assert np.all(np.isfinite(plain.calcZ(1.0 / np.logspace(1.2, 3.8, 7))))
+
+
+def test_asymptotic_edge_uses_only_valid_variance_measurements():
+    """An invalid variance at the raw band edge must not zero the continuation."""
+    periods = np.logspace(1, 4, 8)
+    Z = np.ones((4, 8), dtype=complex) * (1 + 1j)
+    Z_var = np.ones((4, 8))
+    Z_var[:, [0, -1]] = [-1.0, np.nan]
+    site = bezpy.mt.Site3d("edge", periods=periods, Z=Z, Z_var=Z_var)
+
+    outside = site.calcZ(np.array([1.0 / 1.0, 1.0 / 1e5]))
+    assert np.all(np.abs(outside) > 0)
+
+
+def test_site3d_rejects_unsorted_or_duplicate_periods():
+    site = bezpy.mt.Site3d("bad-periods", periods=[10.0, 10.0], Z=np.ones((4, 2), dtype=complex))
+    with pytest.raises(ValueError, match="strictly increasing"):
+        site.calcZ(np.array([0.01]))
 
 
 def test_perturbed_no_variance_returns_self():
     """Site1d (and a Site3d without Z_var) has nothing to propagate, so
     every ensemble realization must be identical (roadmap 1.2 phase 1)."""
     rng = np.random.default_rng(0)
-    site1d = bezpy.mt.Site1d("hs", thicknesses=[1e9], resistivities=[100.])
+    site1d = bezpy.mt.Site1d("hs", thicknesses=[1e9], resistivities=[100.0])
     assert site1d.perturbed(rng) is site1d
 
-    site3d = bezpy.mt.Site3d("plain", latitude=40., longitude=-105.,
-                             periods=np.logspace(1, 4, 8),
-                             Z=np.ones((4, 8), dtype=complex))
+    site3d = bezpy.mt.Site3d(
+        "plain",
+        latitude=40.0,
+        longitude=-105.0,
+        periods=np.logspace(1, 4, 8),
+        Z=np.ones((4, 8), dtype=complex),
+    )
     assert site3d.perturbed(rng) is site3d
 
 
@@ -171,7 +197,7 @@ def test_perturbed_draws_within_reported_variance(site3d):
     draws = np.stack([site3d.perturbed(rng).Z for _ in range(200)])
     np.testing.assert_array_equal(site3d.Z, original_Z)  # unmutated
 
-    valid = np.isfinite(site3d.Z_var) & (site3d.Z_var > 0.)
+    valid = np.isfinite(site3d.Z_var) & (site3d.Z_var > 0.0)
     empirical_var = draws.real.var(axis=0) + draws.imag.var(axis=0)
     # Loose tolerance: 200 draws gives a noisy variance estimate, this only
     # needs to catch a badly wrong scale factor (e.g. missing the /2 split).
@@ -179,7 +205,8 @@ def test_perturbed_draws_within_reported_variance(site3d):
     assert np.median(ratio) == pytest.approx(1.0, rel=0.5)
     # Components without a usable Z_var are never perturbed.
     np.testing.assert_array_equal(
-        draws[:, ~valid], np.broadcast_to(original_Z[~valid], draws[:, ~valid].shape))
+        draws[:, ~valid], np.broadcast_to(original_Z[~valid], draws[:, ~valid].shape)
+    )
 
 
 def test_z_param_jacobian_matches_independent_finite_difference(site3d):
@@ -196,19 +223,25 @@ def test_z_param_jacobian_matches_independent_finite_difference(site3d):
     Zm[component, period_idx] -= eps
     plus = bezpy.mt.Site3d("p", periods=site3d.periods, Z=Zp, Z_var=site3d.Z_var)
     minus = bezpy.mt.Site3d("m", periods=site3d.periods, Z=Zm, Z_var=site3d.Z_var)
-    brute = (plus.calcZ(freqs, extrapolate="asymptotic")[component]
-            - minus.calcZ(freqs, extrapolate="asymptotic")[component]) / (2 * eps)
+    brute = (
+        plus.calcZ(freqs, extrapolate="asymptotic")[component]
+        - minus.calcZ(freqs, extrapolate="asymptotic")[component]
+    ) / (2 * eps)
 
     np.testing.assert_allclose(jac, brute)
     # Real/imag are independently-fit splines: perturbing the real part must
     # leave the output's imaginary part exactly unperturbed.
-    np.testing.assert_allclose(jac.imag, 0., atol=1e-12)
+    np.testing.assert_allclose(jac.imag, 0.0, atol=1e-12)
 
 
 def test_z_sensitivities_empty_without_variance():
-    site = bezpy.mt.Site3d("plain", latitude=40., longitude=-105.,
-                           periods=np.logspace(1, 4, 6),
-                           Z=np.ones((4, 6), dtype=complex))
+    site = bezpy.mt.Site3d(
+        "plain",
+        latitude=40.0,
+        longitude=-105.0,
+        periods=np.logspace(1, 4, 6),
+        Z=np.ones((4, 6), dtype=complex),
+    )
     assert site.z_sensitivities(np.logspace(-4, -1, 10)) == []
 
 
@@ -219,20 +252,26 @@ def test_convolve_fft_return_var_matches_ensemble_in_linear_regime(rng):
     the two propagation methods derive from the same Z_var and should
     converge as the perturbation shrinks."""
     from bezpy.mt.site import Site3d, SiteCollection
+
     periods = np.logspace(1, 4, 10)
     Z = np.zeros((4, len(periods)), dtype=complex)
-    Z[1, :] = (1. + 0.5j) * (1. + 0.1 * np.arange(len(periods)))
+    Z[1, :] = (1.0 + 0.5j) * (1.0 + 0.1 * np.arange(len(periods)))
     Z[2, :] = -Z[1, :]
-    Z_var = (0.02 * np.abs(Z))**2 + 1e-8
-    site = Site3d("S0", latitude=40., longitude=-100., periods=periods, Z=Z, Z_var=Z_var)
+    Z_var = (0.02 * np.abs(Z)) ** 2 + 1e-8
+    site = Site3d("S0", latitude=40.0, longitude=-100.0, periods=periods, Z=Z, Z_var=Z_var)
 
     mag_x, mag_y = rng.standard_normal(1024) * 20, rng.standard_normal(1024) * 20
     ex, ey, ex_var, ey_var = SiteCollection([site]).convolve_fft(
-        mag_x, mag_y, dt=60., return_var=True)
+        mag_x, mag_y, dt=60.0, return_var=True
+    )
     assert (ex_var > 0).all() and (ey_var > 0).all()
 
-    draws = np.stack([SiteCollection([site.perturbed(rng)]).convolve_fft(
-        mag_x, mag_y, dt=60.)[0][0] for _ in range(300)])
+    draws = np.stack(
+        [
+            SiteCollection([site.perturbed(rng)]).convolve_fft(mag_x, mag_y, dt=60.0)[0][0]
+            for _ in range(300)
+        ]
+    )
     mc_var = draws.var(axis=0)
     ratio = ex_var[0].mean() / mc_var.mean()
     assert ratio == pytest.approx(1.0, rel=0.3)
@@ -242,13 +281,14 @@ def test_convolve_fft_return_var_zero_without_variance():
     """Site1d sites (and Site3d without Z_var) have nothing to propagate,
     so their analytic variance must be exactly zero, not fabricated."""
     from bezpy.mt.site import SiteCollection
-    site = bezpy.mt.Site1d("hs", thicknesses=[1e9], resistivities=[100.])
-    site.latitude, site.longitude = 40., -100.
+
+    site = bezpy.mt.Site1d("hs", thicknesses=[1e9], resistivities=[100.0])
+    site.latitude, site.longitude = 40.0, -100.0
     ex, ey, ex_var, ey_var = SiteCollection([site]).convolve_fft(
-        np.sin(np.arange(256) / 20.), np.cos(np.arange(256) / 20.),
-        dt=60, return_var=True)
-    np.testing.assert_array_equal(ex_var, 0.)
-    np.testing.assert_array_equal(ey_var, 0.)
+        np.sin(np.arange(256) / 20.0), np.cos(np.arange(256) / 20.0), dt=60, return_var=True
+    )
+    np.testing.assert_array_equal(ex_var, 0.0)
+    np.testing.assert_array_equal(ey_var, 0.0)
 
 
 def test_collection_site_chunk_equivalence():
@@ -263,8 +303,7 @@ def test_collection_site_chunk_equivalence():
     bx = rng.normal(size=256)
     by = rng.normal(size=256)
     ex_all, ey_all = collection.convolve_fft(bx, by, dt=60)
-    ex_blk, ey_blk = bezpy.mt.SiteCollection(sites).convolve_fft(
-        bx, by, dt=60, site_chunk=2)
+    ex_blk, ey_blk = bezpy.mt.SiteCollection(sites).convolve_fft(bx, by, dt=60, site_chunk=2)
     np.testing.assert_allclose(ex_blk, ex_all)
     np.testing.assert_allclose(ey_blk, ey_all)
 
@@ -272,7 +311,6 @@ def test_collection_site_chunk_equivalence():
     bx2 = rng.normal(size=(256, 5))
     by2 = rng.normal(size=(256, 5))
     ex_all, ey_all = collection.convolve_fft(bx2, by2, dt=60)
-    ex_blk, ey_blk = bezpy.mt.SiteCollection(sites).convolve_fft(
-        bx2, by2, dt=60, site_chunk=2)
+    ex_blk, ey_blk = bezpy.mt.SiteCollection(sites).convolve_fft(bx2, by2, dt=60, site_chunk=2)
     np.testing.assert_allclose(ex_blk, ex_all)
     np.testing.assert_allclose(ey_blk, ey_all)

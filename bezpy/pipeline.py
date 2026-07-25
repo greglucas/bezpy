@@ -28,6 +28,11 @@ The single-window building blocks :func:`calc_geoelectric_field` and
 __all__ = ["calc_geoelectric_field", "calc_voltages", "scan", "storm_scan", "Nowcast"]
 
 import concurrent.futures
+import hashlib
+import json
+import os
+import pathlib
+import tempfile
 import warnings
 
 import numpy as np
@@ -40,18 +45,164 @@ from .mt.site import Site3d, SiteCollection
 from .tl.kernels import apply_voltage_matrix, voltage_matrix
 from .tl.network import apply_gic_matrix, gic_matrix
 
-# Histogram sketch used for streaming quantiles: log-spaced bins covering
-# any plausible |E| (mV/km) or |V| (volts) with ~1.5% resolution.
-_SKETCH_BINS = np.r_[0., np.logspace(-4, 5, 1350)]
+# Histogram sketch used for streaming quantiles: log-spaced finite bins with
+# ~1.5% resolution, plus an overflow bin. The overflow bin prevents extreme
+# values from being silently omitted; quantiles that land there are reported
+# as NaN because their magnitude cannot be resolved by this fixed sketch.
+_SKETCH_MAX = 1e5
+_SKETCH_BINS = np.r_[0.0, np.logspace(-4, np.log10(_SKETCH_MAX), 1350), np.inf]
+_SCAN_CHECKPOINT_SCHEMA = 2
 
 
 def _require_xarray():
     import xarray as xr
+
     return xr
 
 
 def _site_latlons(sites):
-    return np.array([[site.latitude, site.longitude] for site in sites])
+    latlons = np.asarray([[site.latitude, site.longitude] for site in sites], dtype=float).reshape(
+        -1, 2
+    )
+    if len(latlons) == 0:
+        raise ValueError("at least one MT site is required")
+    if not np.isfinite(latlons).all():
+        raise ValueError("every MT site must have finite latitude and longitude")
+    if np.any(np.abs(latlons[:, 0]) > 90):
+        raise ValueError("MT site latitudes must lie within [-90, 90] degrees")
+    names = [site.name for site in sites]
+    if len(set(names)) != len(names):
+        raise ValueError("MT site names must be unique")
+    return latlons
+
+
+def _line_ids(lines):
+    """Stable output labels for line-indexed results."""
+    return [str(line.metadata.get("id", i)) for i, line in enumerate(lines)]
+
+
+def _digest_array(hasher, value):
+    """Add an array's type, shape, and values to a configuration digest."""
+    array = np.asarray(value)
+    hasher.update(str(array.dtype).encode())
+    hasher.update(repr(array.shape).encode())
+    if array.dtype.hasobject or array.dtype.kind in "US":
+        hasher.update(repr(array.tolist()).encode())
+    else:
+        hasher.update(np.ascontiguousarray(array).view(np.uint8))
+
+
+def _stable_config(value):
+    """JSON-safe scientific options without mutable fitted-state reprs."""
+    if isinstance(value, SECSInterpolator):
+        return {
+            "type": "SECSInterpolator",
+            "config": _stable_config(value._config()),  # noqa: SLF001
+        }
+    if isinstance(value, dict):
+        return {str(key): _stable_config(item) for key, item in sorted(value.items())}
+    if isinstance(value, (list, tuple)):
+        return [_stable_config(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return repr(value)
+
+
+def _scan_signature(
+    b_obs,
+    sites,
+    lines,
+    network,
+    chunk,
+    reduce,
+    threshold,
+    quantiles,
+    how,
+    despike_obs,
+    field_kwargs,
+):
+    """Fingerprint the scientific configuration of a resumable scan.
+
+    The record end is intentionally excluded so a checkpoint can resume after
+    the input archive has been extended. The start/cadence/observatory layout,
+    impedances, geometries, topology, and method choices are included.
+    """
+    hasher = hashlib.sha256()
+    times = np.asarray(b_obs["time"].values)
+    if times.size == 0:
+        raise ValueError("b_obs must contain at least one time sample")
+    identity = {
+        "checkpoint_schema": _SCAN_CHECKPOINT_SCHEMA,
+        "input_start": str(pd.Timestamp(times[0])),
+        "input_step": str(times[1] - times[0]) if len(times) > 1 else None,
+        "obs": [str(value) for value in b_obs["obs"].values],
+        "chunk": str(chunk),
+        "reduce": list(reduce),
+        "threshold": _stable_config(threshold),
+        "quantiles": list(quantiles),
+        "how": how,
+        "despike_obs": _stable_config(despike_obs),
+        "field_kwargs": _stable_config(field_kwargs),
+        "quantile_sketch": {
+            "finite_max": _SKETCH_MAX,
+            "n_bins": len(_SKETCH_BINS) - 1,
+        },
+    }
+    hasher.update(json.dumps(identity, sort_keys=True, default=repr).encode())
+    for coord in ("latitude", "longitude"):
+        _digest_array(hasher, b_obs[coord].values)
+    for site in sites:
+        hasher.update(f"{type(site).__name__}:{site.name}".encode())
+        for name in (
+            "latitude",
+            "longitude",
+            "periods",
+            "Z",
+            "Z_var",
+            "thicknesses",
+            "resistivities",
+        ):
+            value = getattr(site, name, None)
+            if value is not None:
+                hasher.update(name.encode())
+                _digest_array(hasher, value)
+    for line in () if lines is None else lines:
+        _digest_array(hasher, line.pts)
+        hasher.update(json.dumps(line.metadata, sort_keys=True, default=repr).encode())
+    if network is not None:
+        hasher.update(
+            json.dumps(
+                {
+                    "substations": network.substations,
+                    "transformers": network.transformers,
+                    "branches": network.branches,
+                },
+                sort_keys=True,
+                default=repr,
+            ).encode()
+        )
+    return hasher.hexdigest()
+
+
+def _write_checkpoint(dataset, out_path):
+    """Atomically replace a scan checkpoint after netCDF serialization."""
+    path = pathlib.Path(out_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, delete=False
+    )
+    tmp = pathlib.Path(handle.name)
+    handle.close()
+    try:
+        dataset.to_netcdf(tmp)
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
 def _maybe_despike(b_obs, despike_obs):
@@ -62,17 +213,29 @@ def _maybe_despike(b_obs, despike_obs):
 
 
 def _max_site_period(sites):
-    periods = [np.max(site.periods) for site in sites
-               if getattr(site, "periods", None) is not None]
+    periods = [np.max(site.periods) for site in sites if getattr(site, "periods", None) is not None]
     return max(periods) if periods else DEFAULT_MAX_PERIOD
 
 
-def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
-                           pad="auto", detrend="linear", taper="tukey",
-                           gaps="mask", despike_obs=False, extrapolate="asymptotic",
-                           secs=None, leave_one_out=None, collection=None,
-                           n_realizations=None, perturb_b=False, seed=None,
-                           return_var=False):
+def calc_geoelectric_field(
+    b_obs,
+    sites,
+    interp="secs",
+    window=None,
+    pad="auto",
+    detrend="linear",
+    taper="tukey",
+    gaps="mask",
+    despike_obs=False,
+    extrapolate="asymptotic",
+    secs=None,
+    leave_one_out=None,
+    collection=None,
+    n_realizations=None,
+    perturb_b=False,
+    seed=None,
+    return_var=False,
+):
     """Geoelectric fields at MT sites from observatory magnetic fields.
 
     The full chain: :func:`bezpy.mag.prepare` (detrend/taper/pad) ->
@@ -159,29 +322,38 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
     if perturb_b and n_realizations is None:
         raise ValueError("perturb_b=True has no effect without n_realizations=")
     if return_var and n_realizations is not None:
-        raise ValueError("return_var=True and n_realizations= are mutually "
-                         "exclusive (n_realizations already gives an "
-                         "empirical variance via .std('realization')**2)")
+        raise ValueError(
+            "return_var=True and n_realizations= are mutually "
+            "exclusive (n_realizations already gives an "
+            "empirical variance via .std('realization')**2)"
+        )
 
     xr = _require_xarray()
     if hasattr(sites, "sites"):  # a SiteCollection was passed
         if collection is None:
             collection = sites
         sites = sites.sites
+    sites = list(sites)
+    latlons = _site_latlons(sites)
     if isinstance(b_obs, dict):
         b_obs = combine_observatories(b_obs)
     b_obs = _maybe_despike(b_obs, despike_obs)
-    prepared = prepare(b_obs, window=window, pad=pad, detrend=detrend,
-                       taper=taper, gaps=gaps,
-                       max_period=_max_site_period(sites) if pad == "auto"
-                       else DEFAULT_MAX_PERIOD)
+    prepared = prepare(
+        b_obs,
+        window=window,
+        pad=pad,
+        detrend=detrend,
+        taper=taper,
+        gaps=gaps,
+        max_period=_max_site_period(sites) if pad == "auto" else DEFAULT_MAX_PERIOD,
+    )
     dt = prepared.attrs["dt_seconds"]
-    latlons = _site_latlons(sites)
 
     if leave_one_out is not None:
         if leave_one_out not in prepared["obs"].values:
-            raise ValueError(f"leave_one_out={leave_one_out!r} is not one of "
-                             f"{list(prepared['obs'].values)}")
+            raise ValueError(
+                f"leave_one_out={leave_one_out!r} is not one of {list(prepared['obs'].values)}"
+            )
         fit_input = prepared.drop_sel(obs=leave_one_out)
     else:
         fit_input = prepared
@@ -200,29 +372,33 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
         if fit_input.sizes["obs"] != 1:
             raise ValueError(
                 f"interp='uniform' needs exactly one observatory, got "
-                f"{fit_input.sizes['obs']}; use interp='secs' for networks")
+                f"{fit_input.sizes['obs']}; use interp='secs' for networks"
+            )
         mag_x = fit_input["Bx"].values[:, 0]
         mag_y = fit_input["By"].values[:, 0]
     else:
         raise ValueError("interp must be one of: secs, uniform")
 
-    coords = {"time": prepared["time"].values,
-              "site": [site.name for site in sites],
-              "latitude": ("site", latlons[:, 0]),
-              "longitude": ("site", latlons[:, 1])}
+    coords = {
+        "time": prepared["time"].values,
+        "site": [site.name for site in sites],
+        "latitude": ("site", latlons[:, 0]),
+        "longitude": ("site", latlons[:, 1]),
+    }
     ex_var_out = ey_var_out = None
     if n_realizations is None:
         collection = collection if collection is not None else SiteCollection(sites)
         if return_var:
             ex, ey, ex_var, ey_var = collection.convolve_fft(
-                mag_x, mag_y, dt=dt, extrapolate=extrapolate, return_var=True)
+                mag_x, mag_y, dt=dt, extrapolate=extrapolate, return_var=True
+            )
             ex_var_out, ey_var_out = ex_var.T, ey_var.T
         else:
             ex, ey = collection.convolve_fft(mag_x, mag_y, dt=dt, extrapolate=extrapolate)
         dims = ("time", "site")
         ex_out, ey_out = ex.T, ey.T
     else:
-        if n_realizations < 1:
+        if not isinstance(n_realizations, (int, np.integer)) or n_realizations < 1:
             raise ValueError("n_realizations must be a positive integer")
         rng = np.random.default_rng(seed)
         ntimes = mag_x.shape[0]
@@ -231,8 +407,8 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
         for r in range(n_realizations):
             realized = SiteCollection([site.perturbed(rng) for site in sites])
             if perturb_b:
-                mx = mag_x + rng.normal(size=mag_x.shape) * np.sqrt(np.maximum(mag_x_var, 0.))
-                my = mag_y + rng.normal(size=mag_y.shape) * np.sqrt(np.maximum(mag_y_var, 0.))
+                mx = mag_x + rng.normal(size=mag_x.shape) * np.sqrt(np.maximum(mag_x_var, 0.0))
+                my = mag_y + rng.normal(size=mag_y.shape) * np.sqrt(np.maximum(mag_y_var, 0.0))
             else:
                 mx, my = mag_x, mag_y
             rex, rey = realized.convolve_fft(mx, my, dt=dt, extrapolate=extrapolate)
@@ -240,15 +416,15 @@ def calc_geoelectric_field(b_obs, sites, interp="secs", window=None,
         dims = ("realization", "time", "site")
         coords["realization"] = np.arange(n_realizations)
 
-    data_vars = {"Ex": (dims, ex_out, {"units": "mV/km"}),
-                 "Ey": (dims, ey_out, {"units": "mV/km"})}
+    data_vars = {"Ex": (dims, ex_out, {"units": "mV/km"}), "Ey": (dims, ey_out, {"units": "mV/km"})}
     if return_var:
         data_vars["Ex_var"] = (dims, ex_var_out, {"units": "(mV/km)^2"})
         data_vars["Ey_var"] = (dims, ey_var_out, {"units": "(mV/km)^2"})
     e = xr.Dataset(
-        data_vars, coords=coords,
-        attrs={key: prepared.attrs[key]
-               for key in ("pad_left", "pad_right", "dt_seconds")})
+        data_vars,
+        coords=coords,
+        attrs={key: prepared.attrs[key] for key in ("pad_left", "pad_right", "dt_seconds")},
+    )
     return trim_pad(e)
 
 
@@ -282,11 +458,14 @@ def calc_voltages(lines, e, how="delaunay", return_var=False):
         With ``return_var=True``, a ``(V, V_var)`` tuple of DataArrays
         (units V and V^2).
     """
+    lines = list(lines)
     is_dataset = hasattr(e, "data_vars")
     if return_var and not (is_dataset and "Ex_var" in e and "Ey_var" in e):
-        raise ValueError("return_var=True requires a Dataset e= carrying "
-                         "Ex_var/Ey_var (calc_geoelectric_field(..., "
-                         "return_var=True)'s output)")
+        raise ValueError(
+            "return_var=True requires a Dataset e= carrying "
+            "Ex_var/Ey_var (calc_geoelectric_field(..., "
+            "return_var=True)'s output)"
+        )
     if is_dataset:
         E = np.stack([e["Ex"].values, e["Ey"].values], axis=-1)
         site_xys = np.column_stack([e["latitude"].values, e["longitude"].values])
@@ -295,12 +474,16 @@ def calc_voltages(lines, e, how="delaunay", return_var=False):
         site_xys = None
 
     needs_weights = any(
-        (how == "delaunay" and line.delaunay_vtx is None) or
-        (how == "nn" and line.nearest_sites is None) for line in lines)
+        (how == "delaunay" and line.delaunay_vtx is None)
+        or (how == "nn" and line.nearest_sites is None)
+        for line in lines
+    )
     if needs_weights:
         if site_xys is None:
-            raise ValueError("bare-array input requires the lines to have "
-                             "their interpolation weights already set")
+            raise ValueError(
+                "bare-array input requires the lines to have "
+                "their interpolation weights already set"
+            )
         for line in lines:
             if how == "delaunay" and line.delaunay_vtx is None:
                 line.set_delaunay_weights(site_xys)
@@ -312,16 +495,24 @@ def calc_voltages(lines, e, how="delaunay", return_var=False):
     if not is_dataset:
         return V
     xr = _require_xarray()
-    v_da = xr.DataArray(V, dims=("time", "line"),
-                        coords={"time": e["time"].values},
-                        attrs={"units": "V"}, name="voltage")
+    v_da = xr.DataArray(
+        V,
+        dims=("time", "line"),
+        coords={
+            "time": e["time"].values,
+            "line": np.arange(len(lines)),
+            "line_id": ("line", _line_ids(lines)),
+        },
+        attrs={"units": "V"},
+        name="voltage",
+    )
     if not return_var:
         return v_da
     E_var = np.stack([e["Ex_var"].values, e["Ey_var"].values], axis=-1)
     V_var = apply_voltage_matrix(E_var, L**2, valid)
-    v_var_da = xr.DataArray(V_var, dims=("time", "line"),
-                            coords={"time": e["time"].values},
-                            attrs={"units": "V^2"}, name="voltage_var")
+    v_var_da = xr.DataArray(
+        V_var, dims=("time", "line"), coords=v_da.coords, attrs={"units": "V^2"}, name="voltage_var"
+    )
     return v_da, v_var_da
 
 
@@ -350,6 +541,7 @@ class _Reducers:
         self.n_samples = 0
         self.exceedances = []  # (time, item index, value) tuples
         self._exceedance_warned = False
+        self._quantile_overflow_warned = False
         if "exceedances" in self.reduce and threshold is None:
             raise ValueError("reduce='exceedances' requires threshold=")
 
@@ -364,36 +556,45 @@ class _Reducers:
         self.max_time[better] = times[idx[better]]
 
         if "quantiles" in self.reduce:
+            if not self._quantile_overflow_warned and np.any(
+                np.isfinite(magnitudes) & (magnitudes > _SKETCH_MAX)
+            ):
+                self._quantile_overflow_warned = True
+                warnings.warn(
+                    "quantile sketch received values above its finite range "
+                    f"({_SKETCH_MAX:g}); exact maxima are retained, but any "
+                    "quantile landing in the overflow bin is reported as NaN",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
             for j in range(self.n):
                 good = np.isfinite(magnitudes[:, j])
-                self.counts[j] += np.histogram(magnitudes[good, j],
-                                               bins=_SKETCH_BINS)[0]
+                self.counts[j] += np.histogram(magnitudes[good, j], bins=_SKETCH_BINS)[0]
         if "exceedances" in self.reduce:
             with np.errstate(invalid="ignore"):
                 t_idx, item = np.nonzero(magnitudes > self.threshold)
-            self.exceedances.extend(zip(times[t_idx], item,
-                                        magnitudes[t_idx, item]))
-            if (not self._exceedance_warned
-                    and len(self.exceedances) > self._EXCEEDANCE_WARN_AT):
+            self.exceedances.extend(zip(times[t_idx], item, magnitudes[t_idx, item]))
+            if not self._exceedance_warned and len(self.exceedances) > self._EXCEEDANCE_WARN_AT:
                 self._exceedance_warned = True
-                import warnings
                 warnings.warn(
                     f"over {self._EXCEEDANCE_WARN_AT:,} exceedances collected "
                     f"-- threshold={self.threshold} is likely too low for this "
-                    "record; memory grows with every exceedance", stacklevel=2)
+                    "record; memory grows with every exceedance",
+                    stacklevel=2,
+                )
 
     def quantiles(self, qs):
         """Approximate quantiles from the accumulated histogram sketch."""
         out = np.full((self.n, len(qs)), np.nan)
         centers = np.sqrt(_SKETCH_BINS[:-1] * np.maximum(_SKETCH_BINS[1:], 1e-30))
-        centers[0] = 0.
+        centers[0] = 0.0
+        centers[-1] = np.nan
         for j in range(self.n):
             total = self.counts[j].sum()
             if total == 0:
                 continue
             cdf = np.cumsum(self.counts[j]) / total
-            out[j] = centers[np.searchsorted(cdf, qs, side="left").clip(
-                max=len(centers) - 1)]
+            out[j] = centers[np.searchsorted(cdf, qs, side="left").clip(max=len(centers) - 1)]
         return out
 
 
@@ -425,8 +626,10 @@ def _build_extra_kernels(lines, sites, how, network):
         kernels["V"] = voltage_matrix(lines, len(sites), how=how)
     if network is not None:
         if lines is None:
-            raise ValueError("network= requires lines= (GIC is driven by "
-                             "line-integrated E, computed from the same lines)")
+            raise ValueError(
+                "network= requires lines= (GIC is driven by "
+                "line-integrated E, computed from the same lines)"
+            )
         kernels["I"] = gic_matrix(network, lines, len(sites), how=how)
     return kernels
 
@@ -438,8 +641,7 @@ def _scan_chunk(b_obs, sites, collection, window, field_kwargs, extra_kernels):
     in :func:`scan` -- raises ``ValueError`` ("no data in ...") for a chunk
     that falls entirely in a record gap, same as :func:`calc_geoelectric_field`.
     """
-    e = calc_geoelectric_field(b_obs, sites, window=window,
-                               collection=collection, **field_kwargs)
+    e = calc_geoelectric_field(b_obs, sites, window=window, collection=collection, **field_kwargs)
     times = pd.DatetimeIndex(e["time"].values).values
     magnitude = np.hypot(e["Ex"].values, e["Ey"].values)
     extras = {}
@@ -479,9 +681,23 @@ def _scan_chunk_worker(window):
     return _scan_chunk_or_skip(b_obs, sites, collection, window, field_kwargs, extra_kernels)
 
 
-def _scan_ensemble(b_obs, sites, lines, network, chunk, reduce, threshold,
-                   quantiles, out_path, how, despike_obs, workers,
-                   n_realizations, seed, **field_kwargs):
+def _scan_ensemble(
+    b_obs,
+    sites,
+    lines,
+    network,
+    chunk,
+    reduce,
+    threshold,
+    quantiles,
+    out_path,
+    how,
+    despike_obs,
+    workers,
+    n_realizations,
+    seed,
+    **field_kwargs,
+):
     """``n_realizations`` independent :func:`scan` runs over impedance draws
     fixed for the whole record, stacked on a new ``realization`` dimension.
 
@@ -489,23 +705,33 @@ def _scan_ensemble(b_obs, sites, lines, network, chunk, reduce, threshold,
     fixed-per-scan-not-per-chunk rationale and current limitations.
     """
     if out_path is not None:
-        raise ValueError("out_path (resumability) is not supported with "
-                         "n_realizations yet")
+        raise ValueError("out_path (resumability) is not supported with n_realizations yet")
     if "exceedances" in reduce:
         raise ValueError(
             "reduce='exceedances' is not supported with n_realizations "
             "(each realization collects a different number of exceedances, "
             "which cannot stack on a shared dimension); run per-realization "
-            "scans separately if exceedance ensembles are needed")
+            "scans separately if exceedance ensembles are needed"
+        )
     xr = _require_xarray()
     if hasattr(sites, "sites"):
         sites = sites.sites
     rng = np.random.default_rng(seed)
     results = [
-        scan(b_obs, [site.perturbed(rng) for site in sites], lines=lines,
-            network=network, chunk=chunk, reduce=reduce, threshold=threshold,
-            quantiles=quantiles, how=how, despike_obs=despike_obs,
-            workers=workers, **field_kwargs)
+        scan(
+            b_obs,
+            [site.perturbed(rng) for site in sites],
+            lines=lines,
+            network=network,
+            chunk=chunk,
+            reduce=reduce,
+            threshold=threshold,
+            quantiles=quantiles,
+            how=how,
+            despike_obs=despike_obs,
+            workers=workers,
+            **field_kwargs,
+        )
         for _ in range(n_realizations)
     ]
     stacked = xr.concat(results, dim="realization")
@@ -518,10 +744,23 @@ def _scan_ensemble(b_obs, sites, lines, network, chunk, reduce, threshold,
     return stacked
 
 
-def scan(b_obs, sites, lines=None, network=None, chunk="1Y", reduce=("max",),
-         threshold=None, quantiles=(0.5, 0.9, 0.99), out_path=None,
-         how="delaunay", despike_obs=False, workers=None,
-         n_realizations=None, seed=None, **field_kwargs):
+def scan(
+    b_obs,
+    sites,
+    lines=None,
+    network=None,
+    chunk="1Y",
+    reduce=("max",),
+    threshold=None,
+    quantiles=(0.5, 0.9, 0.99),
+    out_path=None,
+    how="delaunay",
+    despike_obs=False,
+    workers=None,
+    n_realizations=None,
+    seed=None,
+    **field_kwargs,
+):
     """Continuous scan of the whole record with streaming reducers (D4).
 
     Processes ``b_obs`` chunk by chunk through
@@ -552,6 +791,10 @@ def scan(b_obs, sites, lines=None, network=None, chunk="1Y", reduce=("max",),
     :param out_path: write the (small) result Dataset to this netCDF path
         after every chunk, making long scans resumable: if the file already
         exists, completed chunks are skipped and accumulation continues.
+        A SHA-256 fingerprint covers observatory layout, MT impedances, line
+        geometry, network topology, and method options; a mismatched resume
+        is refused instead of mixing incompatible results. The record end is
+        excluded so an archive may be extended before resuming.
         Checkpoints are still written strictly in chunk order with
         ``workers`` set, so resuming behaves identically either way.
     :param despike_obs: if True (or a dict of :func:`bezpy.mag.despike`
@@ -594,120 +837,237 @@ def scan(b_obs, sites, lines=None, network=None, chunk="1Y", reduce=("max",),
         ``n_realizations`` set, every reduced variable gains a leading
         ``realization`` dimension (plus ``*_max_mean``/``*_max_std``).
     """
-    if workers is not None and workers < 1:
+    if workers is not None and (not isinstance(workers, (int, np.integer)) or workers < 1):
         raise ValueError("workers must be a positive integer or None")
+    reduce = (reduce,) if isinstance(reduce, str) else tuple(reduce)
+    unknown_reducers = set(reduce) - {"max", "exceedances", "quantiles"}
+    if unknown_reducers or not reduce:
+        raise ValueError("reduce must contain one or more of: max, exceedances, quantiles")
+    quantiles = tuple(quantiles)
+    if "quantiles" in reduce and (
+        not quantiles
+        or np.any(~np.isfinite(quantiles))
+        or np.any((np.asarray(quantiles) < 0) | (np.asarray(quantiles) > 1))
+    ):
+        raise ValueError("quantiles must be finite values between 0 and 1")
+    if isinstance(threshold, dict):
+        unknown = set(threshold) - {"E", "V", "I"}
+        if unknown:
+            raise ValueError(f"unknown threshold keys: {sorted(unknown)}")
+        threshold_values = threshold.values()
+    else:
+        threshold_values = () if threshold is None else (threshold,)
+    try:
+        thresholds_finite = all(
+            value is None or (np.isscalar(value) and np.isfinite(value))
+            for value in threshold_values
+        )
+    except TypeError:
+        thresholds_finite = False
+    if not thresholds_finite:
+        raise ValueError("threshold values must be finite numeric scalars")
     if n_realizations is not None:
-        return _scan_ensemble(b_obs, sites, lines=lines, network=network,
-                              chunk=chunk, reduce=reduce, threshold=threshold,
-                              quantiles=quantiles, out_path=out_path, how=how,
-                              despike_obs=despike_obs, workers=workers,
-                              n_realizations=n_realizations, seed=seed,
-                              **field_kwargs)
+        if not isinstance(n_realizations, (int, np.integer)) or n_realizations < 1:
+            raise ValueError("n_realizations must be a positive integer")
+        return _scan_ensemble(
+            b_obs,
+            sites,
+            lines=lines,
+            network=network,
+            chunk=chunk,
+            reduce=reduce,
+            threshold=threshold,
+            quantiles=quantiles,
+            out_path=out_path,
+            how=how,
+            despike_obs=despike_obs,
+            workers=workers,
+            n_realizations=n_realizations,
+            seed=seed,
+            **field_kwargs,
+        )
     xr = _require_xarray()
     if hasattr(sites, "sites"):  # a SiteCollection was passed
         collection = sites
         sites = collection.sites
     else:
+        sites = list(sites)
         collection = SiteCollection(sites)
+    _site_latlons(sites)
+    lines = None if lines is None else list(lines)
     b_obs = _maybe_despike(b_obs, despike_obs)
+    if b_obs.sizes.get("time", 0) == 0:
+        raise ValueError("b_obs must contain at least one time sample")
     chunks = _chunk_edges(b_obs["time"].values, chunk)
-    thresholds = threshold if isinstance(threshold, dict) \
-        else dict.fromkeys(("E", "V", "I"), threshold)
+    thresholds = (
+        threshold if isinstance(threshold, dict) else dict.fromkeys(("E", "V", "I"), threshold)
+    )
     site_reducer = _Reducers(len(sites), reduce, thresholds.get("E"))
 
     # The V/I kernels are static across chunks: set interpolation weights,
     # solve the network structure, and contract the geometry once, then
     # apply per chunk (never rebuild).
     extra_kernels = _build_extra_kernels(lines, sites, how, network)
-    extra_n = {"V": len(lines) if lines is not None else 0,
-              "I": len(network.transformers) if network is not None else 0}
-    extra_reducers = {name: _Reducers(extra_n[name], reduce, thresholds.get(name))
-                      for name in extra_kernels}
+    extra_n = {
+        "V": len(lines) if lines is not None else 0,
+        "I": len(network.transformers) if network is not None else 0,
+    }
+    extra_reducers = {
+        name: _Reducers(extra_n[name], reduce, thresholds.get(name)) for name in extra_kernels
+    }
+    config_signature = _scan_signature(
+        b_obs,
+        sites,
+        lines,
+        network,
+        chunk,
+        reduce,
+        threshold,
+        quantiles,
+        how,
+        despike_obs,
+        field_kwargs,
+    )
+    extra_labels = {}
+    if lines is not None:
+        extra_labels["V"] = _line_ids(lines)
+    if network is not None:
+        extra_labels["I"] = [str(t["id"]) for t in network.transformers]
 
     done_until = None
     if out_path is not None:
-        import os
         if os.path.exists(out_path):
             with xr.open_dataset(out_path) as existing:
                 existing.load()
             if "scan_done_until" not in existing.attrs:
                 raise ValueError(
                     f"{out_path} exists but is not a scan result (no "
-                    "scan_done_until attribute); refusing to overwrite it")
+                    "scan_done_until attribute); refusing to overwrite it"
+                )
+            existing_signature = existing.attrs.get("scan_config_sha256")
+            if existing_signature != config_signature:
+                raise ValueError(
+                    f"{out_path} was created with a different scan "
+                    "configuration; use the original inputs/options or a "
+                    "different out_path (checkpoint signature mismatch)"
+                )
             done_until = pd.Timestamp(existing.attrs["scan_done_until"])
             _restore_reducers(existing, site_reducer, extra_reducers)
 
-    pending = [(c0, c1) for c0, c1 in chunks
-              if done_until is None or c1 > done_until]
+    pending = [(c0, c1) for c0, c1 in chunks if done_until is None or c1 > done_until]
 
     def consume(result, c1):
-        if result is None:
-            return
-        times, magnitude, extras = result
-        site_reducer.update(times, magnitude)
-        for name, reducer in extra_reducers.items():
-            reducer.update(times, extras[name])
+        if result is not None:
+            times, magnitude, extras = result
+            site_reducer.update(times, magnitude)
+            for name, reducer in extra_reducers.items():
+                reducer.update(times, extras[name])
         if out_path is not None:
-            checkpoint = _scan_result(xr, site_reducer, extra_reducers, sites,
-                                      quantiles, threshold, done_until=c1)
-            checkpoint.to_netcdf(out_path)
+            checkpoint = _scan_result(
+                xr,
+                site_reducer,
+                extra_reducers,
+                sites,
+                quantiles,
+                threshold,
+                done_until=c1,
+                config_signature=config_signature,
+                extra_labels=extra_labels,
+            )
+            _write_checkpoint(checkpoint, out_path)
 
     if workers is None:
         for c0, c1 in pending:
-            consume(_scan_chunk_or_skip(b_obs, sites, collection, (c0, c1),
-                                        field_kwargs, extra_kernels), c1)
+            consume(
+                _scan_chunk_or_skip(
+                    b_obs, sites, collection, (c0, c1), field_kwargs, extra_kernels
+                ),
+                c1,
+            )
     else:
         # Submit every pending chunk up front (they run concurrently across
         # the pool), then consume results strictly in chunk order -- this is
         # what keeps output (and checkpoint) order identical to sequential.
         with concurrent.futures.ProcessPoolExecutor(
-                max_workers=workers, initializer=_init_scan_worker,
-                initargs=(b_obs, sites, field_kwargs, extra_kernels)) as pool:
+            max_workers=workers,
+            initializer=_init_scan_worker,
+            initargs=(b_obs, sites, field_kwargs, extra_kernels),
+        ) as pool:
             futures = [pool.submit(_scan_chunk_worker, w) for w in pending]
             for (c0, c1), future in zip(pending, futures):
                 consume(future.result(), c1)
 
-    return _scan_result(xr, site_reducer, extra_reducers, sites, quantiles,
-                        threshold, done_until=chunks[-1][1])
+    return _scan_result(
+        xr,
+        site_reducer,
+        extra_reducers,
+        sites,
+        quantiles,
+        threshold,
+        done_until=chunks[-1][1],
+        config_signature=config_signature,
+        extra_labels=extra_labels,
+    )
 
 
-def _scan_result(xr, site_reducer, extra_reducers, sites, quantiles, threshold,
-                 done_until):
+def _scan_result(
+    xr,
+    site_reducer,
+    extra_reducers,
+    sites,
+    quantiles,
+    threshold,
+    done_until,
+    config_signature,
+    extra_labels,
+):
     """Assemble the (small) output Dataset from reducer state."""
     latlons = _site_latlons(sites)
-    ds = xr.Dataset(coords={"site": [s.name for s in sites],
-                            "latitude": ("site", latlons[:, 0]),
-                            "longitude": ("site", latlons[:, 1])})
+    ds = xr.Dataset(
+        coords={
+            "site": [s.name for s in sites],
+            "latitude": ("site", latlons[:, 0]),
+            "longitude": ("site", latlons[:, 1]),
+        }
+    )
     ds.attrs["scan_done_until"] = str(done_until)
+    ds.attrs["scan_checkpoint_schema"] = _SCAN_CHECKPOINT_SCHEMA
+    ds.attrs["scan_config_sha256"] = config_signature
     ds.attrs["n_samples"] = site_reducer.n_samples
-    thresholds = threshold if isinstance(threshold, dict) \
-        else dict.fromkeys(("E", "V", "I"), threshold)
+    thresholds = (
+        threshold if isinstance(threshold, dict) else dict.fromkeys(("E", "V", "I"), threshold)
+    )
     for key, value in thresholds.items():
         if value is not None:
             ds.attrs[f"threshold_{key}"] = value
 
     def add(reducer, dim, prefix):
-        ds[f"{prefix}_max"] = ((dim,), reducer.max)
+        ds[f"{prefix}_max"] = ((dim,), np.where(np.isfinite(reducer.max), reducer.max, np.nan))
         ds[f"{prefix}_max_time"] = ((dim,), reducer.max_time)
         # Persist the histogram so resumed scans keep accumulating
         ds[f"{prefix}_sketch"] = ((dim, "bin"), reducer.counts)
         if "quantiles" in reducer.reduce:
             values = reducer.quantiles(np.asarray(quantiles))
             for q, column in zip(quantiles, values.T):
-                ds[f"{prefix}_q{int(round(q*100)):02d}"] = ((dim,), column)
+                ds[f"{prefix}_q{int(round(q * 100)):02d}"] = ((dim,), column)
         if "exceedances" in reducer.reduce:
             events = reducer.exceedances
             edim = f"{prefix}_exceedance"
-            ds[f"{edim}_time"] = ((edim,), np.array([t for t, _, _ in events],
-                                                    dtype="datetime64[ns]"))
-            ds[f"{edim}_item"] = ((edim,), np.array([i for _, i, _ in events],
-                                                    dtype=np.int64))
+            ds[f"{edim}_time"] = (
+                (edim,),
+                np.array([t for t, _, _ in events], dtype="datetime64[ns]"),
+            )
+            ds[f"{edim}_item"] = ((edim,), np.array([i for _, i, _ in events], dtype=np.int64))
             ds[f"{edim}_value"] = ((edim,), np.array([v for _, _, v in events]))
 
     add(site_reducer, "site", "E")
     for name, reducer in extra_reducers.items():
         dim = _EXTRA_DIMS[name]
         ds = ds.assign_coords(**{dim: np.arange(reducer.n)})
+        label_name = "line_id" if name == "V" else "transformer_id"
+        ds = ds.assign_coords(
+            **{label_name: (dim, extra_labels.get(name, [str(i) for i in range(reducer.n)]))}
+        )
         add(reducer, dim, name)
     return ds
 
@@ -718,19 +1078,25 @@ def _restore_reducers(existing, site_reducer, extra_reducers):
     for prefix, reducer in reducers.items():
         if f"{prefix}_max" not in existing:
             continue
-        reducer.max = existing[f"{prefix}_max"].values.copy()
+        values = existing[f"{prefix}_max"].values
+        reducer.max = np.where(np.isfinite(values), values, -np.inf)
         reducer.max_time = existing[f"{prefix}_max_time"].values.copy()
         reducer.counts = existing[f"{prefix}_sketch"].values.copy()
         reducer.n_samples = int(existing.attrs.get("n_samples", 0))
         edim = f"{prefix}_exceedance"
         if f"{edim}_time" in existing:
-            reducer.exceedances = list(zip(existing[f"{edim}_time"].values,
-                                           existing[f"{edim}_item"].values,
-                                           existing[f"{edim}_value"].values))
+            reducer.exceedances = list(
+                zip(
+                    existing[f"{edim}_time"].values,
+                    existing[f"{edim}_item"].values,
+                    existing[f"{edim}_value"].values,
+                )
+            )
 
 
-def storm_scan(catalog, b_obs, sites, lines=None, how="delaunay",
-               despike_obs=False, **field_kwargs):
+def storm_scan(
+    catalog, b_obs, sites, lines=None, how="delaunay", despike_obs=False, **field_kwargs
+):
     """Per-storm maxima for a catalog of explicit windows (case-study path).
 
     :param catalog: DataFrame with ``start``/``end`` columns
@@ -758,20 +1124,27 @@ def storm_scan(catalog, b_obs, sites, lines=None, how="delaunay",
         sites = collection.sites
     else:
         collection = SiteCollection(sites)
+    sites = list(sites)
+    _site_latlons(sites)
+    lines = None if lines is None else list(lines)
     b_obs = _maybe_despike(b_obs, despike_obs)
     e_max, v_max = [], []
     for start, end in windows:
         try:
-            e = calc_geoelectric_field(b_obs, sites, window=(start, end),
-                                       collection=collection, **field_kwargs)
+            e = calc_geoelectric_field(
+                b_obs, sites, window=(start, end), collection=collection, **field_kwargs
+            )
         except ValueError as exc:
             if "no data in" not in str(exc):
                 raise
             # Index-derived catalogs often outspan the magnetic record; keep
             # the storm row (NaN) instead of failing the whole scan.
             import warnings
-            warnings.warn(f"storm window {start} .. {end} has no magnetic "
-                          "data; recording NaN maxima", stacklevel=2)
+
+            warnings.warn(
+                f"storm window {start} .. {end} has no magnetic data; recording NaN maxima",
+                stacklevel=2,
+            )
             e_max.append(np.full(len(sites), np.nan))
             if lines is not None:
                 v_max.append(np.full(len(lines), np.nan))
@@ -787,22 +1160,29 @@ def storm_scan(catalog, b_obs, sites, lines=None, how="delaunay",
             v_max.append(np.where(np.isfinite(filled), filled, np.nan))
 
     latlons = _site_latlons(sites)
+    e_values = np.asarray(e_max, dtype=float).reshape(len(windows), len(sites))
     ds = xr.Dataset(
-        {"E_max": (("storm", "site"), np.array(e_max), {"units": "mV/km"})},
-        coords={"storm": np.arange(len(windows)),
-                "storm_start": ("storm", [w[0] for w in windows]),
-                "storm_end": ("storm", [w[1] for w in windows]),
-                "site": [s.name for s in sites],
-                "latitude": ("site", latlons[:, 0]),
-                "longitude": ("site", latlons[:, 1])})
+        {"E_max": (("storm", "site"), e_values, {"units": "mV/km"})},
+        coords={
+            "storm": np.arange(len(windows)),
+            "storm_start": ("storm", [w[0] for w in windows]),
+            "storm_end": ("storm", [w[1] for w in windows]),
+            "site": [s.name for s in sites],
+            "latitude": ("site", latlons[:, 0]),
+            "longitude": ("site", latlons[:, 1]),
+        },
+    )
     if lines is not None:
-        ds["V_max"] = (("storm", "line"), np.array(v_max), {"units": "V"})
+        ds = ds.assign_coords(line=np.arange(len(lines)), line_id=("line", _line_ids(lines)))
+        v_values = np.asarray(v_max, dtype=float).reshape(len(windows), len(lines))
+        ds["V_max"] = (("storm", "line"), v_values, {"units": "V"})
     return ds
 
 
 # ----------------------------------------------------------------------------
 # Nowcast: causal, streaming B -> E (-> V) (roadmap 2.2)
 # ----------------------------------------------------------------------------
+
 
 def _site_periods(site, periods):
     """This site's impedance period band, or the ``periods=`` fallback.
@@ -816,7 +1196,8 @@ def _site_periods(site, periods):
         return np.asarray(periods, dtype=float)
     raise ValueError(
         f"site {site.name!r} has no .periods (not a Site3d); pass periods= "
-        "for Site1d/period-less sites, or preconfigured dtirs=")
+        "for Site1d/period-less sites, or preconfigured dtirs="
+    )
 
 
 def _resolve_nmin_nmax(sites, dt, nmin, nmax, periods):
@@ -838,7 +1219,9 @@ def _resolve_nmin_nmax(sites, dt, nmin, nmax, periods):
             "error vs the batch FFT path at this ratio -- see Nowcast's "
             "Accuracy docstring section for the well-sampled-band numbers) "
             "-- restrict the periods passed to DTIR (dtirs=) or use finer "
-            "B sampling", stacklevel=3)
+            "B sampling",
+            stacklevel=3,
+        )
     return int(nmin), int(nmax)
 
 
@@ -851,7 +1234,7 @@ def _build_dtir(site, dt, nmin, nmax, decay_factor, Q_choice, periods):
         dtir.calculate(site=site)
     else:
         p = _site_periods(site, periods)
-        dtir.calculate(periods=p, Z=site.calcZ(1. / p))
+        dtir.calculate(periods=p, Z=site.calcZ(1.0 / p))
     return dtir
 
 
@@ -949,14 +1332,29 @@ class Nowcast:
         identical input.
     """
 
-    def __init__(self, sites, secs, dt, nmin="auto", nmax="auto",
-                decay_factor=1e-2, Q_choice=1, periods=None, dtirs=None,
-                lines=None, how="delaunay", force_slow_secs=False):
+    def __init__(
+        self,
+        sites,
+        secs,
+        dt,
+        nmin="auto",
+        nmax="auto",
+        decay_factor=1e-2,
+        Q_choice=1,
+        periods=None,
+        dtirs=None,
+        lines=None,
+        how="delaunay",
+        force_slow_secs=False,
+    ):
         if hasattr(sites, "sites"):  # a SiteCollection was passed
             sites = sites.sites
         self.sites = list(sites)
+        _site_latlons(self.sites)
         self.secs = secs
         self.dt = float(dt)
+        if not np.isfinite(self.dt) or self.dt <= 0:
+            raise ValueError("dt must be finite and positive")
         self.force_slow_secs = force_slow_secs
 
         if dtirs is not None:
@@ -968,27 +1366,29 @@ class Nowcast:
             if len(dts) != 1 or len(nmins) != 1 or len(nmaxs) != 1:
                 raise ValueError(
                     "all dtirs must share one (dt, nmin, nmax); Nowcast's "
-                    "rolling buffer needs a single shared finalization horizon")
+                    "rolling buffer needs a single shared finalization horizon"
+                )
             self._dtirs = list(dtirs)
             self.dt = dts.pop()
             self.nmin, self.nmax = nmins.pop(), nmaxs.pop()
         else:
             self.nmin, self.nmax = _resolve_nmin_nmax(self.sites, self.dt, nmin, nmax, periods)
-            self._dtirs = [_build_dtir(site, self.dt, self.nmin, self.nmax,
-                                       decay_factor, Q_choice, periods)
-                          for site in self.sites]
+            self._dtirs = [
+                _build_dtir(site, self.dt, self.nmin, self.nmax, decay_factor, Q_choice, periods)
+                for site in self.sites
+            ]
 
         self.warmup_samples = 2 * max(self.nmax, abs(self.nmin)) + 1
 
-        self._lines = lines
-        if lines is not None:
+        self._lines = None if lines is None else list(lines)
+        if self._lines is not None:
             site_xys = _site_latlons(self.sites)
-            for line in lines:
+            for line in self._lines:
                 if how == "delaunay" and line.delaunay_vtx is None:
                     line.set_delaunay_weights(site_xys)
                 elif how == "nn" and line.nearest_sites is None:
                     line.set_nearest_sites(site_xys)
-            self._L, self._valid = voltage_matrix(lines, len(self.sites), how=how)
+            self._L, self._valid = voltage_matrix(self._lines, len(self.sites), how=how)
         else:
             self._L = self._valid = None
 
@@ -1029,11 +1429,17 @@ class Nowcast:
         if self._obs_latlons is None:
             self._obs_latlons, self._obs_names = latlons, obs_names
         elif not np.allclose(latlons, self._obs_latlons) or (
-                obs_names is not None and self._obs_names is not None
-                and list(obs_names) != list(self._obs_names)):
+            obs_names is not None
+            and self._obs_names is not None
+            and list(obs_names) != list(self._obs_names)
+        ):
             raise ValueError(
                 "Nowcast's observatory set must stay fixed across update() "
-                "calls; build a new Nowcast if the network changes")
+                "calls; build a new Nowcast if the network changes"
+            )
+        if len(B) == 0:
+            empty = np.empty((0, len(self.sites)))
+            return self._package(empty, empty.copy(), None, None)
         if times is not None:
             if self._t0 is None:
                 self._t0 = pd.Timestamp(times[0])
@@ -1042,31 +1448,42 @@ class Nowcast:
                 if pd.Timestamp(times[0]) != expected:
                     raise ValueError(
                         f"gap or overlap in the input stream: expected "
-                        f"{expected}, got {pd.Timestamp(times[0])}")
+                        f"{expected}, got {pd.Timestamp(times[0])}"
+                    )
 
         site_latlons = _site_latlons(self.sites)
         has_gap = np.isnan(B[:, :, :2]).any()
 
-        if (self._M is None and self.secs.method == "lstsq"
-                and not has_gap and not self.force_slow_secs):
+        if (
+            self._M is None
+            and self.secs.method == "lstsq"
+            and not has_gap
+            and not self.force_slow_secs
+        ):
             self.secs.fit(B, obs_latlons=self._obs_latlons, gaps="mask")
             self._M = self.secs.transfer_matrix(site_latlons)
             self._M_flat = self._M.reshape(len(self._obs_latlons) * 2, -1)
 
         if self._M is not None and not has_gap and not self.force_slow_secs:
-            B_site_new = (B[:, :, :2].reshape(len(B), -1) @ self._M_flat
-                         ).reshape(len(B), len(self.sites), 2)
+            B_site_new = (B[:, :, :2].reshape(len(B), -1) @ self._M_flat).reshape(
+                len(B), len(self.sites), 2
+            )
         elif self.secs.method == "kalman":
-            fit_input = (np.concatenate([self._buf_b_obs, B], axis=0)
-                        if self._buf_b_obs is not None else B)
+            fit_input = (
+                np.concatenate([self._buf_b_obs, B], axis=0) if self._buf_b_obs is not None else B
+            )
             # Kalman needs strictly-increasing times for its tau (seconds)
             # correlation time; a synthetic sample-cadence axis is correct
             # regardless of whether the caller's input was xarray or bare
             # (KalmanSECS only uses differences between samples).
             tmp = SECSInterpolator(**self.secs._config())
-            tmp.fit(fit_input, obs_latlons=self._obs_latlons, gaps="mask",
-                   times=np.arange(len(fit_input)) * self.dt)
-            B_site_new = tmp.predict(site_latlons)[-len(B):, :, :2]
+            tmp.fit(
+                fit_input,
+                obs_latlons=self._obs_latlons,
+                gaps="mask",
+                times=np.arange(len(fit_input)) * self.dt,
+            )
+            B_site_new = tmp.predict(site_latlons)[-len(B) :, :, :2]
         else:
             # lstsq is memoryless in time -- only this chunk is needed
             tmp = SECSInterpolator(**self.secs._config())
@@ -1078,13 +1495,15 @@ class Nowcast:
                 "SECS-interpolated B has NaN at a site (a simultaneous "
                 "all-observatory dropout) -- Nowcast is not gap-tolerant at "
                 "that granularity; despike/mask upstream removes single-"
-                "station artifacts but not a total network outage")
+                "station artifacts but not a total network outage"
+            )
 
         self._buf_bx = np.concatenate([self._buf_bx, B_site_new[:, :, 0]], axis=0)
         self._buf_by = np.concatenate([self._buf_by, B_site_new[:, :, 1]], axis=0)
         if self.secs.method == "kalman":
-            self._buf_b_obs = (B if self._buf_b_obs is None
-                               else np.concatenate([self._buf_b_obs, B], axis=0))
+            self._buf_b_obs = (
+                B if self._buf_b_obs is None else np.concatenate([self._buf_b_obs, B], axis=0)
+            )
         self._n_total += len(B)
 
         ex_new = ey_new = np.empty((0, len(self.sites)))
@@ -1099,9 +1518,10 @@ class Nowcast:
                 ey_full = np.empty((buf_len, len(self.sites)))
                 for i, dtir in enumerate(self._dtirs):
                     ex_full[:, i], ey_full[:, i] = dtir.convolve(
-                        self._buf_bx[:, i], self._buf_by[:, i])
-                ex_new = ex_full[prev_local:new_last_local + 1]
-                ey_new = ey_full[prev_local:new_last_local + 1]
+                        self._buf_bx[:, i], self._buf_by[:, i]
+                    )
+                ex_new = ex_full[prev_local : new_last_local + 1]
+                ey_new = ey_full[prev_local : new_last_local + 1]
                 abs_start_finalized = self._buffer_start + prev_local
                 self._last_finalized_abs = self._buffer_start + new_last_local
 
@@ -1129,8 +1549,11 @@ class Nowcast:
     def _package(self, ex_new, ey_new, V_new, abs_start_finalized):
         n = len(ex_new)
         if not self._is_xarray:
-            idx = (np.arange(abs_start_finalized, abs_start_finalized + n)
-                  if abs_start_finalized is not None else np.arange(0))
+            idx = (
+                np.arange(abs_start_finalized, abs_start_finalized + n)
+                if abs_start_finalized is not None
+                else np.arange(0)
+            )
             if self._lines is not None:
                 return idx, ex_new, ey_new, V_new
             return idx, ex_new, ey_new
@@ -1138,20 +1561,34 @@ class Nowcast:
         xr = _require_xarray()
         if abs_start_finalized is not None:
             time = self._t0 + pd.to_timedelta(
-                (abs_start_finalized + np.arange(n)) * self.dt, unit="s")
+                (abs_start_finalized + np.arange(n)) * self.dt, unit="s"
+            )
         else:
             time = pd.DatetimeIndex([])
         site_latlons = _site_latlons(self.sites)
-        coords = {"time": time, "site": [s.name for s in self.sites],
-                 "latitude": ("site", site_latlons[:, 0]),
-                 "longitude": ("site", site_latlons[:, 1])}
-        data_vars = {"Ex": (("time", "site"), ex_new, {"units": "mV/km"}),
-                    "Ey": (("time", "site"), ey_new, {"units": "mV/km"})}
+        coords = {
+            "time": time,
+            "site": [s.name for s in self.sites],
+            "latitude": ("site", site_latlons[:, 0]),
+            "longitude": ("site", site_latlons[:, 1]),
+        }
+        data_vars = {
+            "Ex": (("time", "site"), ex_new, {"units": "mV/km"}),
+            "Ey": (("time", "site"), ey_new, {"units": "mV/km"}),
+        }
         if self._lines is not None:
             v = V_new if V_new is not None else np.empty((n, len(self._lines)))
             data_vars["V"] = (("time", "line"), v, {"units": "V"})
             coords["line"] = np.arange(len(self._lines))
+            coords["line_id"] = ("line", _line_ids(self._lines))
         return xr.Dataset(
-            data_vars, coords=coords,
-            attrs={"dt_seconds": self.dt, "nmin": self.nmin, "nmax": self.nmax,
-                  "warmup_samples": self.warmup_samples, "n_total": self._n_total})
+            data_vars,
+            coords=coords,
+            attrs={
+                "dt_seconds": self.dt,
+                "nmin": self.nmin,
+                "nmax": self.nmax,
+                "warmup_samples": self.warmup_samples,
+                "n_total": self._n_total,
+            },
+        )

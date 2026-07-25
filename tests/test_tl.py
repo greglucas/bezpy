@@ -1,4 +1,5 @@
 """Tests for the transmission line module and its geospatial helpers."""
+
 import numpy as np
 import pytest
 import shapely.geometry
@@ -9,6 +10,7 @@ from bezpy.tl.utils import haversine_distance, haversine_dl
 
 class _FakeLine:
     """Minimal stand-in for a geopandas row with a .geometry.coords attribute."""
+
     def __init__(self, coords):
         self.geometry = shapely.geometry.LineString(coords)
 
@@ -35,8 +37,7 @@ def test_haversine_distance_symmetric():
 
 def test_haversine_dl_direction_signs():
     # Moving north-east: dl_lat > 0 (x, North) and dl_lon > 0 (y, East).
-    dl = haversine_dl(np.array([-105.0]), np.array([40.0]),
-                      np.array([-104.0]), np.array([41.0]))
+    dl = haversine_dl(np.array([-105.0]), np.array([40.0]), np.array([-104.0]), np.array([41.0]))
     assert dl.shape == (1, 2)
     assert dl[0, 0] > 0  # north
     assert dl[0, 1] > 0  # east
@@ -63,8 +64,8 @@ def test_set_1d_regions_assigns_lowest_index():
     tl = make_line([(0.5, 0.5), (0.5, 0.6), (20.0, 20.0)])
     polys = [
         shapely.geometry.box(10, 10, 11, 11),  # 0: no match for first points
-        shapely.geometry.box(0, 0, 2, 2),       # 1: contains the point
-        shapely.geometry.box(0, 0, 5, 5),       # 2: also contains the point
+        shapely.geometry.box(0, 0, 2, 2),  # 1: contains the point
+        shapely.geometry.box(0, 0, 5, 5),  # 2: also contains the point
     ]
     tl.set_1d_regions(polys, default_region=18)
     # Lowest matching polygon index wins; outside points get the default.
@@ -72,7 +73,7 @@ def test_set_1d_regions_assigns_lowest_index():
 
 
 def test_set_1d_regions_default_for_all_outside():
-    tl = make_line([(100.0, 100.0), (101.0, 101.0)])
+    tl = make_line([(10.0, 10.0), (11.0, 11.0)])
     polys = [shapely.geometry.box(0, 0, 1, 1)]
     tl.set_1d_regions(polys, default_region=7)
     assert tl.regions1d.tolist() == [7, 7]
@@ -123,8 +124,9 @@ def test_calc_voltages_bad_how_raises():
 def test_calc_voltages_delaunay():
     tl = make_line([(-104.5, 40.2), (-104.3, 40.4)])
     # Need enough surrounding sites for a Delaunay triangulation.
-    site_xys = np.array([[40.0, -105.0], [40.5, -104.0], [41.0, -105.0],
-                         [40.0, -104.0], [40.6, -104.6]])
+    site_xys = np.array(
+        [[40.0, -105.0], [40.5, -104.0], [41.0, -105.0], [40.0, -104.0], [40.6, -104.6]]
+    )
     tl.set_delaunay_weights(site_xys)
     E = np.random.default_rng(0).standard_normal((4, len(site_xys), 2))
     v = tl.calc_voltages(E, how="delaunay")
@@ -139,8 +141,16 @@ def test_delaunay_vertex_at_site_gets_full_weight(use_gnomic):
     cos-latitude branch, mismatched lat/lon axis orders), which skewed the
     barycentric weights for networks away from the projection center."""
     # Deliberately far from the network centroid so cos(c) != 1
-    site_xys = np.array([[35.0, -110.0], [35.0, -95.0], [48.0, -110.0],
-                         [48.0, -95.0], [42.0, -102.0], [45.0, -98.0]])
+    site_xys = np.array(
+        [
+            [35.0, -110.0],
+            [35.0, -95.0],
+            [48.0, -110.0],
+            [48.0, -95.0],
+            [42.0, -102.0],
+            [45.0, -98.0],
+        ]
+    )
     tl = make_line([(-98.0, 45.0), (-101.0, 43.0)])  # first vertex == site 5
     tl.set_delaunay_weights(site_xys, use_gnomic=use_gnomic)
 

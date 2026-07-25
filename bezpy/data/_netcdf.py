@@ -8,7 +8,12 @@ keeps individual files a manageable size (~0.5 M one-minute samples/year).
 We support whichever netCDF engine xarray can find, preferring ``h5netcdf``
 (pure Python + h5py, no compiled netCDF-C library required).
 """
+
 __all__ = ["frame_to_dataset", "dataset_to_frame", "write_dataset", "read_dataset"]
+
+import os
+import pathlib
+import tempfile
 
 import numpy as np
 import xarray as xr
@@ -34,7 +39,8 @@ def _select_engine():
             continue
     raise ImportError(
         "Writing netCDF requires 'h5netcdf' (recommended) or 'netCDF4'. "
-        "Install the bezpy data extras with: pip install 'bezpy[data]'")
+        "Install the bezpy data extras with: pip install 'bezpy[data]'"
+    )
 
 
 def frame_to_dataset(df, code, metadata=None):
@@ -63,8 +69,7 @@ def frame_to_dataset(df, code, metadata=None):
         # within float32's ~7 significant digits.
         data_vars[column] = ("time", df[column].to_numpy(dtype="float32"), attrs)
 
-    ds = xr.Dataset(data_vars=data_vars,
-                    coords={"time": df.index.values})
+    ds = xr.Dataset(data_vars=data_vars, coords={"time": df.index.values})
 
     ds.attrs["iaga_code"] = code.upper()
     if metadata:
@@ -96,12 +101,24 @@ def write_dataset(ds, path, compress=True):
             opts = {"zlib": True, "complevel": 4}
         encoding = {str(v): opts for v in ds.data_vars}
 
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        prefix=f".{path.name}.", suffix=".nc", dir=path.parent, delete=False
+    )
+    tmp = pathlib.Path(handle.name)
+    handle.close()
     try:
-        ds.to_netcdf(path, engine=engine, encoding=encoding)
-    except (ValueError, TypeError):
-        # Some engine/version combinations reject the compression keys; retry
-        # without any encoding rather than failing the whole write.
-        ds.to_netcdf(path, engine=engine)
+        try:
+            ds.to_netcdf(tmp, engine=engine, encoding=encoding, mode="w")
+        except (ValueError, TypeError):
+            # Some engine/version combinations reject the compression keys;
+            # retry without encoding rather than failing the whole write.
+            ds.to_netcdf(tmp, engine=engine, mode="w")
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
 def read_dataset(path):

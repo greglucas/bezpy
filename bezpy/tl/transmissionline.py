@@ -17,9 +17,7 @@ from .utils import fast_interp_weights, haversine_distance, haversine_dl
 def _lonlat_to_unit_vectors(lonlat_deg):
     """Convert (npts, 2) lon/lat degrees to (npts, 3) unit vectors."""
     lons, lats = np.deg2rad(lonlat_deg[:, 0]), np.deg2rad(lonlat_deg[:, 1])
-    return np.column_stack([np.cos(lats)*np.cos(lons),
-                            np.cos(lats)*np.sin(lons),
-                            np.sin(lats)])
+    return np.column_stack([np.cos(lats) * np.cos(lons), np.cos(lats) * np.sin(lons), np.sin(lats)])
 
 
 def _unit_vectors_to_lonlat(vec):
@@ -35,14 +33,15 @@ def _gnomonic_forward(lats, lons, lat0, lon0, what="points"):
     Returns ``(x, y)`` plane coordinates. Only valid within 90 degrees of the
     projection center; ``what`` names the offending point set in the error.
     """
-    cos_c = np.sin(lat0)*np.sin(lats) + np.cos(lat0)*np.cos(lats)*np.cos(lons-lon0)
-    if np.any(cos_c <= 0.):
+    cos_c = np.sin(lat0) * np.sin(lats) + np.cos(lat0) * np.cos(lats) * np.cos(lons - lon0)
+    if np.any(cos_c <= 0.0):
         raise ValueError(
             f"gnomonic projection is invalid for {what} 90 degrees or more "
             "from the site network's mean location; use use_gnomic=False or "
-            "split the domain")
-    x = (np.cos(lats)*np.sin(lons-lon0))/cos_c
-    y = (np.cos(lat0)*np.sin(lats) - np.sin(lat0)*np.cos(lats)*np.cos(lons-lon0))/cos_c
+            "split the domain"
+        )
+    x = (np.cos(lats) * np.sin(lons - lon0)) / cos_c
+    y = (np.cos(lat0) * np.sin(lats) - np.sin(lat0) * np.cos(lats) * np.cos(lons - lon0)) / cos_c
     return x, y
 
 
@@ -56,6 +55,18 @@ def _coords_of(line):
     geometry = getattr(line, "geometry", line)
     coords = getattr(geometry, "coords", geometry)
     return np.asarray(coords, dtype=float)
+
+
+def _validate_site_xys(site_xys):
+    """Validate and return an ``(n, 2)`` latitude/longitude array."""
+    site_xys = np.asarray(site_xys, dtype=float)
+    if site_xys.ndim != 2 or site_xys.shape[1] != 2 or len(site_xys) == 0:
+        raise ValueError("site_xys must have shape (nsites, 2) [latitude, longitude]")
+    if not np.isfinite(site_xys).all():
+        raise ValueError("site_xys must contain only finite coordinates")
+    if np.any(np.abs(site_xys[:, 0]) > 90):
+        raise ValueError("site latitudes must lie within [-90, 90] degrees")
+    return site_xys
 
 
 class TransmissionLine:
@@ -74,18 +85,24 @@ class TransmissionLine:
     def __init__(self, line, metadata=None):
         # shape: npts x 2, stored in longitude/latitude order.
         self.pts = _coords_of(line)
+        if self.pts.ndim != 2 or self.pts.shape[1] != 2 or len(self.pts) < 2:
+            raise ValueError("line must contain at least two (longitude, latitude) points")
+        if not np.isfinite(self.pts).all():
+            raise ValueError("line coordinates must contain only finite values")
+        if np.any(np.abs(self.pts[:, 1]) > 90):
+            raise ValueError("line latitudes must lie within [-90, 90] degrees")
         self.metadata = dict(metadata) if metadata else {}
 
         # Calculate the length of the line in km
         # calculate the distance between each successive points and then sum that
-        self.length = np.sum(haversine_distance(self.pts[:-1, 0], self.pts[:-1, 1],
-                                                self.pts[1:, 0], self.pts[1:, 1]))
+        self.length = np.sum(
+            haversine_distance(self.pts[:-1, 0], self.pts[:-1, 1], self.pts[1:, 0], self.pts[1:, 1])
+        )
 
         # Calculate the dl: x coordinate is latitude
         # (dLat, dLon) == (dx, dy)
         # dl has the shape: npts x 2
-        self.dl = haversine_dl(self.pts[:-1, 0], self.pts[:-1, 1],
-                               self.pts[1:, 0], self.pts[1:, 1])
+        self.dl = haversine_dl(self.pts[:-1, 0], self.pts[:-1, 1], self.pts[1:, 0], self.pts[1:, 1])
 
         # Store the nearest MT Site to each point
         # shape: npts
@@ -121,8 +138,11 @@ class TransmissionLine:
         :param max_segment_km: maximum allowed segment length in km
         :return: a new TransmissionLine sharing this line's metadata
         """
-        seg_km = haversine_distance(self.pts[:-1, 0], self.pts[:-1, 1],
-                                    self.pts[1:, 0], self.pts[1:, 1])
+        if not np.isfinite(max_segment_km) or max_segment_km <= 0:
+            raise ValueError("max_segment_km must be finite and positive")
+        seg_km = haversine_distance(
+            self.pts[:-1, 0], self.pts[:-1, 1], self.pts[1:, 0], self.pts[1:, 1]
+        )
         # Subdivisions per segment (>= 1 so degenerate segments survive)
         counts = np.maximum(np.ceil(seg_km / max_segment_km).astype(int), 1)
 
@@ -135,18 +155,17 @@ class TransmissionLine:
         # Spherical linear interpolation between the segment endpoints
         vec = _lonlat_to_unit_vectors(self.pts)
         v0, v1 = vec[seg_idx], vec[seg_idx + 1]
-        omega = np.arccos(np.clip(np.sum(v0*v1, axis=1), -1., 1.))
+        omega = np.arccos(np.clip(np.sum(v0 * v1, axis=1), -1.0, 1.0))
         with np.errstate(divide="ignore", invalid="ignore"):
-            w0 = np.sin((1 - t)*omega) / np.sin(omega)
-            w1 = np.sin(t*omega) / np.sin(omega)
+            w0 = np.sin((1 - t) * omega) / np.sin(omega)
+            w1 = np.sin(t * omega) / np.sin(omega)
         # Degenerate (duplicate-point) segments: hold the first endpoint
         degenerate = omega < 1e-12
-        w0[degenerate], w1[degenerate] = 1., 0.
+        w0[degenerate], w1[degenerate] = 1.0, 0.0
 
-        new_pts = np.vstack([w0[:, None]*v0 + w1[:, None]*v1, vec[-1]])
+        new_pts = np.vstack([w0[:, None] * v0 + w1[:, None] * v1, vec[-1]])
         new_pts /= np.linalg.norm(new_pts, axis=1, keepdims=True)
-        return TransmissionLine(_unit_vectors_to_lonlat(new_pts),
-                                metadata=self.metadata)
+        return TransmissionLine(_unit_vectors_to_lonlat(new_pts), metadata=self.metadata)
 
     def set_nearest_sites(self, site_xys):
         """Sets the nearest site to each point along the transmission line.
@@ -154,11 +173,14 @@ class TransmissionLine:
         :param site_xys: ``(nsites, 2)`` array of ``(latitude, longitude)``
             -- note this is the **opposite** order of ``self.pts`` (lon/lat)
         """
+        site_xys = _validate_site_xys(site_xys)
         # Using Haversine distance to calculate nearest sites
-        distances = haversine_distance(self.pts[:, 0][:, np.newaxis],
-                                       self.pts[:, 1][:, np.newaxis],
-                                       site_xys[:, 1][np.newaxis, :],
-                                       site_xys[:, 0][np.newaxis, :])
+        distances = haversine_distance(
+            self.pts[:, 0][:, np.newaxis],
+            self.pts[:, 1][:, np.newaxis],
+            site_xys[:, 1][np.newaxis, :],
+            site_xys[:, 0][np.newaxis, :],
+        )
         self.nearest_sites = np.argmin(distances, axis=1)
 
     def set_1d_regions(self, region_polygons, default_region=18):
@@ -198,8 +220,11 @@ class TransmissionLine:
             lines; requires every point within 90 degrees of the network's
             mean location
         """
-        xys = np.deg2rad(site_xys)          # (lat, lon)
-        pts = np.deg2rad(self.pts)          # (lon, lat)
+        site_xys = _validate_site_xys(site_xys)
+        if len(site_xys) < 3:
+            raise ValueError("Delaunay interpolation requires at least 3 sites")
+        xys = np.deg2rad(site_xys)  # (lat, lon)
+        pts = np.deg2rad(self.pts)  # (lon, lat)
         if use_gnomic:
             # Project both point sets through one gnomonic projection centered
             # on the site network, so great circles map to straight lines. The
@@ -209,16 +234,18 @@ class TransmissionLine:
             lon0 = np.mean(xys[:, 1])
             lat0 = np.mean(xys[:, 0])
             xys[:, 0], xys[:, 1] = _gnomonic_forward(
-                xys[:, 0], xys[:, 1], lat0, lon0, what="site points")
+                xys[:, 0], xys[:, 1], lat0, lon0, what="site points"
+            )
             pts[:, 0], pts[:, 1] = _gnomonic_forward(
-                pts[:, 1], pts[:, 0], lat0, lon0, what="line points")
+                pts[:, 1], pts[:, 0], lat0, lon0, what="line points"
+            )
         else:
             # site_xys is (lat, lon) but self.pts is (lon, lat); put both in
             # (lon, lat) axis order, then shrink longitudes by cos(latitude)
             # to adjust for the distances near the poles.
             xys = xys[:, ::-1].copy()
-            xys[:, 0] = xys[:, 0]*np.abs(np.cos(xys[:, 1]))
-            pts[:, 0] = pts[:, 0]*np.abs(np.cos(pts[:, 1]))
+            xys[:, 0] = xys[:, 0] * np.abs(np.cos(xys[:, 1]))
+            pts[:, 0] = pts[:, 0] * np.abs(np.cos(pts[:, 1]))
 
         self.delaunay_vtx, self.delaunay_wts = fast_interp_weights(xys, pts)
 
@@ -230,25 +257,36 @@ class TransmissionLine:
         :param how: Method of interpolation, one of (nn, 1d, delaunay)
         """
         # pylint: disable=invalid-name
+        E = np.asarray(E, dtype=float)
+        if E.ndim not in (2, 3) or E.shape[-1] != 2:
+            raise ValueError("E must have shape (nlocations, 2) or (ntimes, nlocations, 2)")
+        if E.ndim == 2:
+            E = E[np.newaxis, ...]
         if how == "nn":
             if self.nearest_sites is None:
-                raise ValueError("The closest regions were not defined yet, call:\n" +
-                                 "    .set_nearest_sites(site_xys)\n" +
-                                 "to initialize the closest regions")
+                raise ValueError(
+                    "The closest regions were not defined yet, call:\n"
+                    + "    .set_nearest_sites(site_xys)\n"
+                    + "to initialize the closest regions"
+                )
             E3d = np.atleast_3d(E)[:, self.nearest_sites[:-1], :]
 
         elif how == "1d":
             if self.regions1d is None:
-                raise ValueError("The closest regions were not defined yet, call:\n" +
-                                 "    .set_1d_regions(region_polygons)\n" +
-                                 "to initialize the closest regions")
+                raise ValueError(
+                    "The closest regions were not defined yet, call:\n"
+                    + "    .set_1d_regions(region_polygons)\n"
+                    + "to initialize the closest regions"
+                )
             E3d = np.atleast_3d(E)[:, self.regions1d[:-1], :]
 
         elif how == "delaunay":
             if self.delaunay_vtx is None or self.delaunay_wts is None:
-                raise ValueError("The interpolation weights were not defined yet, call:\n" +
-                                 "    .set_delaunay_weights(site_xys)\n" +
-                                 "to initialize the interpolation weights")
+                raise ValueError(
+                    "The interpolation weights were not defined yet, call:\n"
+                    + "    .set_delaunay_weights(site_xys)\n"
+                    + "to initialize the interpolation weights"
+                )
 
             # NOTE: this implements fast_interpolate here rather than calling it
             #       due to the dimensionality of the E-fields
@@ -260,8 +298,11 @@ class TransmissionLine:
             # 3d E field again
             # If any weights are less than 0, the interpolation is out of the boundary
             # so return np.nan
-            E3d = np.sum(np.atleast_3d(E)[:, self.delaunay_vtx[:-1], :] *
-                         self.delaunay_wts[np.newaxis, :-1, :, np.newaxis], axis=2)
+            E3d = np.sum(
+                np.atleast_3d(E)[:, self.delaunay_vtx[:-1], :]
+                * self.delaunay_wts[np.newaxis, :-1, :, np.newaxis],
+                axis=2,
+            )
             E3d[:, np.any(self.delaunay_wts[:-1] < 0, axis=1), :] = np.nan
 
         else:
@@ -270,7 +311,7 @@ class TransmissionLine:
         # E3d in units of mV/km
         # dl in units of km
         # divide by 1000 to change to V
-        voltages = np.sum(E3d*self.dl[np.newaxis, :, :], axis=(1, 2)) / 1000.
+        voltages = np.sum(E3d * self.dl[np.newaxis, :, :], axis=(1, 2)) / 1000.0
         # if there is only one voltage, just return that as a float
         # Otherwise return the entire array of voltages, which is the
         # length of the final dimension of E input (ntimes)
@@ -282,8 +323,8 @@ class TransmissionLine:
     def get_coords(self, transform=None):
         """Returns the coordinates of this line
 
-           :param transform: function that transforms the x/y coordinates
-                             which could be a basemap instance or pyproj projection
+        :param transform: function that transforms the x/y coordinates
+                          which could be a basemap instance or pyproj projection
         """
 
         if transform is None:

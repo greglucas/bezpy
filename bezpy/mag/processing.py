@@ -24,7 +24,7 @@ import pandas as pd
 from .utils import get_iaga_observatory
 
 # Longest period in EMTF empirical transfer functions (seconds)
-DEFAULT_MAX_PERIOD = 30000.
+DEFAULT_MAX_PERIOD = 30000.0
 # Component-name normalization applied when combining
 _RENAME = {"X": "Bx", "Y": "By", "Z": "Bz"}
 
@@ -35,7 +35,8 @@ def _require_xarray():
     except ImportError:
         raise ImportError(
             "bezpy.mag preprocessing requires xarray; install it with "
-            "`pip install xarray` (or the bezpy[data] extra).") from None
+            "`pip install xarray` (or the bezpy[data] extra)."
+        ) from None
     return xr
 
 
@@ -62,11 +63,14 @@ def combine_observatories(observatories):
         bundled IAGA table otherwise.
     """
     xr = _require_xarray()
+    if not observatories:
+        raise ValueError("observatories must contain at least one data series")
     per_obs = []
     latlons = []
     for code, obj in observatories.items():
-        ds = obj if hasattr(obj, "data_vars") else xr.Dataset.from_dataframe(
-            obj.rename_axis("time"))
+        ds = (
+            obj if hasattr(obj, "data_vars") else xr.Dataset.from_dataframe(obj.rename_axis("time"))
+        )
         ds = ds.rename({old: new for old, new in _RENAME.items() if old in ds})
         keep = [name for name in ("Bx", "By", "Bz") if name in ds]
         if not keep:
@@ -74,12 +78,12 @@ def combine_observatories(observatories):
         latlons.append(_obs_latlon(code, obj))
         per_obs.append(ds[keep].expand_dims(obs=[str(code).upper()]))
 
-    combined = xr.concat(per_obs, dim="obs", join="outer",
-                         combine_attrs="drop_conflicts")
+    combined = xr.concat(per_obs, dim="obs", join="outer", combine_attrs="drop_conflicts")
     combined = combined.transpose("time", "obs").sortby("time")
     latlons = np.asarray(latlons, dtype=float)
-    combined = combined.assign_coords(latitude=("obs", latlons[:, 0]),
-                                      longitude=("obs", latlons[:, 1]))
+    combined = combined.assign_coords(
+        latitude=("obs", latlons[:, 0]), longitude=("obs", latlons[:, 1])
+    )
     for name in combined.data_vars:
         combined[name].attrs.setdefault("units", "nT")
     return combined
@@ -119,8 +123,7 @@ def _hampel_mask(values, window, nsig, sig_floor, iterations):
     return bad
 
 
-def despike(b, window="31min", nsig=6.0, sig_floor=3.0, iterations=5,
-            return_flags=False):
+def despike(b, window="31min", nsig=6.0, sig_floor=3.0, iterations=5, return_flags=False):
     """Mask instrumental spikes, rails, and steps in magnetic time series.
 
     Field magnetometers -- especially variometers distributed through
@@ -167,7 +170,7 @@ def despike(b, window="31min", nsig=6.0, sig_floor=3.0, iterations=5,
         ``n_despiked`` recorded in ``attrs`` for a Dataset. With
         ``return_flags``, a ``(despiked, flags)`` tuple.
     """
-    if hasattr(b, "data_vars"):                                  # xarray Dataset
+    if hasattr(b, "data_vars"):  # xarray Dataset
         out = b.copy(deep=True)
         dt = _uniform_dt(out["time"].values)
         w = _window_samples(window, dt)
@@ -209,8 +212,10 @@ def _window_samples(window, dt):
     if isinstance(window, (int, np.integer)):
         return int(window)
     if dt is None:
-        raise ValueError("window must be an integer sample count when the "
-                         "sampling interval is unknown (bare-array input)")
+        raise ValueError(
+            "window must be an integer sample count when the "
+            "sampling interval is unknown (bare-array input)"
+        )
     return max(3, int(round(_as_seconds(window) / dt)))
 
 
@@ -220,14 +225,16 @@ def _uniform_dt(times):
         raise ValueError("need at least two samples to process")
     steps = np.diff(times.astype("datetime64[ns]").astype("int64")) / 1e9
     if steps.min() <= 0:
-        raise ValueError("time axis must be strictly increasing "
-                         "(duplicate or unsorted timestamps found)")
+        raise ValueError(
+            "time axis must be strictly increasing (duplicate or unsorted timestamps found)"
+        )
     if steps.max() != steps.min():
         bad = np.nonzero(steps != steps[0])[0][0]
         raise ValueError(
             f"time axis is not uniformly sampled: step changes from "
             f"{steps[0]:g} s to {steps[bad]:g} s at {times[bad + 1]} -- "
-            "resample first (e.g. ds.resample(time=...) leaves gaps as NaN)")
+            "resample first (e.g. ds.resample(time=...) leaves gaps as NaN)"
+        )
     return float(steps[0])
 
 
@@ -248,7 +255,7 @@ def _detrend_linear(values):
         if good.sum() < 2:
             continue
         slope, intercept = np.polyfit(x[good], flat[good, j], 1)
-        flat[:, j] -= slope*x + intercept
+        flat[:, j] -= slope * x + intercept
     return out
 
 
@@ -272,16 +279,24 @@ def _pad_taper(ntimes, pad_left, pad_right):
     """Window that is 1 over the analysis span, cosine-ramped over the pads."""
     window = np.ones(ntimes)
     if pad_left:
-        ramp = 0.5*(1 - np.cos(np.pi*np.arange(pad_left)/pad_left))
+        ramp = 0.5 * (1 - np.cos(np.pi * np.arange(pad_left) / pad_left))
         window[:pad_left] = ramp
     if pad_right:
-        ramp = 0.5*(1 - np.cos(np.pi*np.arange(pad_right)/pad_right))
+        ramp = 0.5 * (1 - np.cos(np.pi * np.arange(pad_right) / pad_right))
         window[-pad_right:] = ramp[::-1]
     return window
 
 
-def prepare(b, window=None, pad="auto", max_period=DEFAULT_MAX_PERIOD,
-            detrend="linear", taper="tukey", gaps="mask", max_gap=None):
+def prepare(
+    b,
+    window=None,
+    pad="auto",
+    max_period=DEFAULT_MAX_PERIOD,
+    detrend="linear",
+    taper="tukey",
+    gaps="mask",
+    max_gap=None,
+):
     """Prepare a combined B Dataset for FFT convolution.
 
     Selects the analysis window plus padding, validates uniform sampling,
@@ -321,13 +336,20 @@ def prepare(b, window=None, pad="auto", max_period=DEFAULT_MAX_PERIOD,
         raise ValueError("taper must be one of: tukey, None")
     if gaps not in ("mask", "interpolate"):
         raise ValueError("gaps must be one of: mask, interpolate")
+    if b.sizes.get("time", 0) == 0:
+        raise ValueError("b must contain at least one time sample")
+    if not np.isfinite(max_period) or max_period <= 0:
+        raise ValueError("max_period must be finite and positive")
 
-    pad_seconds = 3.*max_period if isinstance(pad, str) and pad == "auto" \
-        else _as_seconds(pad)
+    pad_seconds = 3.0 * max_period if isinstance(pad, str) and pad == "auto" else _as_seconds(pad)
+    if not np.isfinite(pad_seconds) or pad_seconds < 0:
+        raise ValueError("pad must resolve to a finite, non-negative duration")
     pad_delta = pd.Timedelta(seconds=pad_seconds)
 
     if window is not None:
         start, end = pd.Timestamp(window[0]), pd.Timestamp(window[1])
+        if start > end:
+            raise ValueError("window start must be before or equal to window end")
         out = b.sel(time=slice(start - pad_delta, end + pad_delta))
         if out.sizes["time"] == 0:
             raise ValueError(f"no data in {start - pad_delta} .. {end + pad_delta}")
@@ -340,8 +362,7 @@ def prepare(b, window=None, pad="auto", max_period=DEFAULT_MAX_PERIOD,
     dt = _uniform_dt(out["time"].values)
     times = pd.DatetimeIndex(out["time"].values)
     pad_left = int(np.searchsorted(times.values, np.datetime64(start)))
-    pad_right = int(len(times) - np.searchsorted(times.values, np.datetime64(end),
-                                                 side="right"))
+    pad_right = int(len(times) - np.searchsorted(times.values, np.datetime64(end), side="right"))
     if pad_left + pad_right >= len(times):
         record = pd.Timestamp(times[-1]) - pd.Timestamp(times[0])
         raise ValueError(
@@ -350,24 +371,27 @@ def prepare(b, window=None, pad="auto", max_period=DEFAULT_MAX_PERIOD,
             f"the pad ({pd.Timedelta(seconds=pad_seconds)} per side) -- "
             "everything would be trimmed away. Pass an explicit "
             "window=(start, end), a shorter pad= (e.g. pad='2h'), or a smaller "
-            "max_period.")
+            "max_period."
+        )
 
     if gaps == "interpolate":
-        missing = {name: np.isnan(da.transpose("time", ...).values)
-                   for name, da in out.data_vars.items() if "time" in da.dims}
+        missing = {
+            name: np.isnan(da.transpose("time", ...).values)
+            for name, da in out.data_vars.items()
+            if "time" in da.dims
+        }
         out = out.interpolate_na(dim="time")
         if max_gap is not None:
             # Restore NaN over runs longer than max_gap (interior gaps only;
             # interpolate_na never extrapolates past the record edges)
-            n_max = int(round(_as_seconds(max_gap)/dt))
+            n_max = int(round(_as_seconds(max_gap) / dt))
             for name, was_missing in missing.items():
                 da = out[name].transpose("time", ...)
                 values = da.values
                 values[_long_runs(was_missing, n_max)] = np.nan
                 out[name] = (da.dims, values, da.attrs)
 
-    taper_window = _pad_taper(len(times), pad_left, pad_right) \
-        if taper == "tukey" else None
+    taper_window = _pad_taper(len(times), pad_left, pad_right) if taper == "tukey" else None
     for name, da in out.data_vars.items():
         if "time" not in da.dims:
             continue
@@ -377,12 +401,19 @@ def prepare(b, window=None, pad="auto", max_period=DEFAULT_MAX_PERIOD,
         elif detrend == "median":
             values = values - np.nanmedian(values, axis=0, keepdims=True)
         if taper_window is not None:
-            values = values * taper_window.reshape((-1,) + (1,)*(values.ndim - 1))
+            values = values * taper_window.reshape((-1,) + (1,) * (values.ndim - 1))
         out[name] = (da.transpose("time", ...).dims, values, da.attrs)
 
-    out.attrs.update({"pad_left": pad_left, "pad_right": pad_right,
-                      "dt_seconds": dt, "detrend": str(detrend),
-                      "taper": str(taper), "gaps": gaps})
+    out.attrs.update(
+        {
+            "pad_left": pad_left,
+            "pad_right": pad_right,
+            "dt_seconds": dt,
+            "detrend": str(detrend),
+            "taper": str(taper),
+            "gaps": gaps,
+        }
+    )
     return out
 
 

@@ -22,18 +22,25 @@ endpoints are re-hosted from time to time; pass ``url=`` to target a different
 service (any ArcGIS feature layer with LineString geometry works). Check the
 dataset's license before redistribution.
 """
+
 __all__ = [
-    "download_transmission_lines", "load_transmission_lines", "read_geojson",
-    "parse_geojson", "build_query_url", "DEFAULT_SERVICE_URL",
+    "download_transmission_lines",
+    "load_transmission_lines",
+    "read_geojson",
+    "parse_geojson",
+    "build_query_url",
+    "DEFAULT_SERVICE_URL",
 ]
 
 import json
+import pathlib
+from datetime import datetime, timezone
 
-from ._cache import get_cache_dir
+from ._cache import _atomic_write_text, get_cache_dir
 from ._http import http_get
 
 # A public HIFLD-derived Electric Power Transmission Lines feature layer.
-# Fields include VOLTAGE, VOLT_CLASS, OWNER, ID, SUB_1, SUB_2.
+# Fields include voltage, volt_class, owner, id, sub_1, and sub_2.
 DEFAULT_SERVICE_URL = (
     "https://arcgis.netl.doe.gov/server/rest/services/Hosted/"
     "Energy_Transition_Atlas_493d6/FeatureServer/18"
@@ -43,8 +50,9 @@ DEFAULT_SERVICE_URL = (
 _PAGE_SIZE = 2000
 
 
-def build_query_url(service_url, where="1=1", out_fields="*", offset=0,
-                    count=_PAGE_SIZE, bbox=None):
+def build_query_url(
+    service_url, where="1=1", out_fields="*", offset=0, count=_PAGE_SIZE, bbox=None
+):
     """Build an ArcGIS ``/query`` URL returning GeoJSON.
 
     Parameters
@@ -78,6 +86,7 @@ def build_query_url(service_url, where="1=1", out_fields="*", offset=0,
 
     # URL-encode the WHERE clause (spaces, >=, etc.) minimally.
     from urllib.parse import urlencode
+
     return f"{service_url.rstrip('/')}/query?{urlencode(params)}"
 
 
@@ -105,6 +114,9 @@ def parse_geojson(geojson):
 
 
 def _tl_path(name):
+    name = str(name)
+    if pathlib.PurePath(name).name != name or name in ("", ".", ".."):
+        raise ValueError("name must be a plain cache name without path separators")
     return get_cache_dir("tl") / f"{name}.geojson"
 
 
@@ -120,14 +132,23 @@ def load_transmission_lines(name="transmission_lines"):
     if not path.exists():
         raise FileNotFoundError(
             f"No cached transmission lines named {name!r}. "
-            f"Download them first with bezpy.data.download_transmission_lines().")
+            f"Download them first with bezpy.data.download_transmission_lines()."
+        )
     return read_geojson(path)
 
 
-def download_transmission_lines(bbox=None, min_voltage=None, where="1=1",
-                                url=DEFAULT_SERVICE_URL, name="transmission_lines",
-                                out_fields="*", session=None, timeout=120,
-                                max_features=None, verbose=False):
+def download_transmission_lines(
+    bbox=None,
+    min_voltage=None,
+    where="1=1",
+    url=DEFAULT_SERVICE_URL,
+    name="transmission_lines",
+    out_fields="*",
+    session=None,
+    timeout=120,
+    max_features=None,
+    verbose=False,
+):
     """Download transmission line geometries and cache them as GeoJSON.
 
     Parameters
@@ -150,6 +171,9 @@ def download_transmission_lines(bbox=None, min_voltage=None, where="1=1",
     -------
     list of bezpy.tl.TransmissionLine
     """
+    if max_features is not None:
+        if not isinstance(max_features, int) or max_features < 0:
+            raise ValueError("max_features must be a non-negative integer or None")
     clauses = [where] if where and where != "1=1" else []
     if min_voltage is not None:
         clauses.append(f"VOLTAGE>={min_voltage}")
@@ -157,30 +181,58 @@ def download_transmission_lines(bbox=None, min_voltage=None, where="1=1",
 
     features = []
     offset = 0
+    if max_features == 0:
+        collection = {
+            "type": "FeatureCollection",
+            "features": [],
+            "bezpy_provenance": {
+                "service_url": url,
+                "where": where_clause,
+                "bbox": bbox,
+                "retrieved_utc": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+        _atomic_write_text(_tl_path(name), json.dumps(collection))
+        return []
     while True:
-        query_url = build_query_url(url, where=where_clause,
-                                    out_fields=out_fields, offset=offset,
-                                    count=_PAGE_SIZE, bbox=bbox)
+        query_url = build_query_url(
+            url,
+            where=where_clause,
+            out_fields=out_fields,
+            offset=offset,
+            count=_PAGE_SIZE,
+            bbox=bbox,
+        )
         if verbose:
             print(f"Fetching transmission lines offset={offset}")
         page = http_get(query_url, timeout=timeout, session=session).json()
 
         page_features = page.get("features", [])
         features.extend(page_features)
-
-        # Stop when the server signals the last page (or returns a short page).
-        exceeded = page.get("exceededTransferLimit") or page.get(
-            "properties", {}).get("exceededTransferLimit")
-        if not page_features or not exceeded:
-            break
         if max_features is not None and len(features) >= max_features:
             features = features[:max_features]
             break
+
+        # Stop when the server signals the last page (or returns a short page).
+        exceeded = page.get("exceededTransferLimit") or page.get("properties", {}).get(
+            "exceededTransferLimit"
+        )
+        if not page_features or not exceeded:
+            break
         offset += len(page_features)
 
-    collection = {"type": "FeatureCollection", "features": features}
+    collection = {
+        "type": "FeatureCollection",
+        "features": features,
+        "bezpy_provenance": {
+            "service_url": url,
+            "where": where_clause,
+            "bbox": bbox,
+            "retrieved_utc": datetime.now(timezone.utc).isoformat(),
+        },
+    }
     path = _tl_path(name)
-    path.write_text(json.dumps(collection))
+    _atomic_write_text(path, json.dumps(collection))
     if verbose:
         print(f"Stored {len(features)} features to {path}")
     return parse_geojson(collection)

@@ -5,6 +5,7 @@ amplitudes generates B at "observatory" locations, the interpolator fits
 those observations, and predictions are compared with the same source
 evaluated at held-out locations.
 """
+
 import numpy as np
 import pytest
 
@@ -15,23 +16,27 @@ from bezpy.mag.secs import R_EARTH, _distance_to_gap  # noqa: E402
 
 RNG = np.random.default_rng(7)
 
-OBS_LATLONS = np.array([[lat, lon]
-                        for lat in np.linspace(34, 46, 6)
-                        for lon in np.linspace(-110, -96, 6)], dtype=float)
+OBS_LATLONS = np.array(
+    [[lat, lon] for lat in np.linspace(34, 46, 6) for lon in np.linspace(-110, -96, 6)], dtype=float
+)
 TEST_LATLONS = np.array([[38.7, -104.1], [41.3, -101.5], [39.9, -106.2]])
 
 
 @pytest.fixture(scope="module")
 def synthetic():
     """(B_obs, B_true_at_test) generated from a smooth SEC source."""
-    poles = np.array([[lat, lon, R_EARTH + 110e3]
-                      for lat in np.linspace(30, 50, 4)
-                      for lon in np.linspace(-115, -90, 5)])
+    poles = np.array(
+        [
+            [lat, lon, R_EARTH + 110e3]
+            for lat in np.linspace(30, 50, 4)
+            for lon in np.linspace(-115, -90, 5)
+        ]
+    )
     source = pysecs.SECS(sec_df_loc=poles)
     ntimes = 40
     # Smoothly varying amplitudes scaled to give ~nT fields at the ground
-    t = np.linspace(0, 2*np.pi, ntimes)[:, None]
-    phases = RNG.uniform(0, 2*np.pi, len(poles))
+    t = np.linspace(0, 2 * np.pi, ntimes)[:, None]
+    phases = RNG.uniform(0, 2 * np.pi, len(poles))
     source.sec_amps = 1e13 * np.sin(t + phases) * RNG.uniform(0.5, 1.5, len(poles))
 
     def eval_at(latlons):
@@ -47,8 +52,8 @@ def test_predict_recovers_synthetic_field(synthetic):
     interp.fit(B_obs, obs_latlons=OBS_LATLONS)
     B_pred = interp.predict(TEST_LATLONS)
 
-    scale = np.sqrt(np.mean(B_true[:, :, :2]**2))
-    err = np.sqrt(np.mean((B_pred[:, :, :2] - B_true[:, :, :2])**2))
+    scale = np.sqrt(np.mean(B_true[:, :, :2] ** 2))
+    err = np.sqrt(np.mean((B_pred[:, :, :2] - B_true[:, :, :2]) ** 2))
     assert err < 0.15 * scale
 
 
@@ -68,8 +73,7 @@ def test_gap_masking_beats_drop(synthetic):
         # Score only samples where the gappy observatory has data
         good = np.ones(len(B_obs), dtype=bool)
         good[10:14] = False
-        errs[gaps] = np.sqrt(np.mean(
-            (B_pred[good, :, :2] - B_true[good, :, :2])**2))
+        errs[gaps] = np.sqrt(np.mean((B_pred[good, :, :2] - B_true[good, :, :2]) ** 2))
 
     assert errs["mask"] < errs["drop"]
 
@@ -96,8 +100,7 @@ def test_weight_gaps_inflates_near_edges(synthetic):
     B_gappy[15:20, 0, :] = np.nan
     interp = SECSInterpolator()
     # Just verifies the option runs and changes the fit
-    interp.fit(B_gappy, obs_latlons=OBS_LATLONS, weight_gaps=True,
-               gap_inflation=10., gap_window=5)
+    interp.fit(B_gappy, obs_latlons=OBS_LATLONS, weight_gaps=True, gap_inflation=10.0, gap_window=5)
     plain = SECSInterpolator().fit(B_gappy, obs_latlons=OBS_LATLONS)
     assert np.any(interp._secs.sec_amps != plain._secs.sec_amps)
 
@@ -105,21 +108,23 @@ def test_weight_gaps_inflates_near_edges(synthetic):
 def test_distance_to_gap():
     missing = np.zeros((7, 1), dtype=bool)
     missing[3, 0] = True
-    np.testing.assert_array_equal(_distance_to_gap(missing)[:, 0],
-                                  [3, 2, 1, 0, 1, 2, 3])
+    np.testing.assert_array_equal(_distance_to_gap(missing)[:, 0], [3, 2, 1, 0, 1, 2, 3])
 
 
 def test_xarray_roundtrip(synthetic):
     xr = pytest.importorskip("xarray")
     B_obs, _ = synthetic
     codes = [f"OB{i}" for i in range(len(OBS_LATLONS))]
-    times = np.datetime64("2024-05-10") + np.arange(len(B_obs))*np.timedelta64(60, "s")
+    times = np.datetime64("2024-05-10") + np.arange(len(B_obs)) * np.timedelta64(60, "s")
     ds = xr.Dataset(
-        {name: (("time", "obs"), B_obs[:, :, i]) for i, name in
-         enumerate(("Bx", "By", "Bz"))},
-        coords={"time": times, "obs": codes,
-                "latitude": ("obs", OBS_LATLONS[:, 0]),
-                "longitude": ("obs", OBS_LATLONS[:, 1])})
+        {name: (("time", "obs"), B_obs[:, :, i]) for i, name in enumerate(("Bx", "By", "Bz"))},
+        coords={
+            "time": times,
+            "obs": codes,
+            "latitude": ("obs", OBS_LATLONS[:, 0]),
+            "longitude": ("obs", OBS_LATLONS[:, 1]),
+        },
+    )
 
     interp = SECSInterpolator()
     interp.fit(ds)
@@ -132,19 +137,18 @@ def test_xarray_roundtrip(synthetic):
     # Same numbers as the bare-array path
     plain = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS)
     np.testing.assert_allclose(
-        np.stack([out[v].values for v in ("Bx", "By", "Bz")], axis=-1),
-        plain.predict(TEST_LATLONS))
+        np.stack([out[v].values for v in ("Bx", "By", "Bz")], axis=-1), plain.predict(TEST_LATLONS)
+    )
 
 
 def test_explicit_bbox_and_pole_grid(synthetic):
     B_obs, B_true = synthetic
     bbox = SECSInterpolator(grid=(-113, 31, -93, 49))
     bbox.fit(B_obs, obs_latlons=OBS_LATLONS)
-    err = np.sqrt(np.mean((bbox.predict(TEST_LATLONS)[:, :, :2]
-                           - B_true[:, :, :2])**2))
-    assert err < 0.15 * np.sqrt(np.mean(B_true[:, :, :2]**2))
+    err = np.sqrt(np.mean((bbox.predict(TEST_LATLONS)[:, :, :2] - B_true[:, :, :2]) ** 2))
+    assert err < 0.15 * np.sqrt(np.mean(B_true[:, :, :2] ** 2))
 
-    poles = np.array([[40., -105.], [42., -100.]])
+    poles = np.array([[40.0, -105.0], [42.0, -100.0]])
     explicit = SECSInterpolator(grid=poles)
     explicit.fit(B_obs, obs_latlons=OBS_LATLONS)
     assert explicit._secs.sec_df_loc.shape == (2, 3)
@@ -167,16 +171,16 @@ def test_kalman_beats_lstsq_on_noisy_gappy_data(synthetic):
     B_obs, B_true = synthetic
     rng = np.random.default_rng(11)
     # Noise at ~40% of the (few-nT) synthetic field scale
-    noisy = B_obs + rng.normal(0., 1.5, B_obs.shape)
+    noisy = B_obs + rng.normal(0.0, 1.5, B_obs.shape)
     noisy[18:22, 7, :] = np.nan  # a dropout on top of the noise
-    times = np.arange(len(B_obs))*60.  # 1-minute cadence, seconds
+    times = np.arange(len(B_obs)) * 60.0  # 1-minute cadence, seconds
 
     errs = {}
     for method in ("lstsq", "kalman"):
-        interp = SECSInterpolator(method=method, tau=600.)
+        interp = SECSInterpolator(method=method, tau=600.0)
         interp.fit(noisy, obs_latlons=OBS_LATLONS, times=times)
         B_pred = interp.predict(TEST_LATLONS)
-        errs[method] = np.sqrt(np.mean((B_pred[:, :, :2] - B_true[:, :, :2])**2))
+        errs[method] = np.sqrt(np.mean((B_pred[:, :, :2] - B_true[:, :, :2]) ** 2))
 
     assert errs["kalman"] < errs["lstsq"]
 
@@ -190,22 +194,24 @@ def test_kalman_needs_times():
 def test_kalman_xarray_uses_dataset_times(synthetic):
     xr = pytest.importorskip("xarray")
     B_obs, B_true = synthetic
-    times = (np.datetime64("2024-05-10")
-             + np.arange(len(B_obs))*np.timedelta64(60, "s"))
+    times = np.datetime64("2024-05-10") + np.arange(len(B_obs)) * np.timedelta64(60, "s")
     ds = xr.Dataset(
-        {name: (("time", "obs"), B_obs[:, :, i]) for i, name in
-         enumerate(("Bx", "By", "Bz"))},
-        coords={"time": times, "obs": [f"OB{i}" for i in range(len(OBS_LATLONS))],
-                "latitude": ("obs", OBS_LATLONS[:, 0]),
-                "longitude": ("obs", OBS_LATLONS[:, 1])})
-    interp = SECSInterpolator(method="kalman", tau=600.)
+        {name: (("time", "obs"), B_obs[:, :, i]) for i, name in enumerate(("Bx", "By", "Bz"))},
+        coords={
+            "time": times,
+            "obs": [f"OB{i}" for i in range(len(OBS_LATLONS))],
+            "latitude": ("obs", OBS_LATLONS[:, 0]),
+            "longitude": ("obs", OBS_LATLONS[:, 1]),
+        },
+    )
+    interp = SECSInterpolator(method="kalman", tau=600.0)
     interp.fit(ds)
     out = interp.predict(TEST_LATLONS, return_var=True)
     assert {"Bx", "By", "Bz", "Bx_var", "By_var", "Bz_var"} <= set(out.data_vars)
-    scale = np.sqrt(np.mean(B_true[:, :, :2]**2))
-    err = np.sqrt(np.mean(
-        (np.stack([out["Bx"].values, out["By"].values], axis=-1)
-         - B_true[:, :, :2])**2))
+    scale = np.sqrt(np.mean(B_true[:, :, :2] ** 2))
+    err = np.sqrt(
+        np.mean((np.stack([out["Bx"].values, out["By"].values], axis=-1) - B_true[:, :, :2]) ** 2)
+    )
     assert err < 0.2 * scale
     assert (out["Bx_var"].values > 0).all()
 
@@ -215,15 +221,14 @@ def test_robust_rejects_single_station_spike(synthetic):
     squares would spread across the whole solution."""
     B_obs, B_true = synthetic
     spiked = B_obs.copy()
-    spiked[12:15, 20, :2] += 400.  # gross baseline jump at one station
+    spiked[12:15, 20, :2] += 400.0  # gross baseline jump at one station
 
     errs = {}
     for robust in (None, "bisquare"):
         interp = SECSInterpolator(robust=robust)
         interp.fit(spiked, obs_latlons=OBS_LATLONS)
         B_pred = interp.predict(TEST_LATLONS)
-        errs[robust] = np.sqrt(np.mean(
-            (B_pred[12:15, :, :2] - B_true[12:15, :, :2])**2))
+        errs[robust] = np.sqrt(np.mean((B_pred[12:15, :, :2] - B_true[12:15, :, :2]) ** 2))
 
     assert errs["bisquare"] < 0.5 * errs[None]
 
@@ -242,14 +247,14 @@ def test_prediction_variance(synthetic):
     assert B.shape == var.shape == (len(B_obs), len(TEST_LATLONS), 3)
     assert (var[:, :, :2] > 0).all()
 
-    doubled = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS, obs_std=2.)
+    doubled = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS, obs_std=2.0)
     _, var2 = doubled.predict(TEST_LATLONS, return_var=True)
-    np.testing.assert_allclose(var2[:, :, :2], 4.*var[:, :, :2], rtol=1e-8)
+    np.testing.assert_allclose(var2[:, :, :2], 4.0 * var[:, :, :2], rtol=1e-8)
 
 
 def test_predict_single_time_step():
     """A one-sample fit must keep the (ntimes, nloc, 3) prediction shape."""
-    B = RNG.normal(0., 50., (1, len(OBS_LATLONS), 3))
+    B = RNG.normal(0.0, 50.0, (1, len(OBS_LATLONS), 3))
     interp = SECSInterpolator().fit(B, obs_latlons=OBS_LATLONS)
     out = interp.predict(TEST_LATLONS)
     assert out.shape == (1, len(TEST_LATLONS), 3)
@@ -259,11 +264,11 @@ def test_predict_before_fit_raises():
     with pytest.raises(ValueError, match="not been fit"):
         SECSInterpolator().predict(TEST_LATLONS)
     with pytest.raises(ValueError, match="not been fit"):
-        SECSInterpolator().predict_grid([38., 40.], [-105., -100.])
+        SECSInterpolator().predict_grid([38.0, 40.0], [-105.0, -100.0])
 
 
-GRID_LATS = np.array([37., 39., 41.])
-GRID_LONS = np.array([-107., -104., -101., -98.])
+GRID_LATS = np.array([37.0, 39.0, 41.0])
+GRID_LONS = np.array([-107.0, -104.0, -101.0, -98.0])
 
 
 def test_predict_grid_matches_predict(synthetic):
@@ -282,28 +287,29 @@ def test_predict_grid_return_var(synthetic):
     B_obs, _ = synthetic
     interp = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS)
     B, var = interp.predict_grid(GRID_LATS, GRID_LONS, return_var=True)
-    assert B.shape == var.shape == (len(B_obs), len(GRID_LATS),
-                                    len(GRID_LONS), 3)
+    assert B.shape == var.shape == (len(B_obs), len(GRID_LATS), len(GRID_LONS), 3)
     assert (var[..., :2] > 0).all()
 
     _, var_flat = interp.predict(
-        np.column_stack([c.ravel() for c in
-                         np.meshgrid(GRID_LATS, GRID_LONS, indexing="ij")]),
-        return_var=True)
+        np.column_stack([c.ravel() for c in np.meshgrid(GRID_LATS, GRID_LONS, indexing="ij")]),
+        return_var=True,
+    )
     np.testing.assert_array_equal(var, var_flat.reshape(var.shape))
 
 
 def test_predict_grid_xarray(synthetic):
     xr = pytest.importorskip("xarray")
     B_obs, _ = synthetic
-    times = (np.datetime64("2024-05-10")
-             + np.arange(len(B_obs))*np.timedelta64(60, "s"))
+    times = np.datetime64("2024-05-10") + np.arange(len(B_obs)) * np.timedelta64(60, "s")
     ds = xr.Dataset(
-        {name: (("time", "obs"), B_obs[:, :, i]) for i, name in
-         enumerate(("Bx", "By", "Bz"))},
-        coords={"time": times, "obs": [f"OB{i}" for i in range(len(OBS_LATLONS))],
-                "latitude": ("obs", OBS_LATLONS[:, 0]),
-                "longitude": ("obs", OBS_LATLONS[:, 1])})
+        {name: (("time", "obs"), B_obs[:, :, i]) for i, name in enumerate(("Bx", "By", "Bz"))},
+        coords={
+            "time": times,
+            "obs": [f"OB{i}" for i in range(len(OBS_LATLONS))],
+            "latitude": ("obs", OBS_LATLONS[:, 0]),
+            "longitude": ("obs", OBS_LATLONS[:, 1]),
+        },
+    )
     interp = SECSInterpolator().fit(ds)
 
     out = interp.predict_grid(GRID_LATS, GRID_LONS, return_var=True)
@@ -313,13 +319,14 @@ def test_predict_grid_xarray(synthetic):
     np.testing.assert_array_equal(out["latitude"].values, GRID_LATS)
     np.testing.assert_array_equal(out["longitude"].values, GRID_LONS)
     assert out["Bx"].attrs["units"] == "nT"
-    assert out["Bx_var"].attrs["units"] == "nT2"
+    assert out["Bx_var"].attrs["units"] == "nT^2"
 
     # Same numbers as the bare-array path
     plain = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS)
     np.testing.assert_array_equal(
         np.stack([out[v].values for v in ("Bx", "By", "Bz")], axis=-1),
-        plain.predict_grid(GRID_LATS, GRID_LONS))
+        plain.predict_grid(GRID_LATS, GRID_LONS),
+    )
 
 
 def test_predict_grid_rejects_meshgridded_input(synthetic):
@@ -341,7 +348,7 @@ def test_repr(synthetic):
     interp.fit(B_obs, obs_latlons=OBS_LATLONS)
     assert f"fitted: {len(OBS_LATLONS)} obs" in repr(interp)
 
-    kalman = repr(SECSInterpolator(method="kalman", gate_sigma=4.))
+    kalman = repr(SECSInterpolator(method="kalman", gate_sigma=4.0))
     assert "method='kalman'" in kalman
     assert "tau=3600.0" in kalman
     assert "gate_sigma=4.0" in kalman
@@ -354,6 +361,7 @@ def test_repr(synthetic):
 # transfer_matrix: the constant obs -> prediction linear map (roadmap 2.1)
 # ---------------------------------------------------------------------
 
+
 def test_transfer_matrix_matches_predict(synthetic):
     B_obs, _ = synthetic
     interp = SECSInterpolator().fit(B_obs, obs_latlons=OBS_LATLONS)
@@ -361,7 +369,7 @@ def test_transfer_matrix_matches_predict(synthetic):
     assert M.shape == (len(OBS_LATLONS), 2, len(TEST_LATLONS), 2)
 
     B_pred_direct = interp.predict(TEST_LATLONS)[:, :, :2]
-    B_pred_from_M = np.einsum('toc,ocpe->tpe', B_obs[:, :, :2], M)
+    B_pred_from_M = np.einsum("toc,ocpe->tpe", B_obs[:, :, :2], M)
     np.testing.assert_allclose(B_pred_from_M, B_pred_direct, rtol=1e-10, atol=1e-8)
 
 
@@ -380,8 +388,7 @@ def test_transfer_matrix_before_fit_raises():
 def test_transfer_matrix_rejects_kalman(synthetic):
     B_obs, _ = synthetic
     times = np.arange(len(B_obs), dtype=float)
-    interp = SECSInterpolator(method="kalman").fit(
-        B_obs, obs_latlons=OBS_LATLONS, times=times)
+    interp = SECSInterpolator(method="kalman").fit(B_obs, obs_latlons=OBS_LATLONS, times=times)
     with pytest.raises(ValueError, match="kalman"):
         interp.transfer_matrix(TEST_LATLONS)
 

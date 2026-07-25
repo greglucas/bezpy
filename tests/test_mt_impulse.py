@@ -1,4 +1,5 @@
 """Tests for bezpy.mt.impulse (DTIR)."""
+
 import numpy as np
 import pytest
 
@@ -33,8 +34,7 @@ def test_dtir_accepts_periods_and_z(banded_z):
 def test_dtir_site_without_variance(banded_z):
     """A Site3d with Z_var=None must not crash (B3)."""
     periods, Z = banded_z
-    site = Site3d("novar", latitude=40.0, longitude=-105.0,
-                  periods=periods, Z=Z)
+    site = Site3d("novar", latitude=40.0, longitude=-105.0, periods=periods, Z=Z)
     dtir = DTIR(dt=60, nmin=-5, nmax=60)
     ns, zn = dtir.calculate(site=site)
     assert np.all(np.isfinite(zn))
@@ -43,3 +43,22 @@ def test_dtir_site_without_variance(banded_z):
 def test_dtir_requires_input():
     with pytest.raises(ValueError, match="periods and Z or a Site3d"):
         DTIR().calculate()
+
+
+def test_dtir_masks_invalid_variance_per_component(banded_z):
+    periods, Z = banded_z
+    variance = np.ones(Z.shape)
+    variance[0, :5] = np.nan
+    variance[1, -5:] = -1
+    dtir = DTIR(dt=60, nmin=-2, nmax=20)
+    _, zn = dtir.calculate(periods=periods, Z=Z, Z_var=variance)
+    assert np.isfinite(zn).all()
+
+
+def test_equal_dtirs_share_regularization_inverse(banded_z):
+    periods, Z = banded_z
+    first = DTIR(dt=60, nmin=-2, nmax=20)
+    second = DTIR(dt=60, nmin=-2, nmax=20)
+    first.calculate(periods=periods, Z=Z)
+    second.calculate(periods=periods, Z=Z)
+    assert first.Q_inv is second.Q_inv

@@ -28,11 +28,22 @@ matches -- so a whole region's MT data is one call, no bundle ids needed::
 ``download_mt``/:func:`download_mt_spud` remain for fetching a single known URL
 or SPUD bundle id.
 """
+
 __all__ = [
-    "download_mt", "download_mt_spud", "download_mt_search", "search_mt",
-    "ingest_mt_xml", "store_mt_xml", "load_mt_site", "load_mt_sites",
-    "mt_inventory", "stored_mt_surveys", "mt_survey_of",
-    "spud_data_url", "spud_bundle_url", "spud_search_url",
+    "download_mt",
+    "download_mt_spud",
+    "download_mt_search",
+    "search_mt",
+    "ingest_mt_xml",
+    "store_mt_xml",
+    "load_mt_site",
+    "load_mt_sites",
+    "mt_inventory",
+    "stored_mt_surveys",
+    "mt_survey_of",
+    "spud_data_url",
+    "spud_bundle_url",
+    "spud_search_url",
 ]
 
 import html
@@ -42,7 +53,7 @@ import xml.etree.ElementTree as ET
 
 import pandas as pd
 
-from ._cache import get_cache_dir
+from ._cache import _atomic_write_text, get_cache_dir
 from ._http import http_get
 
 # IRIS SPUD service URL templates.
@@ -86,8 +97,7 @@ def spud_search_url(bbox=None):
     if bbox is None:
         return _SPUD_SEARCH_URL
     west, south, east, north = bbox
-    return (f"{_SPUD_SEARCH_URL}?minlat={south}&maxlat={north}"
-            f"&minlon={west}&maxlon={east}")
+    return f"{_SPUD_SEARCH_URL}?minlat={south}&maxlat={north}&minlon={west}&maxlon={east}"
 
 
 # ----------------------------------------------------------------------------
@@ -147,7 +157,9 @@ def _in_bbox(longitude, latitude, bbox):
 def _sanitize(name):
     """Make a filesystem-safe survey directory name."""
     cleaned = "".join(c if (c.isalnum() or c in "-._") else "_" for c in str(name))
-    return cleaned.strip("_") or "unknown"
+    # Leading/trailing dots create traversal segments (".", "..") or hidden
+    # cache entries; they carry no scientific meaning in a survey/site code.
+    return cleaned.strip("._") or "unknown"
 
 
 def mt_survey_of(xml_text):
@@ -161,7 +173,7 @@ def _survey_dir(survey, create=True):
 
 
 def _site_path(survey, code):
-    return _survey_dir(survey) / f"{code}.xml"
+    return _survey_dir(survey) / f"{_sanitize(code)}.xml"
 
 
 # ----------------------------------------------------------------------------
@@ -190,7 +202,7 @@ def store_mt_xml(xml_text, survey=None):
 
     survey = survey or header["survey"] or header["network"] or "unknown"
     path = _site_path(survey, code)
-    path.write_text(xml_text, encoding="utf-8")
+    _atomic_write_text(path, xml_text)
     return path
 
 
@@ -221,8 +233,7 @@ def download_mt(url, survey=None, session=None, timeout=60):
 
 def _resolve_spud_xml_url(bundle_id, session, timeout):
     """Resolve a SPUD bundle id to the download URL of its EMTF XML attachment."""
-    response = http_get(spud_bundle_url(bundle_id), timeout=timeout,
-                        session=session)
+    response = http_get(spud_bundle_url(bundle_id), timeout=timeout, session=session)
     # The service HTML-escapes the metadata XML inside <pre> for browser viewing;
     # its DataLinks also embed HTML <a> tags, so this document does not parse
     # cleanly as XML -- resolve the XML attachment's data id by pattern instead.
@@ -231,20 +242,21 @@ def _resolve_spud_xml_url(bundle_id, session, timeout):
     # Each attachment is a <SourceData>/<Attachment id="..."> block; pick the one
     # whose MIME type is application/xml (or whose filename ends in .xml). The
     # bundle's "primarydata" is a plot image, not the transfer function XML.
-    block_re = re.compile(r'<(SourceData|Attachment)\b[^>]*\bid="(\d+)"[^>]*>(.*?)</\1>',
-                          re.DOTALL | re.IGNORECASE)
+    block_re = re.compile(
+        r'<(SourceData|Attachment)\b[^>]*\bid="(\d+)"[^>]*>(.*?)</\1>', re.DOTALL | re.IGNORECASE
+    )
     for match in block_re.finditer(text):
         block = match.group(3)
-        is_xml = ("application/xml" in block.lower()
-                  or re.search(r'<Filename>[^<]*\.xml\s*<', block, re.IGNORECASE))
+        is_xml = "application/xml" in block.lower() or re.search(
+            r"<Filename>[^<]*\.xml\s*<", block, re.IGNORECASE
+        )
         if is_xml:
             data_id = match.group(2)
-            link = re.search(r'/spudservice/data/(\d+)', block)
+            link = re.search(r"/spudservice/data/(\d+)", block)
             if link:
                 data_id = link.group(1)
             return spud_data_url(data_id)
-    raise ValueError(
-        f"Could not find an EMTF XML attachment in SPUD bundle {bundle_id}.")
+    raise ValueError(f"Could not find an EMTF XML attachment in SPUD bundle {bundle_id}.")
 
 
 def download_mt_spud(bundle_id, survey=None, session=None, timeout=60):
@@ -277,17 +289,17 @@ def fetch_spud_index(refresh=False, session=None, timeout=300):
     path = _spud_index_path()
     if refresh or not path.exists():
         response = http_get(_SPUD_INDEX_URL, timeout=timeout, session=session)
-        path.write_text(response.text, encoding="utf-8")
+        _atomic_write_text(path, response.text)
     return path
 
 
 # One <EM_TF id="..."> ... </EM_TF> product block.
 _EMTF_BLOCK_RE = re.compile(r'<EM_TF\b[^>]*\bid="(\d+)".*?</EM_TF>', re.DOTALL)
 # Embedded <a href=...>...</a> links (in <Link>, <OrgUrl>, ...) break XML parsing.
-_ANCHOR_RE = re.compile(r'</?a\b[^>]*>', re.IGNORECASE)
+_ANCHOR_RE = re.compile(r"</?a\b[^>]*>", re.IGNORECASE)
 # Bare ampersands in free-text fields (e.g. "Nagamachi, & Owada") are not valid
 # XML; re-escape any that are not already part of an entity before parsing.
-_BARE_AMP_RE = re.compile(r'&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)')
+_BARE_AMP_RE = re.compile(r"&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)")
 
 
 def _parse_index_block(spud_id, block):
@@ -315,8 +327,9 @@ def _parse_index_block(spud_id, block):
     }
 
 
-def search_mt(bbox=None, survey=None, min_rating=None, country=None,
-              refresh=False, session=None, timeout=300):
+def search_mt(
+    bbox=None, survey=None, min_rating=None, country=None, refresh=False, session=None, timeout=300
+):
     """Search the SPUD EMTF archive for transfer functions to download.
 
     Parses the cached SPUD index (see :func:`fetch_spud_index`) and filters it;
@@ -344,34 +357,55 @@ def search_mt(bbox=None, survey=None, min_rating=None, country=None,
         ``survey``, ``country``, ``year``, ``latitude``, ``longitude``,
         ``rating``, ``product_id``), sorted by survey then code.
     """
-    text = html.unescape(fetch_spud_index(refresh=refresh, session=session,
-                                          timeout=timeout).read_text(encoding="utf-8"))
+    text = html.unescape(
+        fetch_spud_index(refresh=refresh, session=session, timeout=timeout).read_text(
+            encoding="utf-8"
+        )
+    )
     rows = []
     for match in _EMTF_BLOCK_RE.finditer(text):
         row = _parse_index_block(match.group(1), match.group(0))
         if row is None:
             continue
-        if survey is not None and survey.lower() not in \
-                f"{row['survey']} {row['product_id']}".lower():
+        if (
+            survey is not None
+            and survey.lower() not in f"{row['survey']} {row['product_id']}".lower()
+        ):
             continue
         if country is not None and country.lower() not in str(row["country"]).lower():
             continue
-        if min_rating is not None and row["rating"] is not None \
-                and row["rating"] < min_rating:
+        if min_rating is not None and row["rating"] is not None and row["rating"] < min_rating:
             continue
         if bbox is not None and not _in_bbox(row["longitude"], row["latitude"], bbox):
             continue
         rows.append(row)
-    columns = ["spud_id", "code", "survey", "country", "year",
-               "latitude", "longitude", "rating", "product_id"]
+    columns = [
+        "spud_id",
+        "code",
+        "survey",
+        "country",
+        "year",
+        "latitude",
+        "longitude",
+        "rating",
+        "product_id",
+    ]
     df = pd.DataFrame(rows, columns=columns)
     if not df.empty:
         df = df.sort_values(["survey", "code"]).reset_index(drop=True)
     return df
 
 
-def download_mt_search(bbox=None, survey=None, min_rating=None, country=None,
-                       refresh=False, session=None, timeout=60, verbose=False):
+def download_mt_search(
+    bbox=None,
+    survey=None,
+    min_rating=None,
+    country=None,
+    refresh=False,
+    session=None,
+    timeout=60,
+    verbose=False,
+):
     """Search the SPUD archive and download every matching transfer function.
 
     Runs :func:`search_mt` with the given filters, then downloads each result
@@ -380,8 +414,14 @@ def download_mt_search(bbox=None, survey=None, min_rating=None, country=None,
     """
     import requests
 
-    catalog = search_mt(bbox=bbox, survey=survey, min_rating=min_rating,
-                        country=country, refresh=refresh, session=session)
+    catalog = search_mt(
+        bbox=bbox,
+        survey=survey,
+        min_rating=min_rating,
+        country=country,
+        refresh=refresh,
+        session=session,
+    )
     getter_session = session if session is not None else requests.Session()
     stored = []
     for row in catalog.itertuples():
@@ -391,8 +431,11 @@ def download_mt_search(bbox=None, survey=None, min_rating=None, country=None,
             continue
         if verbose:
             print(f"downloading {row.code} ({row.survey}) [spud {row.spud_id}]")
-        stored.append(download_mt_spud(row.spud_id, survey=row.survey,
-                                       session=getter_session, timeout=timeout))
+        stored.append(
+            download_mt_spud(
+                row.spud_id, survey=row.survey, session=getter_session, timeout=timeout
+            )
+        )
     return stored
 
 
@@ -417,7 +460,7 @@ def _find_site_files(code=None, survey=None):
         survey_dir = _survey_dir(survey_name, create=False)
         if not survey_dir.exists():
             continue
-        pattern = f"{code}.xml" if code is not None else "*.xml"
+        pattern = f"{_sanitize(code)}.xml" if code is not None else "*.xml"
         yield from sorted(survey_dir.glob(pattern))
 
 
@@ -435,13 +478,15 @@ def load_mt_site(code, survey=None):
         raise FileNotFoundError(
             f"No stored MT site {code!r}"
             + (f" in survey {survey!r}" if survey else "")
-            + ". Download it first with bezpy.data.download_mt().")
+            + ". Download it first with bezpy.data.download_mt()."
+        )
     if len(matches) > 1:
         warnings.warn(
             f"MT site {code!r} exists in multiple surveys "
             f"({', '.join(p.parent.name for p in matches)}); loading "
             f"{matches[0].parent.name}. Pass survey=... to choose.",
-            stacklevel=2)
+            stacklevel=2,
+        )
     return read_xml(str(matches[0]))
 
 
@@ -477,22 +522,33 @@ def mt_inventory(survey=None):
     One row per stored site (code, survey, network, country, year, location,
     rating, path). Empty (with the expected columns) if nothing is stored.
     """
-    columns = ["code", "survey", "network", "country", "year",
-               "latitude", "longitude", "rating", "path"]
+    columns = [
+        "code",
+        "survey",
+        "network",
+        "country",
+        "year",
+        "latitude",
+        "longitude",
+        "rating",
+        "path",
+    ]
     rows = []
     for path in _find_site_files(survey=survey):
         header = _parse_header(ET.parse(path).getroot())
-        rows.append({
-            "code": header["code"],
-            "survey": path.parent.name,
-            "network": header["network"],
-            "country": header["country"],
-            "year": header["year"],
-            "latitude": header["latitude"],
-            "longitude": header["longitude"],
-            "rating": header["rating"],
-            "path": str(path),
-        })
+        rows.append(
+            {
+                "code": header["code"],
+                "survey": path.parent.name,
+                "network": header["network"],
+                "country": header["country"],
+                "year": header["year"],
+                "latitude": header["latitude"],
+                "longitude": header["longitude"],
+                "rating": header["rating"],
+                "path": str(path),
+            }
+        )
     df = pd.DataFrame(rows, columns=columns)
     if not df.empty:
         df = df.sort_values(["survey", "code"]).reset_index(drop=True)

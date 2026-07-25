@@ -14,7 +14,7 @@ import pandas as pd
 from .datalogger import DataLogger
 from .site import Site1d, Site3d
 
-DATA_PATH_1D = str(files('bezpy.mt').joinpath('data_1d')) + "/"
+DATA_PATH_1D = str(files("bezpy.mt").joinpath("data_1d")) + "/"
 
 
 ####################
@@ -56,32 +56,34 @@ def parse_data(xml_data):
     """Parse data obtained from Anna's xml files."""
     periods = {}
     for period in xml_data:
-        period_length = float(period.attrib['value'])
+        period_length = float(period.attrib["value"])
         periods[period_length] = {}
         df_dict = periods[period_length]
 
         for item in period:
             for data in item:
                 column_name = item.tag + "_"
-                if 'name' in data.attrib:
-                    column_name += data.attrib['name']
+                if "name" in data.attrib:
+                    column_name += data.attrib["name"]
                 else:
-                    column_name += data.attrib['output'] + "_" + data.attrib['input']
+                    column_name += data.attrib["output"] + "_" + data.attrib["input"]
 
-                if item.attrib['type'] == 'complex':
+                if item.attrib["type"] == "complex":
                     text = data.text.split()
-                    column_value = float(text[0]) + float(text[1])*1j
-                elif item.attrib['type'] == 'real':
+                    column_value = float(text[0]) + float(text[1]) * 1j
+                elif item.attrib["type"] == "real":
                     column_value = float(data.text)
                 else:
-                    raise ValueError("Error parsing the item type:",
-                                     item.attrib['type'],
-                                     "\nShould be either \"real\" or \"complex\"")
+                    raise ValueError(
+                        "Error parsing the item type:",
+                        item.attrib["type"],
+                        '\nShould be either "real" or "complex"',
+                    )
 
-                column_name = ''.join(i for i in column_name if not i.isdigit())
+                column_name = "".join(i for i in column_name if not i.isdigit())
                 df_dict[column_name.lower()] = column_value
 
-    df = pd.DataFrame.from_dict(periods, orient='index')
+    df = pd.DataFrame.from_dict(periods, orient="index")
     df.index.name = "period"
 
     return df
@@ -126,8 +128,9 @@ def read_xml(fname):
                 channel_name_mapped = channel_mapping.get(channel.attrib["name"].capitalize())
                 if channel_name_mapped is None:
                     continue
-                site.channel_orientation[channel_name_mapped] = \
-                    convert_float(channel.attrib["orientation"])
+                site.channel_orientation[channel_name_mapped] = convert_float(
+                    channel.attrib["orientation"]
+                )
 
     site.start_time = convert_datetime(get_text(xml_site, "Start"))
     site.end_time = convert_datetime(get_text(xml_site, "End"))
@@ -152,22 +155,24 @@ def read_xml(fname):
     site.data = site.data.sort_index()
 
     site.periods = np.array(site.data.index)
-    site.Z = np.vstack([site.data['z_zxx'], site.data['z_zxy'],
-                        site.data['z_zyx'], site.data['z_zyy']])
+    site.Z = np.vstack(
+        [site.data["z_zxx"], site.data["z_zxy"], site.data["z_zyx"], site.data["z_zyy"]]
+    )
     try:
-        site.Z_var = np.vstack([site.data['z.var_zxx'], site.data['z.var_zxy'],
-                                site.data['z.var_zyx'], site.data['z.var_zyy']])
-        
-        # NOTE: There are sometimes bad values in Z_var
-        # This removes periods with NaNs or zeros in their Z_var component
-        # We could look into setting them to inf or something else too,
-        # but this happens rarely and they seem like bad values from a quick
-        # spot check
-        bad_vals = np.any((site.Z_var == 0) | np.isnan(site.Z_var), axis=0)
-        # Filter out the bad periods
-        site.periods = site.periods[~bad_vals]
-        site.Z = site.Z[:, ~bad_vals]
-        site.Z_var = site.Z_var[:, ~bad_vals]
+        site.Z_var = np.vstack(
+            [
+                site.data["z.var_zxx"],
+                site.data["z.var_zxy"],
+                site.data["z.var_zyx"],
+                site.data["z.var_zyy"],
+            ]
+        )
+
+        # Preserve valid components at a period even when another component's
+        # error is missing. Numerical consumers mask invalid variances
+        # component-by-component; non-positive values are file sentinels, not
+        # uncertainties to repair with abs().
+        site.Z_var = np.where(np.isfinite(site.Z_var) & (site.Z_var > 0), site.Z_var, np.nan)
     except KeyError:
         # No variance in the data fields
         site.Z_var = None
@@ -234,9 +239,11 @@ def read_1d_usgs_profile(fname):
             conductivities.append(float(f.readline().split()[0]))
 
             # Done with the file, so create the site and return it
-            site = Site1d(name=profile_name,
-                          thicknesses=thicknesses,
-                          resistivities=[1./x for x in conductivities])
+            site = Site1d(
+                name=profile_name,
+                thicknesses=thicknesses,
+                resistivities=[1.0 / x for x in conductivities],
+            )
             return site
 
 
@@ -272,26 +279,28 @@ def read_logger_info(root):
     # Run through for each runid
     for field in root.findall("FieldNotes"):
         # runid of fieldnote
-        runid = field.attrib['run']
+        runid = field.attrib["run"]
         runinfo[runid] = {}
 
         try:
-            nimsid = get_text(field.find('Instrument'), 'Id')
-            samplingrate = convert_float(field.find('SamplingRate').text)
+            nimsid = get_text(field.find("Instrument"), "Id")
+            samplingrate = convert_float(field.find("SamplingRate").text)
         except KeyError:
             pass
 
         # Run through E component
         for ecomp in field.findall("Dipole"):
             # Electric component name
-            edir = ecomp.attrib['name']   # Ex or Ey
+            edir = ecomp.attrib["name"]  # Ex or Ey
             # Electric dipole length
             runinfo[runid][edir] = convert_float(get_text(ecomp, "Length"))
 
         # set start and end datetime
-        runinfo[runid]['Start'] = datetime.datetime.strptime(field.find('Start').text,
-                                                             '%Y-%m-%dT%H:%M:%S')
-        runinfo[runid]['End'] = datetime.datetime.strptime(field.find('End').text,
-                                                           '%Y-%m-%dT%H:%M:%S')
+        runinfo[runid]["Start"] = datetime.datetime.strptime(
+            field.find("Start").text, "%Y-%m-%dT%H:%M:%S"
+        )
+        runinfo[runid]["End"] = datetime.datetime.strptime(
+            field.find("End").text, "%Y-%m-%dT%H:%M:%S"
+        )
 
     return runinfo, nimsid, samplingrate

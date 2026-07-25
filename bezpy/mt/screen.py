@@ -31,9 +31,15 @@ from .utils import apparent_resistivity
 _OFFDIAG = (1, 2)
 
 
-def screen_impedance(site, rho_bounds=(3e-2, 3e5), max_rel_err=0.75,
-                     max_roughness=0.6, frac_out_soft=0.2, frac_out_hard=0.5,
-                     min_band=5):
+def screen_impedance(
+    site,
+    rho_bounds=(3e-2, 3e5),
+    max_rel_err=0.75,
+    max_roughness=0.6,
+    frac_out_soft=0.2,
+    frac_out_hard=0.5,
+    min_band=5,
+):
     """Physical-plausibility metrics and a flag for one site's impedance.
 
     Uses the off-diagonal (``xy``/``yx``) apparent resistivity and phase. The
@@ -49,8 +55,10 @@ def screen_impedance(site, rho_bounds=(3e-2, 3e5), max_rel_err=0.75,
     :param max_roughness: max std of the second difference of ``log10(rho)`` vs
         ``log10(period)`` (log-log curvature) before the curve is "rough"
         (default 0.6 decade).
-    :param frac_out_soft/frac_out_hard: fraction of samples out of the
-        resistivity bounds or the phase quadrant for a soft / hard flag.
+    :param frac_out_soft: fraction of samples out of the resistivity bounds or
+        phase quadrant that triggers a soft flag.
+    :param frac_out_hard: fraction of samples out of the resistivity bounds or
+        phase quadrant that triggers a hard flag.
     :param min_band: fewest valid off-diagonal periods to screen at all.
     :return: dict of metrics plus ``imp_flag`` in ``{"ok", "review", "bad"}``.
     """
@@ -73,7 +81,7 @@ def screen_impedance(site, rho_bounds=(3e-2, 3e5), max_rel_err=0.75,
         rr = rho[r, m]
         rho_out.append(((rr < lo) | (rr > hi)).mean())
         ph = phase[r, m]
-        phase_out.append((ph < -10.0).mean())      # out of first quadrant
+        phase_out.append((ph < -10.0).mean())  # out of first quadrant
         if Z_var is not None:
             rel_errs.append(np.median(np.sqrt(Z_var[r, m]) / np.abs(Z[r, m])))
         # log-log curvature of resistivity vs period (sorted by period)
@@ -105,15 +113,17 @@ def screen_impedance(site, rho_bounds=(3e-2, 3e5), max_rel_err=0.75,
     imp_flag = "bad" if hard else ("review" if soft else "ok")
 
     return {
-        "n_band": n_band, "frac_rho_out": frac_rho_out,
-        "frac_phase_out": frac_phase_out, "rel_err_med": rel_err_med,
-        "rho_roughness": roughness, "phase_roughness": phase_rough,
+        "n_band": n_band,
+        "frac_rho_out": frac_rho_out,
+        "frac_phase_out": frac_phase_out,
+        "rel_err_med": rel_err_med,
+        "rho_roughness": roughness,
+        "phase_roughness": phase_rough,
         "imp_flag": imp_flag,
     }
 
 
-def screen_sites(sites, values=None, k=8, loo_decades=0.74, min_neighbors=4,
-                 **imp_kwargs):
+def screen_sites(sites, values=None, k=8, loo_decades=0.74, min_neighbors=4, **imp_kwargs):
     """Screen a collection of MT sites; return a per-site verdict table.
 
     :param sites: sequence of ``Site3d``/``Site1d`` (need ``name``,

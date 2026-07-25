@@ -20,10 +20,19 @@ method-comparison results behind the defaults.
   declaring the `exp(-i omega t)` convention, so every `Site3d` carries the
   package's `exp(+i omega t)` convention. Previously such files silently
   produced time-reversed impulse responses.
-- **Impedance spline weighting**: periods with non-finite or zero `Z_var` are
+- **Impedance spline weighting**: periods with non-finite or non-positive `Z_var` are
   now excluded from the interpolating spline. Previously a single NaN
   variance (e.g. from a gridded-product row without an error column) made an
   entire impedance component — and every E field computed from it — NaN.
+- **Unknown impedance uncertainty**: `apparent_resistivity(..., Z_var=None)`
+  now returns NaN uncertainty arrays instead of fabricating a finite unit
+  error. Central apparent resistivity/phase values are unchanged, but code
+  that treated the old synthetic error as measured uncertainty must be
+  updated.
+- **Legacy EDI uncertainty rotation**: independent impedance/tipper variances
+  are now rotated with squared tensor coefficients instead of rotating
+  standard errors as if they were field values. EDI files declaring the
+  opposite Fourier sign are conjugated into bezpy's convention on read.
 - **`leave_one_out` band coherence** was computed on an interleaved Bx/By
   sequence and is now computed per component and averaged. Coherence-based
   skill scores from earlier runs are unreliable; RMSE/MAE/correlation scores
@@ -163,8 +172,29 @@ method-comparison results behind the defaults.
   NaN magnetic-field input with guidance instead of silently producing NaN
   everywhere; `convolve_fft` processes sites in memory-bounded blocks.
 - `DTIR.calculate(periods=..., Z=...)` works as documented and tolerates
-  sites without impedance variances; the data-space path uses a
-  pseudo-inverse.
+  sites without impedance variances or component-specific missing variances;
+  the data-space path uses a pseudo-inverse. Equal-horizon DTIRs share their
+  regularization matrix/pseudo-inverse, removing repeated cubic-cost setup in
+  multi-site nowcasts.
+- Resumable scans fingerprint their scientific configuration and refuse to
+  combine incompatible inputs/options; checkpoints and magnetic archive
+  updates are written atomically. Scan outputs carry stable `line_id` and
+  `transformer_id` coordinates. Histogram-sketch overflow is retained and
+  signaled instead of silently biasing approximate quantiles. The checkpoint
+  schema and quantile-sketch layout are part of the fingerprint, preventing a
+  package upgrade from mixing incompatible reducer state.
+- The nowcast CLI tracks consumed magnetic input independently of finalized
+  output, removes inclusive archive-boundary duplicates, and bounds startup
+  history with `--startup-window`; it also reads the last durable CSV
+  timestamp after a process restart. This prevents repeated warmup/output
+  samples and avoids loading an entire archive on every process start.
+- Invalid MT periods/shapes, non-positive impedance variances, unsafe cache
+  paths, malformed line geometries, and non-positive/disconnected network
+  resistances now fail early with actionable errors instead of reaching a
+  spline/linear solve or silently contaminating a result.
+- Downloaded MT, transmission-line, and magnetic cache files are replaced
+  atomically. Transmission-line GeoJSON records the service URL, query,
+  bounding box, and UTC retrieval time needed to identify the source dataset.
 - `scan` builds the voltage kernel once instead of per chunk; `storm_scan`
   skips (with a warning) catalog windows outside the magnetic record;
   exceedance collection warns when a threshold is set too low.
@@ -188,5 +218,6 @@ method-comparison results behind the defaults.
 - `bezpy.data` access without the optional dependencies now raises an
   ImportError with the install hint (previously `bezpy.data` was `None`).
 - Defaults that may change with more evidence (tracked in `VALIDATION.md`):
-  SECS fitting stays `method="lstsq"`; band-edge handling stays
-  `extrapolate="zeros"`. Both alternatives are one keyword away.
+  SECS fitting stays `method="lstsq"`; band-edge handling is
+  `extrapolate="asymptotic"`. The legacy hard band-stop remains available as
+  `extrapolate="zeros"`.

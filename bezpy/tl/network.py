@@ -49,6 +49,7 @@ geomagnetically induced currents. IEEE Transactions on Power Delivery,
 __all__ = ["Network", "gic_matrix", "apply_gic_matrix", "effective_gic"]
 
 import json
+from collections import Counter
 from importlib.resources import files
 
 import numpy as np
@@ -67,6 +68,30 @@ def _records(items):
     if hasattr(items, "to_dict"):
         return items.to_dict("records")
     return [dict(item) for item in items]
+
+
+def _positive_resistance(value, label):
+    """Return a finite positive resistance or raise an actionable error."""
+    try:
+        resistance = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} resistance must be a finite positive number") from None
+    if not np.isfinite(resistance) or resistance <= 0:
+        raise ValueError(f"{label} resistance must be finite and positive")
+    return resistance
+
+
+def _require_unique_ids(records, kind):
+    """Validate required, unique record identifiers."""
+    ids = [record.get("id") for record in records]
+    if any(identifier is None for identifier in ids):
+        raise ValueError(f"every {kind} must have a non-null 'id'")
+    duplicates = sorted(
+        (identifier for identifier, count in Counter(ids).items() if count > 1),
+        key=str,
+    )
+    if duplicates:
+        raise ValueError(f"duplicate {kind} id(s): {duplicates[:5]}")
 
 
 class Network:
@@ -91,11 +116,56 @@ class Network:
         self.substations = _records(substations)
         self.transformers = _records(transformers)
         self.branches = _records(branches)
+        _require_unique_ids(self.substations, "substation")
+        _require_unique_ids(self.transformers, "transformer")
+        _require_unique_ids(self.branches, "branch")
+        substation_ids = {s["id"] for s in self.substations}
+        for s in self.substations:
+            s["resistance"] = _positive_resistance(s.get("resistance"), f"substation {s['id']!r}")
+        for b in self.branches:
+            for key in ("from_bus", "to_bus"):
+                if b.get(key) is None:
+                    raise ValueError(f"branch {b['id']!r} must have {key!r}")
+            if b["from_bus"] == b["to_bus"]:
+                raise ValueError(f"branch {b['id']!r} cannot connect a bus to itself")
+            b["resistance"] = _positive_resistance(b.get("resistance"), f"branch {b['id']!r}")
         for t in self.transformers:
-            if t["type"] not in _TRANSFORMER_TYPES:
+            if t.get("type") not in _TRANSFORMER_TYPES:
                 raise ValueError(
                     f"transformer {t.get('id')!r}: type must be one of "
-                    f"{_TRANSFORMER_TYPES}, got {t['type']!r}")
+                    f"{_TRANSFORMER_TYPES}, got {t.get('type')!r}"
+                )
+            if t["type"] == "auto":
+                resistance_keys = ("r_series", "r_common")
+                missing = [key for key in resistance_keys if t.get(key) is None]
+                if missing:
+                    raise ValueError(f"autotransformer {t['id']!r} requires {', '.join(missing)}")
+                for key in ("hi_bus", "lo_bus"):
+                    if t.get(key) is None:
+                        raise ValueError(f"autotransformer {t['id']!r} must have {key!r}")
+            else:
+                resistance_keys = ("r_hi", "r_lo")
+                for resistance_key, bus_key in (("r_hi", "hi_bus"), ("r_lo", "lo_bus")):
+                    if t.get(resistance_key) is not None and t.get(bus_key) is None:
+                        raise ValueError(
+                            f"transformer {t['id']!r} has {resistance_key} but no {bus_key}"
+                        )
+            grounded = False
+            for key in resistance_keys:
+                if t.get(key) is not None:
+                    t[key] = _positive_resistance(t[key], f"transformer {t['id']!r} {key}")
+                    if key != "r_series":
+                        grounded = True
+            if t["type"] == "auto" and not grounded:
+                # r_common is required above in practice, but keep this
+                # explicit so a future transformer type cannot bypass it.
+                raise ValueError(f"autotransformer {t['id']!r} needs a grounded common winding")
+            if grounded:
+                if t.get("substation") not in substation_ids:
+                    raise ValueError(
+                        f"transformer {t['id']!r} references unknown or missing "
+                        f"substation {t.get('substation')!r}"
+                    )
 
         self._node_of = {}
         for s in self.substations:
@@ -104,9 +174,13 @@ class Network:
         # Transmission-line edges, in self.branches order (this order is
         # the contract gic_matrix's site-driven voltages must line up with).
         self._branch_edges = [
-            (self._node("bus", b["from_bus"]), self._node("bus", b["to_bus"]),
-             float(b["resistance"]))
-            for b in self.branches]
+            (
+                self._node("bus", b["from_bus"]),
+                self._node("bus", b["to_bus"]),
+                float(b["resistance"]),
+            )
+            for b in self.branches
+        ]
 
         # Grounded-winding edges: bus -> substation (or bus -> bus for an
         # autotransformer's series winding, which touches no substation).
@@ -117,16 +191,62 @@ class Network:
                 for part, bus_key, r_key in (("hi", "hi_bus", "r_hi"), ("lo", "lo_bus", "r_lo")):
                     r = t.get(r_key)
                     if r is not None:
-                        self._winding_edges.append(dict(
-                            t=ti, part=part, i=self._node("bus", t[bus_key]), j=sub, r=float(r)))
+                        self._winding_edges.append(
+                            dict(
+                                t=ti, part=part, i=self._node("bus", t[bus_key]), j=sub, r=float(r)
+                            )
+                        )
             else:  # "auto"
-                self._winding_edges.append(dict(
-                    t=ti, part="series", i=self._node("bus", t["hi_bus"]),
-                    j=self._node("bus", t["lo_bus"]), r=float(t["r_series"])))
-                self._winding_edges.append(dict(
-                    t=ti, part="common", i=self._node("bus", t["lo_bus"]), j=sub,
-                    r=float(t["r_common"])))
+                self._winding_edges.append(
+                    dict(
+                        t=ti,
+                        part="series",
+                        i=self._node("bus", t["hi_bus"]),
+                        j=self._node("bus", t["lo_bus"]),
+                        r=float(t["r_series"]),
+                    )
+                )
+                self._winding_edges.append(
+                    dict(
+                        t=ti,
+                        part="common",
+                        i=self._node("bus", t["lo_bus"]),
+                        j=sub,
+                        r=float(t["r_common"]),
+                    )
+                )
         self.n_nodes = len(self._node_of)
+        self._validate_grounding()
+
+    def _validate_grounding(self):
+        """Every conductive component must have a path to remote earth."""
+        adjacency = [set() for _ in range(self.n_nodes)]
+        for i, j, _ in self._branch_edges:
+            adjacency[i].add(j)
+            adjacency[j].add(i)
+        for winding in self._winding_edges:
+            i, j = winding["i"], winding["j"]
+            adjacency[i].add(j)
+            adjacency[j].add(i)
+        grounded = {self._node_of[("sub", s["id"])] for s in self.substations}
+        unseen = set(range(self.n_nodes))
+        while unseen:
+            start = next(iter(unseen))
+            stack = [start]
+            component = set()
+            while stack:
+                node = stack.pop()
+                if node in component:
+                    continue
+                component.add(node)
+                stack.extend(adjacency[node] - component)
+            unseen -= component
+            if component.isdisjoint(grounded):
+                labels = [key for key, value in self._node_of.items() if value in component]
+                raise ValueError(
+                    "network has a conductive component with no grounded "
+                    f"substation; first nodes: {labels[:5]}"
+                )
 
     def _node(self, kind, num):
         key = (kind, num)
@@ -135,8 +255,10 @@ class Network:
         return self._node_of[key]
 
     def __repr__(self):
-        return (f"Network({len(self.substations)} substations, "
-               f"{len(self.transformers)} transformers, {len(self.branches)} branches)")
+        return (
+            f"Network({len(self.substations)} substations, "
+            f"{len(self.transformers)} transformers, {len(self.branches)} branches)"
+        )
 
     @classmethod
     def from_json(cls, path):
@@ -147,8 +269,11 @@ class Network:
 
     def to_json(self, path):
         """Save ``{"substations": [...], "transformers": [...], "branches": [...]}``."""
-        data = {"substations": self.substations, "transformers": self.transformers,
-               "branches": self.branches}
+        data = {
+            "substations": self.substations,
+            "transformers": self.transformers,
+            "branches": self.branches,
+        }
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
 
@@ -198,8 +323,9 @@ class Network:
             brows.extend((j, i))
             bcols.extend((k, k))
             bvals.extend((1.0 / r, -1.0 / r))
-        B = scipy.sparse.csr_matrix((bvals, (brows, bcols)),
-                                    shape=(self.n_nodes, len(self._branch_edges)))
+        B = scipy.sparse.csr_matrix(
+            (bvals, (brows, bcols)), shape=(self.n_nodes, len(self._branch_edges))
+        )
         return Y, B
 
     def solve(self, branch_voltages):
@@ -211,6 +337,13 @@ class Network:
         """
         Y, B = self.admittance()
         v = np.asarray(branch_voltages, dtype=float)
+        if v.ndim not in (1, 2) or v.shape[-1] != len(self.branches):
+            raise ValueError(
+                f"branch_voltages must have shape ({len(self.branches)},) or "
+                f"(ntimes, {len(self.branches)}); got {v.shape}"
+            )
+        if not np.isfinite(v).all():
+            raise ValueError("branch_voltages must contain only finite values")
         squeeze = v.ndim == 1
         v = np.atleast_2d(v)
         J = (B @ v.T).T  # (ntimes, n_nodes)
@@ -227,6 +360,10 @@ class Network:
             matching ``node_voltages``'s leading shape
         """
         V = np.asarray(node_voltages, dtype=float)
+        if V.ndim not in (1, 2) or V.shape[-1] != self.n_nodes:
+            raise ValueError(
+                f"node_voltages must end with {self.n_nodes} network nodes; got {V.shape}"
+            )
         axis = -1
         out = {}
         for w in self._winding_edges:
@@ -284,20 +421,27 @@ def gic_matrix(network, lines, n_sites, how="delaunay"):
     for idx, line in enumerate(lines):
         lid = line.metadata.get("id")
         if lid is not None:
+            if lid in line_index:
+                raise ValueError(
+                    f"multiple transmission lines have metadata id {lid!r}; "
+                    "branch-to-geometry matching must be one-to-one"
+                )
             line_index[lid] = idx
     missing = [b["id"] for b in network.branches if b["id"] not in line_index]
     if missing:
         raise ValueError(
             f"{len(missing)} network branch(es) have no matching line "
-            f"(line.metadata['id']); first few: {missing[:5]}")
+            f"(line.metadata['id']); first few: {missing[:5]}"
+        )
 
     L, valid = voltage_matrix(lines, n_sites, how=how)
 
     Y, B_local = network.admittance()
     rows = np.arange(len(network.branches))
     cols = np.array([line_index[b["id"]] for b in network.branches])
-    S = scipy.sparse.csr_matrix((np.ones(len(rows)), (rows, cols)),
-                                shape=(len(network.branches), len(lines)))
+    S = scipy.sparse.csr_matrix(
+        (np.ones(len(rows)), (rows, cols)), shape=(len(network.branches), len(lines))
+    )
     B = B_local @ S  # (n_nodes, nlines)
 
     lu = scipy.sparse.linalg.splu(Y.tocsc())
@@ -329,12 +473,20 @@ def apply_gic_matrix(E, K, valid=None):
     :param valid: optional boolean mask; invalid transformers are set to NaN
     :return: neutral currents in Amps, shape ``(ntimes, ntransformers)``
     """
-    E = np.atleast_3d(E)
+    E = np.asarray(E, dtype=float)
+    K = np.asarray(K, dtype=float)
+    if E.ndim != 3 or E.shape[-1] != 2:
+        raise ValueError("E must have shape (ntimes, n_sites, 2)")
+    if K.ndim != 3 or K.shape[2] != 2 or K.shape[1] != E.shape[1]:
+        raise ValueError(f"K must have shape (ntransformers, {E.shape[1]}, 2); got {K.shape}")
     ntimes = E.shape[0]
     K_sparse = scipy.sparse.csr_matrix(K.reshape(K.shape[0], -1))
     I = E.reshape(ntimes, -1) @ K_sparse.T
     if valid is not None:
-        I[:, ~np.asarray(valid)] = np.nan
+        valid = np.asarray(valid, dtype=bool)
+        if valid.shape != (K.shape[0],):
+            raise ValueError(f"valid must have shape ({K.shape[0]},)")
+        I[:, ~valid] = np.nan
     return I
 
 

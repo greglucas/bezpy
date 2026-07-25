@@ -1,5 +1,7 @@
 """Physics tests for the 1D magnetotelluric impedance recursion (Site1d)."""
+
 import numpy as np
+import pytest
 
 import bezpy
 from bezpy.mt.utils import apparent_resistivity
@@ -43,6 +45,12 @@ def test_1d_dc_frequency_is_zero(halfspace_site):
     assert np.allclose(Z[:, 0], 0.0)
 
 
+def test_1d_dc_frequency_is_zero_in_any_position(halfspace_site):
+    Z = halfspace_site.calcZ(np.array([1e-2, 0.0, 1e-3]))
+    assert np.allclose(Z[:, 1], 0.0)
+    assert np.isfinite(Z).all()
+
+
 def test_resistivity_increases_impedance():
     # A more resistive half-space produces a larger impedance magnitude.
     low = bezpy.mt.Site1d("low", thicknesses=[1e9], resistivities=[10.0])
@@ -52,6 +60,26 @@ def test_resistivity_increases_impedance():
 
 
 def test_depths_are_cumulative():
-    site = bezpy.mt.Site1d("layers", thicknesses=[100.0, 200.0, 300.0],
-                           resistivities=[10.0, 20.0, 30.0])
+    site = bezpy.mt.Site1d(
+        "layers", thicknesses=[100.0, 200.0, 300.0], resistivities=[10.0, 20.0, 30.0]
+    )
     assert np.allclose(site.depths, [100.0, 300.0, 600.0])
+
+
+def test_optional_halfspace_plot_thickness_is_not_an_extra_layer():
+    site = bezpy.mt.Site1d(
+        "profile",
+        thicknesses=[100.0, 200.0, 300.0],
+        resistivities=[10.0, 20.0, 30.0],
+    )
+    ax = site.plot_depth()
+    np.testing.assert_array_equal(ax.lines[0].get_ydata(), [0.0, 0.1, 0.3])
+
+
+def test_too_many_thicknesses_rejected():
+    with pytest.raises(ValueError, match="optional plotting thickness"):
+        bezpy.mt.Site1d(
+            "profile",
+            thicknesses=[1.0, 2.0, 3.0],
+            resistivities=[10.0, 20.0],
+        )

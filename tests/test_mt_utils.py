@@ -1,4 +1,5 @@
 """Tests for bezpy.mt.utils apparent resistivity calculations."""
+
 import numpy as np
 
 from bezpy.mt.utils import apparent_resistivity
@@ -30,9 +31,10 @@ def test_apparent_resistivity_phase_45deg():
     assert np.allclose(phase, 45.0)
 
 
-def test_apparent_resistivity_default_variance_is_finite():
-    # With no Z_var provided, the function fabricates one and should not raise.
+def test_apparent_resistivity_without_variance_reports_unknown_errors():
+    # Missing uncertainty must not be turned into a fabricated finite error.
     Z = (1 + 1j) * np.ones((4, 2), dtype=complex)
     resistivity, res_var, phase, phase_var = apparent_resistivity(np.array([10.0, 20.0]), Z)
     assert np.all(np.isfinite(resistivity))
-    assert np.all(np.isfinite(res_var))
+    assert np.isnan(res_var).all()
+    assert np.isnan(phase_var).all()

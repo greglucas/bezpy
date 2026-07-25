@@ -4,6 +4,8 @@ These tests never touch the network: HTTP calls are replaced with synthetic-data
 generators, and everything else (netCDF store, provenance layout, cross-level
 merge, inventory, IAGA/MT ingest) runs against a temporary cache directory.
 """
+
+import json
 import urllib.parse as urlparse
 
 import numpy as np
@@ -52,8 +54,7 @@ def _synthetic_payload(url):
     return {
         "times": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t in idx],
         "metadata": {"sampling_period": 60},
-        "values": [{"id": e, "values": list(component.get(e, np.zeros(n)))}
-                   for e in elements],
+        "values": [{"id": e, "values": list(component.get(e, np.zeros(n)))} for e in elements],
     }
 
 
@@ -73,6 +74,7 @@ class _FakeResponse:
 @pytest.fixture
 def fake_ws(monkeypatch):
     """Replace the USGS HTTP fetch with a deterministic generator."""
+
     class FakeSession:
         def get(self, url, timeout=None):
             return _FakeResponse(payload=_synthetic_payload(url))
@@ -114,17 +116,16 @@ def test_build_url_level_to_type():
     assert "type=R0" in ws.build_url("BOU", "2024-05-10", "2024-05-11")
     assert "type=R1" in ws.build_url("OTT", "2024-05-10", "2024-05-11")
     # Quality levels are requested by name.
-    assert "type=definitive" in ws.build_url("BOU", "2024-05-10", "2024-05-11",
-                                             level="definitive")
-    assert "type=quasi-definitive" in ws.build_url("BOU", "2024-05-10",
-                                                   "2024-05-11", level="qd")
+    assert "type=definitive" in ws.build_url("BOU", "2024-05-10", "2024-05-11", level="definitive")
+    assert "type=quasi-definitive" in ws.build_url("BOU", "2024-05-10", "2024-05-11", level="qd")
 
 
 def test_parse_payload_nulls_and_metadata():
     payload = {
         "times": ["2024-05-10T00:00:00Z", "2024-05-10T00:01:00Z"],
-        "metadata": {"intermagnet": {"imo": {"name": "Boulder",
-                                             "coordinates": [254.764, 40.137, 1682]}}},
+        "metadata": {
+            "intermagnet": {"imo": {"name": "Boulder", "coordinates": [254.764, 40.137, 1682]}}
+        },
         "values": [{"id": "X", "values": [20800.1, None]}],
     }
     times, values, metadata = ws.parse_payload(payload)
@@ -234,8 +235,7 @@ def test_intermagnet_url_and_publication_state():
     assert "publicationState=definitive" in url
     assert "dataDuration=2" in url and "samplesPerDay=Minute" in url
     assert "format=iaga2002" in url
-    assert "publicationState=best-avail" in im.build_url("ESK", "2024-05-10",
-                                                        1, level="best")
+    assert "publicationState=best-avail" in im.build_url("ESK", "2024-05-10", 1, level="best")
     # The GIN vocabulary (verified against the live service).
     assert im.publication_state("quasi-definitive") == "quasi-def"
     assert im.publication_state("variation") == "reported"
@@ -289,8 +289,9 @@ def test_intermagnet_end_to_end(cache, monkeypatch):
 
     monkeypatch.setattr(im, "fetch_dataframe", patched)
 
-    data.download_observatory("ESK", "2024-05-10", "2024-05-11",
-                              source="intermagnet", level="definitive")
+    data.download_observatory(
+        "ESK", "2024-05-10", "2024-05-11", source="intermagnet", level="definitive"
+    )
     assert ("intermagnet", "definitive") in data.stored_partitions("ESK")
     ds = data.load_observatory("ESK")
     assert ds.sizes["time"] == 2
@@ -334,8 +335,9 @@ def test_mt_download_with_survey_override(cache, sample_emtf_path):
         def get(self, url, timeout=None):
             return _FakeResponse(text=xml)
 
-    path = data.download_mt("http://example/spud/data/1", session=FakeSession(),
-                            survey="MyCampaign")
+    path = data.download_mt(
+        "http://example/spud/data/1", session=FakeSession(), survey="MyCampaign"
+    )
     assert path.parent.name == "MyCampaign"
     assert "MyCampaign" in data.stored_mt_surveys()
 
@@ -426,8 +428,9 @@ def test_spud_resolver_picks_xml_not_png(cache, sample_emtf_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # SPUD archive search
 # ---------------------------------------------------------------------------
-def _emtf_index_block(spud_id, code, survey, project, lat, lon, rating,
-                      subtype="MT_TF", citation="A & B"):
+def _emtf_index_block(
+    spud_id, code, survey, project, lat, lon, rating, subtype="MT_TF", citation="A & B"
+):
     # A raw "&" in the citation mimics the real index (invalid XML until fixed).
     return f"""  <EM_TF id="{spud_id}">
     <SubType>{subtype}</SubType>
@@ -444,13 +447,13 @@ def _emtf_index_block(spud_id, code, survey, project, lat, lon, rating,
 
 def _write_fake_index():
     from bezpy.data.mt import _spud_index_path
+
     blocks = [
         _emtf_index_block(1, "KAK", "JMA", "INTERMAGNET", 36.232, 140.186, 3),
         _emtf_index_block(2, "MMB", "JMA", "INTERMAGNET", 43.910, 144.189, 5),
         _emtf_index_block(3, "TA01", "USArray", "USArray", 40.0, -100.0, 4),
         # A non-transfer-function product that must be filtered out.
-        _emtf_index_block(4, "SPEC", "Other", "Other", 37.0, 140.0, 5,
-                          subtype="MT_SPECTRA"),
+        _emtf_index_block(4, "SPEC", "Other", "Other", 37.0, 140.0, 5, subtype="MT_SPECTRA"),
     ]
     path = _spud_index_path()
     path.write_text("<Results>\n" + "\n".join(blocks) + "\n</Results>")
@@ -461,7 +464,7 @@ def test_search_mt_filters_bbox_survey_and_subtype(cache):
     _write_fake_index()
     # A bare "&" in the block would break XML parsing without re-escaping.
     all_tf = data.search_mt()
-    assert set(all_tf["code"]) == {"KAK", "MMB", "TA01"}   # MT_SPECTRA excluded
+    assert set(all_tf["code"]) == {"KAK", "MMB", "TA01"}  # MT_SPECTRA excluded
 
     japan = data.search_mt(bbox=(128, 30, 146, 46))
     assert set(japan["code"]) == {"KAK", "MMB"}
@@ -488,11 +491,12 @@ def test_download_mt_search_fetches_and_skips_existing(cache, sample_emtf_path):
 
     session = FakeSession()
     paths = data.download_mt_search(survey="JMA", session=session)
-    assert session.data_calls == 2                       # KAK and MMB fetched
+    assert session.data_calls == 2  # KAK and MMB fetched
     assert all(p.exists() and p.parent.name == "JMA" for p in paths)
 
     # Pre-existing destinations are skipped without any download.
     from bezpy.data.mt import _site_path
+
     for code in ("KAK", "MMB"):
         _site_path("JMA", code).write_text("<cached/>")
     session = FakeSession()
@@ -514,18 +518,23 @@ def _wdc_zip_bytes(day="2003-10-30"):
     import zipfile
 
     rows = "\n".join(
-        f"{day} 00:0{m}:00.000 303 {29700 + m}.00 -3500.00 35000.00 45000.00"
-        for m in range(3))
-    iaga = "\n".join([
-        _iaga_line("Format", "IAGA-2002"),
-        _iaga_line("Station Name", "Kakioka"),
-        _iaga_line("IAGA Code", "KAK"),
-        _iaga_line("Geodetic Latitude", "36.232"),
-        _iaga_line("Geodetic Longitude", "140.186"),
-        _iaga_line("Reported", "XYZF"),
-        "DATE       TIME         DOY     KAKX      KAKY      KAKZ      KAKF   |",
-        rows,
-    ]) + "\n"
+        f"{day} 00:0{m}:00.000 303 {29700 + m}.00 -3500.00 35000.00 45000.00" for m in range(3)
+    )
+    iaga = (
+        "\n".join(
+            [
+                _iaga_line("Format", "IAGA-2002"),
+                _iaga_line("Station Name", "Kakioka"),
+                _iaga_line("IAGA Code", "KAK"),
+                _iaga_line("Geodetic Latitude", "36.232"),
+                _iaga_line("Geodetic Longitude", "140.186"),
+                _iaga_line("Reported", "XYZF"),
+                "DATE       TIME         DOY     KAKX      KAKY      KAKZ      KAKF   |",
+                rows,
+            ]
+        )
+        + "\n"
+    )
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as archive:
         archive.writestr("kak200310dmin.min", iaga)
@@ -540,7 +549,7 @@ def test_wdc_build_url_minute_and_hour():
     minute = _wdc.build_url("kak", "2003-10-29", "2003-10-31", cadence="minute")
     assert "/data/zipped-data/minute/KAK?" in minute
     assert "file_format=iaga" in minute and "orientation=XYZF" in minute
-    assert "group_by=month" in minute            # monthly grouping for minute
+    assert "group_by=month" in minute  # monthly grouping for minute
     hour = _wdc.build_url("KAK", "1960-01-01", "1970-01-01", cadence="hour")
     assert "/data/zipped-data/hour/KAK?" in hour and "group_by" not in hour
 
@@ -563,8 +572,9 @@ def test_wdc_fetch_trims_to_window():
             return _FakeResponse(content=_wdc_zip_bytes())
 
     # The file holds 00:00-00:02; the window keeps only from 00:01.
-    df = _wdc.fetch_dataframe("KAK", "2003-10-30 00:01", "2003-10-30 00:05",
-                              sampling_period=60, session=FakeSession())
+    df = _wdc.fetch_dataframe(
+        "KAK", "2003-10-30 00:01", "2003-10-30 00:05", sampling_period=60, session=FakeSession()
+    )
     assert len(df) == 2 and str(df.index[0]) == "2003-10-30 00:01:00"
 
 
@@ -572,24 +582,26 @@ def test_wdc_rejects_unsupported_cadence():
     from bezpy.data import _wdc
 
     with pytest.raises(ValueError, match="minute .* hourly"):
-        _wdc.fetch_dataframe("KAK", "2003-10-29", "2003-10-31",
-                             sampling_period=1)
+        _wdc.fetch_dataframe("KAK", "2003-10-29", "2003-10-31", sampling_period=1)
 
 
 def test_wdc_source_stored_under_provenance(cache, monkeypatch):
     from bezpy.data import _wdc
 
-    def fake_fetch(code, start, end, sampling_period=60, level="definitive",
-                   verbose=False, **kwargs):
+    def fake_fetch(
+        code, start, end, sampling_period=60, level="definitive", verbose=False, **kwargs
+    ):
         idx = pd.date_range(start, periods=3, freq="min")
-        df = pd.DataFrame({"X": [1.0, 2, 3], "Y": [4.0, 5, 6],
-                           "Z": [7.0, 8, 9], "F": [10.0, 11, 12]}, index=idx)
+        df = pd.DataFrame(
+            {"X": [1.0, 2, 3], "Y": [4.0, 5, 6], "Z": [7.0, 8, 9], "F": [10.0, 11, 12]}, index=idx
+        )
         df.attrs["provider"] = _wdc.PROVIDER
         return df
 
     monkeypatch.setattr(_wdc, "fetch_dataframe", fake_fetch)
-    paths = data.download_observatory("KAK", "2003-10-30", "2003-10-30 00:03",
-                                      source="wdc", level="definitive")
+    paths = data.download_observatory(
+        "KAK", "2003-10-30", "2003-10-30 00:03", source="wdc", level="definitive"
+    )
     assert paths and paths[0].parts[-3:-1] == ("definitive", "KAK")
     assert "wdc" in str(paths[0])
     ds = data.load_observatory("KAK", source="wdc", as_dataframe=True)
@@ -600,8 +612,9 @@ def test_wdc_source_stored_under_provenance(cache, monkeypatch):
 # Transmission lines
 # ---------------------------------------------------------------------------
 def test_tl_build_query_url():
-    url = data.tl.build_query_url(data.tl.DEFAULT_SERVICE_URL, where="VOLTAGE>=345",
-                                  bbox=(-110, 35, -100, 45))
+    url = data.tl.build_query_url(
+        data.tl.DEFAULT_SERVICE_URL, where="VOLTAGE>=345", bbox=(-110, 35, -100, 45)
+    )
     assert "/query?" in url and "f=geojson" in url
     assert "esriGeometryEnvelope" in url and "VOLTAGE" in url
 
@@ -610,13 +623,19 @@ def test_tl_parse_geojson_linestring_and_multi():
     geojson = {
         "type": "FeatureCollection",
         "features": [
-            {"type": "Feature", "properties": {"VOLTAGE": 345.0},
-             "geometry": {"type": "LineString",
-                          "coordinates": [[-105, 40], [-104, 41]]}},
-            {"type": "Feature", "properties": {"VOLTAGE": 500.0},
-             "geometry": {"type": "MultiLineString",
-                          "coordinates": [[[-100, 38], [-99, 38.5]],
-                                          [[-98, 39], [-97, 39.2]]]}},
+            {
+                "type": "Feature",
+                "properties": {"VOLTAGE": 345.0},
+                "geometry": {"type": "LineString", "coordinates": [[-105, 40], [-104, 41]]},
+            },
+            {
+                "type": "Feature",
+                "properties": {"VOLTAGE": 500.0},
+                "geometry": {
+                    "type": "MultiLineString",
+                    "coordinates": [[[-100, 38], [-99, 38.5]], [[-98, 39], [-97, 39.2]]],
+                },
+            },
         ],
     }
     lines = data.tl.parse_geojson(geojson)
@@ -630,9 +649,11 @@ def test_tl_download_and_reload(cache):
     geojson = {
         "type": "FeatureCollection",
         "features": [
-            {"type": "Feature", "properties": {"VOLTAGE": 345.0, "ID": "1"},
-             "geometry": {"type": "LineString",
-                          "coordinates": [[-105, 40], [-104.5, 40.5]]}},
+            {
+                "type": "Feature",
+                "properties": {"VOLTAGE": 345.0, "ID": "1"},
+                "geometry": {"type": "LineString", "coordinates": [[-105, 40], [-104.5, 40.5]]},
+            },
         ],
     }
 
@@ -640,16 +661,48 @@ def test_tl_download_and_reload(cache):
         def get(self, url, timeout=None):
             return _FakeResponse(payload={**geojson, "exceededTransferLimit": False})
 
-    lines = data.download_transmission_lines(bbox=(-110, 35, -100, 45),
-                                             min_voltage=345, session=FakeSession())
+    lines = data.download_transmission_lines(
+        bbox=(-110, 35, -100, 45), min_voltage=345, session=FakeSession()
+    )
     assert len(lines) == 1
     reloaded = data.load_transmission_lines()
     assert len(reloaded) == 1 and reloaded[0].metadata["ID"] == "1"
+    stored = json.loads((cache / "tl" / "transmission_lines.geojson").read_text())
+    provenance = stored["bezpy_provenance"]
+    assert provenance["service_url"] == data.tl.DEFAULT_SERVICE_URL
+    assert provenance["bbox"] == [-110, 35, -100, 45]
+    assert "VOLTAGE>=345" in provenance["where"]
+    assert provenance["retrieved_utc"].endswith("+00:00")
+
+
+def test_tl_max_features_applies_to_short_final_page(cache):
+    features = [
+        {
+            "type": "Feature",
+            "properties": {"ID": str(i)},
+            "geometry": {"type": "LineString", "coordinates": [[-105, 40], [-104.5, 40.5]]},
+        }
+        for i in range(3)
+    ]
+
+    class FakeSession:
+        def get(self, url, timeout=None):
+            return _FakeResponse(
+                payload={
+                    "type": "FeatureCollection",
+                    "features": features,
+                    "exceededTransferLimit": False,
+                }
+            )
+
+    lines = data.download_transmission_lines(session=FakeSession(), max_features=1)
+    assert len(lines) == 1
 
 
 def test_transmission_line_accepts_linestring():
     # bezpy.tl.TransmissionLine should accept a bare coordinate array now.
     from bezpy.tl import TransmissionLine
+
     line = TransmissionLine([[-105, 40], [-104, 41]], metadata={"VOLTAGE": 500})
     assert line.npts == 2 and line.length > 0 and line.metadata["VOLTAGE"] == 500
 
@@ -664,6 +717,11 @@ def test_cache_override_and_clear(cache, fake_ws):
     assert not removed.exists()
 
 
+def test_cache_rejects_parent_traversal(cache):
+    with pytest.raises(ValueError, match="must stay within"):
+        data.get_cache_dir("../../outside")
+
+
 def test_download_all_nan_response_not_stored(cache, monkeypatch):
     """A service returning a time axis of nulls must not create a partition.
 
@@ -671,6 +729,7 @@ def test_download_all_nan_response_not_stored(cache, monkeypatch):
     levels they do not hold (e.g. definitive before publication); storing
     them created misleading all-NaN archive files.
     """
+
     def all_nan_payload(url):
         payload = _synthetic_payload(url)
         for entry in payload["values"]:
@@ -689,8 +748,7 @@ def test_download_all_nan_response_not_stored(cache, monkeypatch):
 
     monkeypatch.setattr(ws, "fetch_interval", patched)
     with pytest.warns(UserWarning, match="nothing stored"):
-        paths = data.download_observatory("BOU", "2024-05-10", "2024-05-11",
-                                          level="definitive")
+        paths = data.download_observatory("BOU", "2024-05-10", "2024-05-11", level="definitive")
     assert paths == []
     inventory = data.observatory_inventory()
     assert inventory.empty

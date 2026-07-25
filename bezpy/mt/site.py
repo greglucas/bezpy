@@ -2,8 +2,16 @@
 Magnetotelluric site classes.
 
 """
-__all__ = ["Site", "Site1d", "Site3d", "SiteCollection", "ConductivityModel",
-           "sites_to_dataset", "sites_from_dataset"]
+
+__all__ = [
+    "Site",
+    "Site1d",
+    "Site3d",
+    "SiteCollection",
+    "ConductivityModel",
+    "sites_to_dataset",
+    "sites_from_dataset",
+]
 
 import copy
 import pathlib
@@ -19,7 +27,7 @@ from .utils import apparent_resistivity
 # ----------------------------
 # Constants
 # ----------------------------
-MU = 4*np.pi*1e-7  # Magnetic Permeability (H/m)
+MU = 4 * np.pi * 1e-7  # Magnetic Permeability (H/m)
 
 # SiteCollection.convolve_fft processes sites in blocks whose frequency-domain
 # workspace (interpolated impedances + spectra) stays under this budget; the
@@ -29,6 +37,7 @@ _CONVOLVE_BUDGET_BYTES = 512 * 2**20
 
 class Site:
     """Magnetotelluric Site base class."""
+
     # pylint: disable=too-many-instance-attributes
     def __init__(self, name):
         self.name = name
@@ -58,7 +67,7 @@ class Site:
 
         N0 = len(mag_x)
         # Round N to the next highest power of 2 (+1 (makes it 2) to prevent circular convolution)
-        N = 2**(int(np.log2(N0))+2)
+        N = 2 ** (int(np.log2(N0)) + 2)
 
         freqs = scipy.fft.rfftfreq(N, d=dt)
         # Z needs to be organized as: xx, xy, yx, yy
@@ -67,8 +76,8 @@ class Site:
         mag_x_fft = scipy.fft.rfft(mag_x, n=N, workers=-1)
         mag_y_fft = scipy.fft.rfft(mag_y, n=N, workers=-1)
 
-        Ex_fft = Z_interp[0, :]*mag_x_fft + Z_interp[1, :]*mag_y_fft
-        Ey_fft = Z_interp[2, :]*mag_x_fft + Z_interp[3, :]*mag_y_fft
+        Ex_fft = Z_interp[0, :] * mag_x_fft + Z_interp[1, :] * mag_y_fft
+        Ey_fft = Z_interp[2, :] * mag_x_fft + Z_interp[3, :] * mag_y_fft
 
         Ex_t = np.real(scipy.fft.irfft(Ex_fft, workers=-1)[:N0])
         Ey_t = np.real(scipy.fft.irfft(Ey_fft, workers=-1)[:N0])
@@ -115,8 +124,7 @@ class Site3d(Site):
     """
 
     # pylint: disable=too-many-arguments
-    def __init__(self, name, latitude=None, longitude=None,
-                 periods=None, Z=None, Z_var=None):
+    def __init__(self, name, latitude=None, longitude=None, periods=None, Z=None, Z_var=None):
         super().__init__(name)
 
         self.xml = None
@@ -154,12 +162,51 @@ class Site3d(Site):
             self.Z_var = np.asarray(Z_var, dtype=float)
 
     def _repr_html_(self):
-        return f"<p style=\"font-size:22px; color:blue\"><b>Site 3d: {self.name}</b></p>" + \
-               self.data._repr_html_()  # pylint: disable=protected-access
+        return (
+            f'<p style="font-size:22px; color:blue"><b>Site 3d: {self.name}</b></p>'
+            + self.data._repr_html_()
+        )  # pylint: disable=protected-access
+
+    def _validate_impedance(self):
+        """Validate the mutable impedance fields before numerical use."""
+        if self.periods is None or self.Z is None:
+            raise ValueError(f"site {self.name}: periods and Z must be set before interpolation")
+        periods = np.asarray(self.periods, dtype=float)
+        Z = np.asarray(self.Z, dtype=complex)
+        if periods.ndim != 1 or periods.size < 2:
+            raise ValueError(
+                f"site {self.name}: periods must be a 1-D array with at least 2 values"
+            )
+        if not np.all(np.isfinite(periods)) or np.any(periods <= 0):
+            raise ValueError(f"site {self.name}: periods must be finite and positive")
+        if np.any(np.diff(periods) <= 0):
+            raise ValueError(
+                f"site {self.name}: periods must be strictly increasing with no duplicates"
+            )
+        if Z.shape != (4, periods.size):
+            raise ValueError(
+                f"site {self.name}: Z must have shape (4, {periods.size}); got {Z.shape}"
+            )
+        if self.Z_var is not None:
+            Z_var = np.asarray(self.Z_var, dtype=float)
+            if Z_var.shape != Z.shape:
+                raise ValueError(
+                    f"site {self.name}: Z_var must have shape {Z.shape}; got {Z_var.shape}"
+                )
+
+    def _valid_impedance(self, component):
+        """Mask of usable measurements for one impedance component."""
+        good = np.isfinite(self.Z[component])
+        if self.Z_var is not None:
+            # Non-positive variances are invalid measurements, not weights to
+            # repair with abs(): negative values are commonly file sentinels.
+            good &= np.isfinite(self.Z_var[component]) & (self.Z_var[component] > 0)
+        return good
 
     # pylint: disable=too-many-arguments,too-many-locals
-    def spline_interp(self, freqs, logspace=True, extrapolate=1,
-                      mag_phase_interp=False, use_min_max_period=False):
+    def spline_interp(
+        self, freqs, logspace=True, extrapolate=1, mag_phase_interp=False, use_min_max_period=False
+    ):
         """Performs spline interpolation through the site object.
 
         :param logspace: Boolean, whether to interpolate in logspace or linear
@@ -175,12 +222,16 @@ class Site3d(Site):
         """
         # pylint: disable=unsubscriptable-object
         # pylint: disable=invalid-name
+        self._validate_impedance()
+        freqs = np.atleast_1d(np.asarray(freqs, dtype=float))
+        if not np.all(np.isfinite(freqs)) or np.any(freqs < 0):
+            raise ValueError("freqs must be a finite, non-negative 1-D array")
         interp_func = scipy.interpolate.UnivariateSpline
 
         ncomponents = self.Z.shape[0]
 
-        with np.errstate(divide='ignore', invalid='ignore'):
-            interp_periods = 1./np.asarray(freqs)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            interp_periods = 1.0 / np.asarray(freqs)
 
         # Output Z
         Z_interp = np.zeros((ncomponents, len(interp_periods)), dtype=complex)
@@ -196,15 +247,13 @@ class Site3d(Site):
             # Do a spline interpolation in log-space instead
 
             # Need to drop nans
-            good_vals = ~np.isnan(self.Z[i, :])
+            good_vals = self._valid_impedance(i)
             # When variances weight the spline, a non-finite or zero variance
             # would poison every interpolated value (NaN weights propagate
             # through the whole spline; zero variance is an infinite weight).
             # Drop those periods from the fit instead -- same policy read_xml
             # applies at parse time, enforced here so every entry path
             # (gridded products, user-supplied Z_var) is safe.
-            if self.Z_var is not None:
-                good_vals &= np.isfinite(self.Z_var[i, :]) & (self.Z_var[i, :] != 0.)
             # Limit the period range if the min and max periods are given
             # Note that we need to work with self.periods because the local
             # variable periods could be log-transformed
@@ -216,11 +265,9 @@ class Site3d(Site):
 
             if self.Z_var is None:
                 weights = None
-                smooth_factor = 0.  # This forces interpolation through every point
+                smooth_factor = 0.0  # This forces interpolation through every point
             else:
-                # NOTE: Z_var should never be negative, but some files have negatives
-                #       in them and this is a simple fix
-                weights = 1./np.sqrt(np.abs(self.Z_var[i, good_vals]))
+                weights = 1.0 / np.sqrt(self.Z_var[i, good_vals])
                 smooth_factor = None  # This lets the interpolation function determine the smoothing
 
             # The spline degree needs at least k+1 points; short period lists
@@ -231,29 +278,53 @@ class Site3d(Site):
                 raise ValueError(
                     f"site {self.name}: component {i} ({'xx xy yx yy'.split()[i]}) "
                     f"has {ngood} valid impedance estimate(s); need at least 2 "
-                    "to interpolate Z")
+                    "to interpolate Z"
+                )
             k = min(3, ngood - 1)
 
             # Whether to interpolate on magnitude/phase of Z,
             # or on the real/imaginary components of Z
             if mag_phase_interp:
-                spl_mag = interp_func(periods[good_vals], np.abs(self.Z[i, good_vals]),
-                                      w=weights, k=k, ext=extrapolate, s=smooth_factor)
-                spl_phase = interp_func(periods[good_vals],
-                                        np.unwrap(np.angle(self.Z[i, good_vals])),
-                                        w=weights, k=k, ext=extrapolate, s=smooth_factor)
-                with np.errstate(invalid='ignore'):
-                    Z_interp[i, :] = spl_mag(x) * np.exp(1j*np.unwrap(spl_phase(x)))
+                spl_mag = interp_func(
+                    periods[good_vals],
+                    np.abs(self.Z[i, good_vals]),
+                    w=weights,
+                    k=k,
+                    ext=extrapolate,
+                    s=smooth_factor,
+                )
+                spl_phase = interp_func(
+                    periods[good_vals],
+                    np.unwrap(np.angle(self.Z[i, good_vals])),
+                    w=weights,
+                    k=k,
+                    ext=extrapolate,
+                    s=smooth_factor,
+                )
+                with np.errstate(invalid="ignore"):
+                    Z_interp[i, :] = spl_mag(x) * np.exp(1j * np.unwrap(spl_phase(x)))
             else:
-                spl = interp_func(periods[good_vals], self.Z[i, good_vals].real,
-                                  w=weights, k=k, ext=extrapolate, s=smooth_factor)
-                splc = interp_func(periods[good_vals], self.Z[i, good_vals].imag,
-                                   w=weights, k=k, ext=extrapolate, s=smooth_factor)
-                with np.errstate(invalid='ignore'):
-                    Z_interp[i, :] = spl(x) + 1j*splc(x)
+                spl = interp_func(
+                    periods[good_vals],
+                    self.Z[i, good_vals].real,
+                    w=weights,
+                    k=k,
+                    ext=extrapolate,
+                    s=smooth_factor,
+                )
+                splc = interp_func(
+                    periods[good_vals],
+                    self.Z[i, good_vals].imag,
+                    w=weights,
+                    k=k,
+                    ext=extrapolate,
+                    s=smooth_factor,
+                )
+                with np.errstate(invalid="ignore"):
+                    Z_interp[i, :] = spl(x) + 1j * splc(x)
 
         # First column in the Z_interp is the DC component with infinite period, zero that out
-        Z_interp[:, freqs == 0.] = 0.
+        Z_interp[:, freqs == 0.0] = 0.0
 
         return Z_interp
 
@@ -261,26 +332,33 @@ class Site3d(Site):
         """Plot the apparent resistivity and phase of the transfer function."""
         # lazy-load this so we don't require matplotlib to be installed by default
         from .plotting import plot_apparent_resistivity
-        xlim = [10**np.floor(np.log10(np.min(self.periods))),
-                10**np.ceil(np.log10(np.max(self.periods)))]
-        fig, ax_res, ax_phase = plot_apparent_resistivity(self.periods, self.Z, self.Z_var,
-                                                          xlim=xlim)
+
+        xlim = [
+            10 ** np.floor(np.log10(np.min(self.periods))),
+            10 ** np.ceil(np.log10(np.max(self.periods))),
+        ]
+        fig, ax_res, ax_phase = plot_apparent_resistivity(
+            self.periods, self.Z, self.Z_var, xlim=xlim
+        )
 
         if interp_freqs is not None:
             Z = self.calcZ(interp_freqs)
-            with np.errstate(divide='ignore', invalid='ignore'):
-                periods = 1./interp_freqs
+            with np.errstate(divide="ignore", invalid="ignore"):
+                periods = 1.0 / interp_freqs
             # Make a line plot with the interpolated values
-            plot_apparent_resistivity(periods, Z, fig=fig,
-                                      ax_res=ax_res, ax_phase=ax_phase, xlim=xlim)
+            plot_apparent_resistivity(
+                periods, Z, fig=fig, ax_res=ax_res, ax_phase=ax_phase, xlim=xlim
+            )
 
         # Need to leave raw string out of newlines for latex
-        ax_res.set_title(rf"{self.name}" +
-                         "\n" +
-                         rf"Longitude: {self.longitude:4.1f}$^\circ$ " +
-                         rf"Latitude: {self.latitude:4.1f}$^\circ$" +
-                         "\n" +
-                         ax_res.get_title())
+        ax_res.set_title(
+            rf"{self.name}"
+            + "\n"
+            + rf"Longitude: {self.longitude:4.1f}$^\circ$ "
+            + rf"Latitude: {self.latitude:4.1f}$^\circ$"
+            + "\n"
+            + ax_res.get_title()
+        )
         return (fig, ax_res, ax_phase)
 
     def calcZ(self, freqs, extrapolate="asymptotic"):
@@ -303,6 +381,7 @@ class Site3d(Site):
         """
         if extrapolate not in ("zeros", "asymptotic"):
             raise ValueError("extrapolate must be one of: zeros, asymptotic")
+        freqs = np.atleast_1d(np.asarray(freqs, dtype=float))
         if not np.array_equal(freqs, self._prev_freqs) or extrapolate != self._prev_extrapolate:
             # If the inputs are different, then recalculate the Z values
             # and store them for later use. Store a copy so that later in-place
@@ -327,16 +406,20 @@ class Site3d(Site):
         """
         # pylint: disable=invalid-name
         for i in range(Z_interp.shape[0]):
-            good_periods = self.periods[~np.isnan(self.Z[i, :])]
-            f_lo, f_hi = 1./np.max(good_periods), 1./np.min(good_periods)
+            # Use the exact same measurement mask as the spline. Otherwise an
+            # invalid variance at the band edge makes ext="zeros" return a
+            # zero anchor and silently zeros the whole continuation.
+            good_periods = self.periods[self._valid_impedance(i)]
+            f_lo, f_hi = 1.0 / np.max(good_periods), 1.0 / np.min(good_periods)
             # Evaluate the spline just inside the band so ext=1 can't zero it
-            Z_lo, Z_hi = self.spline_interp([f_lo*(1 + 1e-9), f_hi*(1 - 1e-9)],
-                                            logspace=True, extrapolate=1)[i]
+            Z_lo, Z_hi = self.spline_interp(
+                [f_lo * (1 + 1e-9), f_hi * (1 - 1e-9)], logspace=True, extrapolate=1
+            )[i]
             with np.errstate(divide="ignore", invalid="ignore"):
                 high = freqs > f_hi
-                Z_interp[i, high] = Z_hi * np.sqrt(freqs[high]/f_hi)
-                low = (freqs < f_lo) & (freqs > 0.)
-                Z_interp[i, low] = Z_lo * np.sqrt(freqs[low]/f_lo)
+                Z_interp[i, high] = Z_hi * np.sqrt(freqs[high] / f_hi)
+                low = (freqs < f_lo) & (freqs > 0.0)
+                Z_interp[i, low] = Z_lo * np.sqrt(freqs[low] / f_lo)
         return Z_interp
 
     def perturbed(self, rng):
@@ -362,8 +445,8 @@ class Site3d(Site):
         site._prev_freqs = None  # pylint: disable=protected-access
         site._prev_Z = None  # pylint: disable=protected-access
         site._prev_extrapolate = None  # pylint: disable=protected-access
-        valid = np.isfinite(self.Z_var) & (self.Z_var > 0.)
-        std = np.sqrt(np.where(valid, self.Z_var, 0.) / 2.)
+        valid = np.isfinite(self.Z_var) & (self.Z_var > 0.0)
+        std = np.sqrt(np.where(valid, self.Z_var, 0.0) / 2.0)
         noise = rng.normal(size=self.Z.shape) + 1j * rng.normal(size=self.Z.shape)
         site.Z = np.where(valid, self.Z + noise * std, self.Z)
         return site
@@ -394,7 +477,7 @@ class Site3d(Site):
         plus.Z, minus.Z = Zp, Zm
         zp = plus.calcZ(freqs, extrapolate=extrapolate)[component]
         zm = minus.calcZ(freqs, extrapolate=extrapolate)[component]
-        return (zp - zm) / (2. * eps)
+        return (zp - zm) / (2.0 * eps)
 
     def z_sensitivities(self, freqs, extrapolate="asymptotic", eps_scale=1e-2):
         """First-order sensitivity of the interpolated impedance to each
@@ -426,10 +509,10 @@ class Site3d(Site):
         if self.Z_var is None:
             return []
         freqs = np.asarray(freqs, dtype=float)
-        valid = np.isfinite(self.Z_var) & (self.Z_var > 0.)
+        valid = np.isfinite(self.Z_var) & (self.Z_var > 0.0)
         out = []
         for i, k in zip(*np.nonzero(valid)):
-            param_var = self.Z_var[i, k] / 2.
+            param_var = self.Z_var[i, k] / 2.0
             eps = max(np.sqrt(param_var) * eps_scale, 1e-8)
             for part in ("real", "imag"):
                 jac = self._z_param_jacobian(freqs, extrapolate, i, k, part, eps)
@@ -438,13 +521,17 @@ class Site3d(Site):
 
     def calc_resistivity(self):
         """Calculate the apparent resistivity and phase of the transfer function."""
-        self.resistivity, self.resistivity_var, self.phase, self.phase_var = \
-            apparent_resistivity(self.periods, self.Z, self.Z_var)
+        self.resistivity, self.resistivity_var, self.phase, self.phase_var = apparent_resistivity(
+            self.periods, self.Z, self.Z_var
+        )
 
     def calc_resisitivity(self):
         """Deprecated misspelling of :meth:`calc_resistivity`."""
-        warnings.warn("calc_resisitivity is deprecated (misspelling); "
-                      "use calc_resistivity", DeprecationWarning, stacklevel=2)
+        warnings.warn(
+            "calc_resisitivity is deprecated (misspelling); use calc_resistivity",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.calc_resistivity()
 
     def download_waveforms(self):
@@ -452,14 +539,15 @@ class Site3d(Site):
         # If there is no runlist in the datalogger, then it wasn't able to be
         # initialized, so raise that this is unavailable.
         if not self.datalogger.runlist:
-            raise ValueError("Cannot download waveforms because the DataLogger has " +
-                             "not been initialized properly. Possibly because this is " +
-                             "not an IRIS MT Station.")
+            raise ValueError(
+                "Cannot download waveforms because the DataLogger has "
+                + "not been initialized properly. Possibly because this is "
+                + "not an IRIS MT Station."
+            )
 
-        self.waveforms = self.datalogger.download_iris_waveforms(self.name,
-                                                                 self.start_time,
-                                                                 self.end_time,
-                                                                 network_code=self.network_code)
+        self.waveforms = self.datalogger.download_iris_waveforms(
+            self.name, self.start_time, self.end_time, network_code=self.network_code
+        )
         self._rotate_waveforms()
 
     def _waveform_path(self, directory):
@@ -471,8 +559,7 @@ class Site3d(Site):
         :param directory: directory (str or path-like) containing
             ``<site name>.hdf``
         """
-        self.waveforms = pd.read_hdf(self._waveform_path(directory),
-                                     key="waveforms")
+        self.waveforms = pd.read_hdf(self._waveform_path(directory), key="waveforms")
         if "Bx" not in self.waveforms.columns:
             # Only rotate the waveforms if they haven't been rotated/don't exist yet
             self._rotate_waveforms()
@@ -480,9 +567,12 @@ class Site3d(Site):
     def save_waveforms(self, directory="./"):
         """Save the waveform data as ``<site name>.hdf`` in ``directory``."""
         if self.waveforms is None:
-            raise ValueError("There are no waveforms to save for site: " + self.name +
-                             "\nYou can download waveforms from the IRIS database by calling " +
-                             ".download_waveforms()")
+            raise ValueError(
+                "There are no waveforms to save for site: "
+                + self.name
+                + "\nYou can download waveforms from the IRIS database by calling "
+                + ".download_waveforms()"
+            )
         self.waveforms.to_hdf(self._waveform_path(directory), key="waveforms")
 
     def _rotate_waveforms(self):
@@ -496,25 +586,54 @@ class Site3d(Site):
         of each pair are orthogonal -- the standard installation.
         """
         # Magnetic field components rotated by the channel orientation
-        self.waveforms["Bx"] = (self.waveforms["BN"] * np.cos(np.deg2rad(self.channel_orientation["Bx"]))
-                                + self.waveforms["BE"] * np.cos(np.deg2rad(self.channel_orientation["By"])))
-        self.waveforms["By"] = (self.waveforms["BN"] * np.sin(np.deg2rad(self.channel_orientation["Bx"]))
-                                + self.waveforms["BE"] * np.sin(np.deg2rad(self.channel_orientation["By"])))
+        self.waveforms["Bx"] = self.waveforms["BN"] * np.cos(
+            np.deg2rad(self.channel_orientation["Bx"])
+        ) + self.waveforms["BE"] * np.cos(np.deg2rad(self.channel_orientation["By"]))
+        self.waveforms["By"] = self.waveforms["BN"] * np.sin(
+            np.deg2rad(self.channel_orientation["Bx"])
+        ) + self.waveforms["BE"] * np.sin(np.deg2rad(self.channel_orientation["By"]))
 
         # Electric field components rotated by the channel orientation
-        self.waveforms["Ex"] = (self.waveforms["EN"] * np.cos(np.deg2rad(self.channel_orientation["Ex"]))
-                                + self.waveforms["EE"] * np.cos(np.deg2rad(self.channel_orientation["Ey"])))
-        self.waveforms["Ey"] = (self.waveforms["EN"] * np.sin(np.deg2rad(self.channel_orientation["Ex"]))
-                                + self.waveforms["EE"] * np.sin(np.deg2rad(self.channel_orientation["Ey"])))
+        self.waveforms["Ex"] = self.waveforms["EN"] * np.cos(
+            np.deg2rad(self.channel_orientation["Ex"])
+        ) + self.waveforms["EE"] * np.cos(np.deg2rad(self.channel_orientation["Ey"]))
+        self.waveforms["Ey"] = self.waveforms["EN"] * np.sin(
+            np.deg2rad(self.channel_orientation["Ex"])
+        ) + self.waveforms["EE"] * np.sin(np.deg2rad(self.channel_orientation["Ey"]))
 
 
 class Site1d(Site):
-    """MT class for a 1D Fernberg profile"""
+    """MT class for a 1D layered-Earth conductivity profile.
+
+    ``resistivities`` contains one value per layer, including the bottom
+    half-space. ``thicknesses`` must contain at least the finite-layer
+    thicknesses (``len(resistivities) - 1``); an optional final value is
+    retained for plotting but does not affect the half-space recursion.
+    """
+
     def __init__(self, name, thicknesses, resistivities):
         super().__init__(name)
 
-        self.thicknesses = np.array(thicknesses)
-        self.resistivities = np.array(resistivities)
+        self.thicknesses = np.asarray(thicknesses, dtype=float)
+        self.resistivities = np.asarray(resistivities, dtype=float)
+        if self.thicknesses.ndim != 1 or self.resistivities.ndim != 1:
+            raise ValueError("thicknesses and resistivities must be 1-D arrays")
+        if self.resistivities.size < 1:
+            raise ValueError("resistivities must contain at least one layer")
+        if self.thicknesses.size < self.resistivities.size - 1:
+            raise ValueError(
+                "thicknesses must include every finite layer "
+                "(at least len(resistivities) - 1 values)"
+            )
+        if self.thicknesses.size > self.resistivities.size:
+            raise ValueError(
+                "thicknesses may contain only the finite layers and one "
+                "optional plotting thickness for the bottom half-space"
+            )
+        if not np.all(np.isfinite(self.thicknesses)) or np.any(self.thicknesses <= 0):
+            raise ValueError("layer thicknesses must be finite and positive")
+        if not np.all(np.isfinite(self.resistivities)) or np.any(self.resistivities <= 0):
+            raise ValueError("layer resistivities must be finite and positive")
 
     @property
     def depths(self):
@@ -522,58 +641,78 @@ class Site1d(Site):
         return np.cumsum(self.thicknesses)
 
     def _repr_html_(self):
-        return f"<p style=\"font-size:22px; color:blue\"><b>1d Site: {self.name}</b></p>"
+        return f'<p style="font-size:22px; color:blue"><b>1d Site: {self.name}</b></p>'
 
     def plot_depth(self, ax=None):
         """Plots the resistivity vs. depth profile."""
         # lazy-load this so we don't require matplotlib to be installed by default
         import matplotlib.pyplot as plt
+
         if ax is None:
             _, ax = plt.subplots()
-        ax.step(self.resistivities, np.insert(self.depths, 0, 0)/1000., label=self.name)
+        finite_depths = np.cumsum(self.thicknesses[: self.resistivities.size - 1])
+        ax.step(
+            self.resistivities,
+            np.insert(finite_depths, 0, 0) / 1000.0,
+            label=self.name,
+        )
         return ax
 
-# Following NERC report
-# http://www.nerc.com/comm/PC/Geomagnetic%20Disturbance%20Task%20Force%20GMDTF%202013/GIC%20Application%20Guide%202013_approved.pdf
+    # Following NERC report
+    # http://www.nerc.com/comm/PC/Geomagnetic%20Disturbance%20Task%20Force%20GMDTF%202013/GIC%20Application%20Guide%202013_approved.pdf
     def calcZ(self, freqs):
+        """Return the layered-Earth impedance at non-negative frequencies.
+
+        The tensor is returned in ``(xx, xy, yx, yy)`` order and practical
+        ``(mV/km)/nT`` units, with the 1-D antisymmetry
+        ``Zyx = -Zxy``. DC impedance is exactly zero.
+
+        :param freqs: 1-D frequencies in Hz
+        :return: complex array with shape ``(4, nfrequencies)``
+        """
         # pylint: disable=invalid-name
-        freqs = np.asarray(freqs)
+        freqs = np.atleast_1d(np.asarray(freqs, dtype=float))
+        if not np.all(np.isfinite(freqs)) or np.any(freqs < 0):
+            raise ValueError("freqs must be a finite, non-negative 1-D array")
         resistivities = self.resistivities
         thicknesses = self.thicknesses
 
         n = len(resistivities)
         nfreq = len(freqs)
 
-        omega = 2*np.pi*freqs
-        complex_factor = 1j*omega*MU
+        omega = 2 * np.pi * freqs
+        complex_factor = 1j * omega * MU
 
         # eq. 5
-        k = np.sqrt(1j*omega[np.newaxis, :]*MU/resistivities[:, np.newaxis])
+        k = np.sqrt(1j * omega[np.newaxis, :] * MU / resistivities[:, np.newaxis])
 
         # eq. 6
         Z = np.zeros(shape=(n, nfreq), dtype=complex)
         # DC frequency produces divide by zero errors
-        with np.errstate(divide='ignore', invalid='ignore'):
-            Z[-1, :] = complex_factor/k[-1, :]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            Z[-1, :] = complex_factor / k[-1, :]
 
             # eq. 7 (reflection coefficient at interface)
             r = np.zeros(shape=(n, nfreq), dtype=complex)
 
-            for i in range(n-2, -1, -1):
-                r[i, :] = ((1-k[i, :]*Z[i+1, :]/complex_factor) /
-                           (1+k[i, :]*Z[i+1, :]/complex_factor))
-                Z[i, :] = (complex_factor*(1-r[i, :]*np.exp(-2*k[i, :]*thicknesses[i])) /
-                           (k[i, :]*(1+r[i, :]*np.exp(-2*k[i, :]*thicknesses[i]))))
+            for i in range(n - 2, -1, -1):
+                r[i, :] = (1 - k[i, :] * Z[i + 1, :] / complex_factor) / (
+                    1 + k[i, :] * Z[i + 1, :] / complex_factor
+                )
+                Z[i, :] = (
+                    complex_factor
+                    * (1 - r[i, :] * np.exp(-2 * k[i, :] * thicknesses[i]))
+                    / (k[i, :] * (1 + r[i, :] * np.exp(-2 * k[i, :] * thicknesses[i])))
+                )
 
         # Fill in the DC impedance as zero
-        if freqs[0] == 0.:
-            Z[:, 0] = 0.
+        Z[:, freqs == 0.0] = 0.0
 
         # Return a 3d impedance [0, Z; -Z, 0]
         Z_output = np.zeros(shape=(4, nfreq), dtype=complex)
         # Only return the top layer impedance
         # Z_factor is conversion from H->B, 1.e-3/MU
-        Z_output[1, :] = Z[0, :]*(1.e-3/MU)
+        Z_output[1, :] = Z[0, :] * (1.0e-3 / MU)
         Z_output[2, :] = -Z_output[1, :]
         return Z_output
 
@@ -581,22 +720,24 @@ class Site1d(Site):
         """Plots the apparent resistivity and phase for the site."""
         # lazy-load this so we don't require matplotlib to be installed by default
         from .plotting import plot_apparent_resistivity
+
         if interp_freqs is None:
             raise ValueError("Need interpolation frequencies to plot the resistivity at.")
 
-        with np.errstate(divide='ignore', invalid='ignore'):
-            periods = 1./interp_freqs
+        with np.errstate(divide="ignore", invalid="ignore"):
+            periods = 1.0 / interp_freqs
 
         Z = self.calcZ(interp_freqs)
-        xlim = [10**np.floor(np.log10(np.min(periods))), 10**np.ceil(np.log10(np.max(periods)))]
+        xlim = [10 ** np.floor(np.log10(np.min(periods))), 10 ** np.ceil(np.log10(np.max(periods)))]
         fig, _, _ = plot_apparent_resistivity(periods, Z, xlim=xlim)
 
         fig.suptitle(rf"1D Region: {self.name}", size=20)
         return fig
 
+
 class SiteCollection:
     """Collection of MT sites
-    
+
     Useful for calculating FFTs of all sites at once
     rather than individually in a slower for-loop.
 
@@ -605,8 +746,9 @@ class SiteCollection:
     sites : list of Site objects
         List of MT sites to include in the collection.
     """
+
     def __init__(self, sites):
-        self.sites = sites
+        self.sites = list(sites)
         self._N0 = None
         self._dt = None
         self._extrapolate = None
@@ -634,14 +776,17 @@ class SiteCollection:
     @property
     def latitudes(self):
         """Site latitudes as a float array (NaN where a site has none)."""
-        return np.array([np.nan if site.latitude is None else site.latitude
-                         for site in self.sites], dtype=float)
+        return np.array(
+            [np.nan if site.latitude is None else site.latitude for site in self.sites], dtype=float
+        )
 
     @property
     def longitudes(self):
         """Site longitudes as a float array (NaN where a site has none)."""
-        return np.array([np.nan if site.longitude is None else site.longitude
-                         for site in self.sites], dtype=float)
+        return np.array(
+            [np.nan if site.longitude is None else site.longitude for site in self.sites],
+            dtype=float,
+        )
 
     def to_dataset(self):
         """Convert the collection to the canonical xarray Dataset.
@@ -663,6 +808,7 @@ class SiteCollection:
     def from_netcdf(cls, path):
         """Load a collection saved by :meth:`to_netcdf`."""
         import xarray as xr
+
         with xr.open_dataset(path) as ds:
             ds.load()
         return cls.from_dataset(ds)
@@ -678,8 +824,9 @@ class SiteCollection:
                 Z[:, i, :] = site.calcZ(freqs)
         return Z
 
-    def convolve_fft(self, mag_x, mag_y, dt=60, extrapolate="asymptotic",
-                     site_chunk=None, return_var=False):
+    def convolve_fft(
+        self, mag_x, mag_y, dt=60, extrapolate="asymptotic", site_chunk=None, return_var=False
+    ):
         """Convolution in frequency space for all sites at once.
 
         Memory scales with ``nsites * nfft`` (``nfft`` is roughly 4x the input
@@ -718,27 +865,34 @@ class SiteCollection:
         mag_x, mag_y = np.asarray(mag_x, dtype=float), np.asarray(mag_y, dtype=float)
         if mag_x.shape != mag_y.shape:
             raise ValueError("mag_x and mag_y must have the same shape")
-        if np.isnan(mag_x).any() or np.isnan(mag_y).any():
+        if mag_x.ndim not in (1, 2):
+            raise ValueError("mag_x and mag_y must be 1-D or 2-D arrays")
+        if mag_x.shape[0] == 0:
+            raise ValueError("magnetic field input must contain at least one sample")
+        if not np.isfinite(mag_x).all() or not np.isfinite(mag_y).all():
             raise ValueError(
-                "magnetic field input contains NaNs, which would corrupt the "
+                "magnetic field input contains NaN or infinite values, which would corrupt the "
                 "FFT; interpolate them (bezpy.mag.prepare(gaps='interpolate')) "
-                "or predict gap-free fields with SECS first")
+                "or predict gap-free fields with SECS first"
+            )
+        if not np.isfinite(dt) or dt <= 0:
+            raise ValueError("dt must be finite and positive")
 
         N0 = mag_x.shape[0]
         # Round N to the next highest power of 2 (+1 (makes it 2) to prevent circular convolution)
-        N = 2**(int(np.log2(N0))+2)
+        N = 2 ** (int(np.log2(N0)) + 2)
 
         freqs = scipy.fft.rfftfreq(N, d=dt)
         nsites = len(self.sites)
         if mag_x.ndim == 2 and mag_x.shape[1] != nsites:
-            raise ValueError(
-                f"per-site input must be (ntimes, {nsites} sites); "
-                f"got {mag_x.shape}")
+            raise ValueError(f"per-site input must be (ntimes, {nsites} sites); got {mag_x.shape}")
 
         if site_chunk is None:
             # Z (4) + E spectra (2) + per-site B spectra (2) complex128 rows
             per_site = 8 * len(freqs) * 16
             site_chunk = int(max(1, min(nsites, _CONVOLVE_BUDGET_BYTES // per_site)))
+        elif not isinstance(site_chunk, (int, np.integer)) or site_chunk < 1:
+            raise ValueError("site_chunk must be a positive integer or None")
 
         use_cache = site_chunk >= nsites
         if use_cache:
@@ -767,8 +921,11 @@ class SiteCollection:
             Ey_var = np.zeros((nsites, N0))
         for i0 in range(0, nsites, site_chunk):
             sel = slice(i0, min(i0 + site_chunk, nsites))
-            Z_interp = self._Z_interp[:, sel, :] if use_cache else \
-                self._calc_block_Z(self.sites[sel.start:sel.stop], freqs, extrapolate)
+            Z_interp = (
+                self._Z_interp[:, sel, :]
+                if use_cache
+                else self._calc_block_Z(self.sites[sel.start : sel.stop], freqs, extrapolate)
+            )
 
             if mag_x.ndim == 1:
                 mag_x_fft, mag_y_fft = shared_x_fft, shared_y_fft
@@ -777,18 +934,17 @@ class SiteCollection:
                 mag_x_fft = scipy.fft.rfft(mag_x[:, sel], n=N, axis=0, workers=-1).T
                 mag_y_fft = scipy.fft.rfft(mag_y[:, sel], n=N, axis=0, workers=-1).T
 
-            Ex_fft = Z_interp[0, :, :]*mag_x_fft + Z_interp[1, :, :]*mag_y_fft
-            Ey_fft = Z_interp[2, :, :]*mag_x_fft + Z_interp[3, :, :]*mag_y_fft
+            Ex_fft = Z_interp[0, :, :] * mag_x_fft + Z_interp[1, :, :] * mag_y_fft
+            Ey_fft = Z_interp[2, :, :] * mag_x_fft + Z_interp[3, :, :] * mag_y_fft
 
             Ex_t[sel] = scipy.fft.irfft(Ex_fft, axis=-1, workers=-1)[:, :N0]
             Ey_t[sel] = scipy.fft.irfft(Ey_fft, axis=-1, workers=-1)[:, :N0]
 
             if return_var:
-                for local_i, site in enumerate(self.sites[sel.start:sel.stop]):
+                for local_i, site in enumerate(self.sites[sel.start : sel.stop]):
                     bx_fft = mag_x_fft if mag_x.ndim == 1 else mag_x_fft[local_i]
                     by_fft = mag_y_fft if mag_x.ndim == 1 else mag_y_fft[local_i]
-                    for component, param_var, jac in site.z_sensitivities(
-                            freqs, extrapolate):
+                    for component, param_var, jac in site.z_sensitivities(freqs, extrapolate):
                         # component: 0=xx, 1=xy (-> Ex, via Bx/By respectively),
                         # 2=yx, 3=yy (-> Ey, via Bx/By respectively).
                         b_fft = bx_fft if component in (0, 2) else by_fft
@@ -816,8 +972,10 @@ class ConductivityModel(SiteCollection):
     filename : str or Path
         Path to the ModEM-format data file
     """
+
     def __init__(self, filename):
         from .modem import read_gridded_impedance
+
         super().__init__(read_gridded_impedance(filename).sites)
 
 
@@ -861,6 +1019,7 @@ def sites_to_dataset(sites):
     :raises ValueError: for an empty collection or mixed 1D/3D site types
     """
     import xarray as xr
+
     sites = list(sites)
     if not sites:
         raise ValueError("Cannot build a dataset from an empty site collection.")
@@ -869,21 +1028,34 @@ def sites_to_dataset(sites):
     if n_3d and n_1d:
         raise ValueError(
             f"Cannot mix Site1d and Site3d objects in one dataset (got {n_3d} "
-            f"Site3d and {n_1d} Site1d); split the collection by site type first.")
+            f"Site3d and {n_1d} Site1d); split the collection by site type first."
+        )
     if n_3d + n_1d != len(sites):
         raise ValueError("All sites must be Site3d or Site1d objects.")
 
-    coords = {"site": [site.name for site in sites],
-              "latitude": ("site", np.array([np.nan if site.latitude is None else site.latitude
-                                             for site in sites], dtype=float)),
-              "longitude": ("site", np.array([np.nan if site.longitude is None else site.longitude
-                                              for site in sites], dtype=float))}
+    coords = {
+        "site": [site.name for site in sites],
+        "latitude": (
+            "site",
+            np.array(
+                [np.nan if site.latitude is None else site.latitude for site in sites], dtype=float
+            ),
+        ),
+        "longitude": (
+            "site",
+            np.array(
+                [np.nan if site.longitude is None else site.longitude for site in sites],
+                dtype=float,
+            ),
+        ),
+    }
 
     if n_3d:
         # Sorted union of every site's period grid; per-site gaps stay NaN
-        periods = np.unique(np.concatenate([np.asarray(site.periods, dtype=float)
-                                            for site in sites]))
-        Z = np.full((len(sites), 4, len(periods)), np.nan + 1j*np.nan, dtype=complex)
+        periods = np.unique(
+            np.concatenate([np.asarray(site.periods, dtype=float) for site in sites])
+        )
+        Z = np.full((len(sites), 4, len(periods)), np.nan + 1j * np.nan, dtype=complex)
         Z_var = np.full((len(sites), 4, len(periods)), np.nan)
         any_var = False
         for i, site in enumerate(sites):
@@ -893,11 +1065,16 @@ def sites_to_dataset(sites):
                 any_var = True
                 Z_var[i][:, idx] = site.Z_var
         z_attrs = {"units": "(mV/km)/nT"}
-        data_vars = {"Z_real": (("site", "component", "period"), Z.real, z_attrs),
-                     "Z_imag": (("site", "component", "period"), Z.imag, z_attrs)}
+        data_vars = {
+            "Z_real": (("site", "component", "period"), Z.real, z_attrs),
+            "Z_imag": (("site", "component", "period"), Z.imag, z_attrs),
+        }
         if any_var:
-            data_vars["Z_var"] = (("site", "component", "period"), Z_var,
-                                  {"units": "((mV/km)/nT)^2"})
+            data_vars["Z_var"] = (
+                ("site", "component", "period"),
+                Z_var,
+                {"units": "((mV/km)/nT)^2"},
+            )
         coords["period"] = ("period", periods, {"units": "s"})
         coords["component"] = COMPONENTS
         site_type = "3d"
@@ -906,14 +1083,19 @@ def sites_to_dataset(sites):
         thickness = np.full((len(sites), nlayers), np.nan)
         resistivity = np.full((len(sites), nlayers), np.nan)
         for i, site in enumerate(sites):
-            thickness[i, :len(site.thicknesses)] = site.thicknesses
-            resistivity[i, :len(site.resistivities)] = site.resistivities
-        data_vars = {"thickness": (("site", "layer"), thickness, {"units": "m"}),
-                     "resistivity": (("site", "layer"), resistivity, {"units": "ohm-m"})}
+            thickness[i, : len(site.thicknesses)] = site.thicknesses
+            resistivity[i, : len(site.resistivities)] = site.resistivities
+        data_vars = {
+            "thickness": (("site", "layer"), thickness, {"units": "m"}),
+            "resistivity": (("site", "layer"), resistivity, {"units": "ohm-m"}),
+        }
         site_type = "1d"
 
-    return xr.Dataset(data_vars, coords=coords,
-                      attrs={"title": "bezpy MT site collection", "site_type": site_type})
+    return xr.Dataset(
+        data_vars,
+        coords=coords,
+        attrs={"title": "bezpy MT site collection", "site_type": site_type},
+    )
 
 
 def sites_from_dataset(ds):
@@ -941,14 +1123,22 @@ def sites_from_dataset(ds):
     sites = []
     if "Z_real" in ds:
         periods = np.asarray(ds["period"].values, dtype=float)
-        Z = ds["Z_real"].values + 1j*ds["Z_imag"].values
+        Z = ds["Z_real"].values + 1j * ds["Z_imag"].values
         Z_var = ds["Z_var"].values if "Z_var" in ds else None
         for i, name in enumerate(names):
             site_var = None
             if Z_var is not None and not np.isnan(Z_var[i]).all():
                 site_var = Z_var[i]
-            sites.append(Site3d(name, latitude=latitudes[i], longitude=longitudes[i],
-                                periods=periods, Z=Z[i], Z_var=site_var))
+            sites.append(
+                Site3d(
+                    name,
+                    latitude=latitudes[i],
+                    longitude=longitudes[i],
+                    periods=periods,
+                    Z=Z[i],
+                    Z_var=site_var,
+                )
+            )
     elif "thickness" in ds:
         thickness = np.asarray(ds["thickness"].values, dtype=float)
         resistivity = np.asarray(ds["resistivity"].values, dtype=float)
@@ -961,5 +1151,6 @@ def sites_from_dataset(ds):
     else:
         raise ValueError(
             "Dataset does not follow the bezpy site convention: expected "
-            "Z_real/Z_imag (3d) or thickness/resistivity (1d) variables.")
+            "Z_real/Z_imag (3d) or thickness/resistivity (1d) variables."
+        )
     return sites

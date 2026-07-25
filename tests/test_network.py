@@ -9,6 +9,7 @@ cross-validated in the session that added this module against
 factor-of-3 (single-line-equivalent total vs NERC TPL-007's per-phase
 "effective GIC" reporting convention) that reconciles the two.
 """
+
 import json
 from importlib.resources import files
 
@@ -26,10 +27,24 @@ def test_toy_series_loop():
     loop hand-solvable with Ohm's law -- I = V / sum(R)."""
     substations = [{"id": "A", "resistance": 1.0}, {"id": "B", "resistance": 2.0}]
     transformers = [
-        {"id": "TA", "type": "gsu", "hi_bus": 1, "lo_bus": 99,
-         "substation": "A", "r_hi": 0.5, "r_lo": None},
-        {"id": "TB", "type": "gsu", "hi_bus": 2, "lo_bus": 98,
-         "substation": "B", "r_hi": 1.5, "r_lo": None},
+        {
+            "id": "TA",
+            "type": "gsu",
+            "hi_bus": 1,
+            "lo_bus": 99,
+            "substation": "A",
+            "r_hi": 0.5,
+            "r_lo": None,
+        },
+        {
+            "id": "TB",
+            "type": "gsu",
+            "hi_bus": 2,
+            "lo_bus": 98,
+            "substation": "B",
+            "r_hi": 1.5,
+            "r_lo": None,
+        },
     ]
     branches = [{"id": "L1", "from_bus": 1, "to_bus": 2, "resistance": 3.0}]
     net = Network(substations, transformers, branches)
@@ -55,8 +70,17 @@ def test_toy_ungrounded_gsu_carries_nothing():
     """A transformer with both windings ungrounded (r_hi=r_lo=None) is fully
     isolated from the DC network -- it must not even allocate a node."""
     substations = [{"id": "A", "resistance": 1.0}]
-    transformers = [{"id": "T", "type": "gsu", "hi_bus": 1, "lo_bus": 2,
-                     "substation": None, "r_hi": None, "r_lo": None}]
+    transformers = [
+        {
+            "id": "T",
+            "type": "gsu",
+            "hi_bus": 1,
+            "lo_bus": 2,
+            "substation": None,
+            "r_hi": None,
+            "r_lo": None,
+        }
+    ]
     net = Network(substations, transformers, branches=[])
     assert net.n_nodes == 1  # just the one substation; buses 1,2 never referenced
     assert net.neutral_currents(np.array([0.0])) == 0.0
@@ -64,8 +88,11 @@ def test_toy_ungrounded_gsu_carries_nothing():
 
 def test_invalid_transformer_type():
     with pytest.raises(ValueError, match="type must be one of"):
-        Network([{"id": "A", "resistance": 1.0}],
-               [{"id": "T", "type": "delta-delta", "hi_bus": 1, "lo_bus": 2}], [])
+        Network(
+            [{"id": "A", "resistance": 1.0}],
+            [{"id": "T", "type": "delta-delta", "hi_bus": 1, "lo_bus": 2}],
+            [],
+        )
 
 
 @pytest.fixture(scope="module")
@@ -76,13 +103,25 @@ def epri21():
 # Line-induced voltages (volts) for the EPRI-21 benchmark's own reference
 # field, in `epri21.branches` order (see VALIDATION.md item 1.1); a fixed
 # input vector shared by every test below that needs a driven solve.
-EPRI21_LINE_V = np.array([
-    120.60003474069319, 131.6938150979946, 131.6938150979946,
-    321.2612206582465, 190.9859010213294, -20.137238063195745,
-    160.17017349968367, -129.27518497259706, 191.1051972595808,
-    191.1051972595808, 1.4850062354159403, -155.55611343458276,
-    158.17375406876596, -93.15718079092285, 169.82073202204822,
-])
+EPRI21_LINE_V = np.array(
+    [
+        120.60003474069319,
+        131.6938150979946,
+        131.6938150979946,
+        321.2612206582465,
+        190.9859010213294,
+        -20.137238063195745,
+        160.17017349968367,
+        -129.27518497259706,
+        191.1051972595808,
+        191.1051972595808,
+        1.4850062354159403,
+        -155.55611343458276,
+        158.17375406876596,
+        -93.15718079092285,
+        169.82073202204822,
+    ]
+)
 
 
 def test_epri21_structure(epri21):
@@ -115,8 +154,12 @@ def test_epri21_symmetric_parallel_transformers_match(epri21):
     node_v = epri21.solve(EPRI21_LINE_V)
     neutral = epri21.neutral_currents(node_v)
     by_id = {t["id"]: i for i, t in enumerate(epri21.transformers)}
-    for a, b in [("xf-4-3-1", "xf-4-3-2"), ("xf-4-3-3", "xf-4-3-4"),
-                ("xf-5-20-5", "xf-5-20-6"), ("xf-15-16-11", "xf-15-16-12")]:
+    for a, b in [
+        ("xf-4-3-1", "xf-4-3-2"),
+        ("xf-4-3-3", "xf-4-3-4"),
+        ("xf-5-20-5", "xf-5-20-6"),
+        ("xf-15-16-11", "xf-15-16-12"),
+    ]:
         assert neutral[by_id[a]] == neutral[by_id[b]]
 
 
@@ -134,9 +177,12 @@ def test_epri21_matches_published_gsu_currents(epri21):
     neutral = epri21.neutral_currents(node_v)
     by_id = {t["id"]: i for i, t in enumerate(epri21.transformers)}
     published = {  # GICXFIEffective1, Amps (per phase)
-        "xf-6-7-7": 59.090, "xf-6-8-8": 59.090,
-        "xf-12-13-9": 22.373, "xf-12-14-10": 22.373,
-        "xf-17-18-13": 31.548, "xf-17-19-14": 31.548,
+        "xf-6-7-7": 59.090,
+        "xf-6-8-8": 59.090,
+        "xf-12-13-9": 22.373,
+        "xf-12-14-10": 22.373,
+        "xf-17-18-13": 31.548,
+        "xf-17-19-14": 31.548,
     }
     for tid, ref in published.items():
         mine = abs(neutral[by_id[tid]]) / 3.0
@@ -155,15 +201,22 @@ def _epri21_lines_and_sites():
     for b in net.branches:
         lat0, lon0 = latlon[b["from_bus"]]
         lat1, lon1 = latlon[b["to_bus"]]
-        line = TransmissionLine(shapely.geometry.LineString([(lon0, lat0), (lon1, lat1)]),
-                                metadata={"id": b["id"]})
+        line = TransmissionLine(
+            shapely.geometry.LineString([(lon0, lat0), (lon1, lat1)]), metadata={"id": b["id"]}
+        )
         lines.append(line)
 
     lats = [ll[0] for ll in latlon.values()]
     lons = [ll[1] for ll in latlon.values()]
     pad = 1.0
-    corners = np.array([[min(lats) - pad, min(lons) - pad], [min(lats) - pad, max(lons) + pad],
-                        [max(lats) + pad, min(lons) - pad], [max(lats) + pad, max(lons) + pad]])
+    corners = np.array(
+        [
+            [min(lats) - pad, min(lons) - pad],
+            [min(lats) - pad, max(lons) + pad],
+            [max(lats) + pad, min(lons) - pad],
+            [max(lats) + pad, max(lons) + pad],
+        ]
+    )
     return net, lines, corners
 
 
@@ -194,8 +247,9 @@ def test_gic_matrix_matches_direct_solve():
 
 def test_gic_matrix_missing_line_raises():
     net = Network.epri21_benchmark()
-    line = TransmissionLine(shapely.geometry.LineString([(-90, 33), (-89, 34)]),
-                            metadata={"id": "not-a-real-branch"})
+    line = TransmissionLine(
+        shapely.geometry.LineString([(-90, 33), (-89, 34)]), metadata={"id": "not-a-real-branch"}
+    )
     with pytest.raises(ValueError, match="no matching line"):
         gic_matrix(net, [line], n_sites=2)
 
@@ -203,3 +257,29 @@ def test_gic_matrix_missing_line_raises():
 def test_effective_gic():
     np.testing.assert_allclose(effective_gic(10.0, -4.0, a=1.0, b=0.5), 8.0)
     np.testing.assert_allclose(effective_gic([10.0, -10.0], 0.0), [10.0, 10.0])
+
+
+def test_network_rejects_nonpositive_resistance():
+    with pytest.raises(ValueError, match="finite and positive"):
+        Network(substations=[{"id": "S", "resistance": 0.0}], transformers=[], branches=[])
+
+
+def test_network_rejects_ungrounded_conductive_component():
+    with pytest.raises(ValueError, match="no grounded substation"):
+        Network(
+            substations=[],
+            transformers=[],
+            branches=[{"id": "L", "from_bus": "A", "to_bus": "B", "resistance": 1.0}],
+        )
+
+
+def test_network_rejects_duplicate_ids():
+    with pytest.raises(ValueError, match="duplicate branch"):
+        Network(
+            substations=[{"id": "S", "resistance": 1.0}],
+            transformers=[],
+            branches=[
+                {"id": "L", "from_bus": "A", "to_bus": "B", "resistance": 1.0},
+                {"id": "L", "from_bus": "B", "to_bus": "C", "resistance": 1.0},
+            ],
+        )

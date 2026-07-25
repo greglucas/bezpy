@@ -25,12 +25,14 @@ def _require_pysecs():
     except ImportError:
         raise ImportError(
             "SECSInterpolator requires pysecs; install it with "
-            "`pip install pysecs` (or the bezpy[secs] extra).") from None
+            "`pip install pysecs` (or the bezpy[secs] extra)."
+        ) from None
     if not hasattr(pysecs, "KalmanSECS"):
         raise ImportError(
             "SECSInterpolator requires pysecs >= 0.4 "
             "(KalmanSECS, robust fitting, prediction variances); "
-            "upgrade with `pip install -U pysecs`.")
+            "upgrade with `pip install -U pysecs`."
+        )
     return pysecs
 
 
@@ -42,15 +44,27 @@ def _extract_latlons(locations):
     """
     # xarray objects with latitude/longitude coordinates
     if hasattr(locations, "coords") and "latitude" in locations.coords:
-        return np.column_stack([np.atleast_1d(locations["latitude"].values),
-                                np.atleast_1d(locations["longitude"].values)])
+        if "longitude" not in locations.coords:
+            raise ValueError("locations with latitude must also have longitude")
+        latlons = np.column_stack(
+            [
+                np.atleast_1d(locations["latitude"].values),
+                np.atleast_1d(locations["longitude"].values),
+            ]
+        )
     # Objects with latitude/longitude attributes (e.g. Site3d)
-    if isinstance(locations, (list, tuple)) and \
-            all(hasattr(loc, "latitude") for loc in locations):
-        return np.array([[loc.latitude, loc.longitude] for loc in locations])
-    latlons = np.atleast_2d(np.asarray(locations, dtype=float))
+    elif isinstance(locations, (list, tuple)) and all(
+        hasattr(loc, "latitude") for loc in locations
+    ):
+        latlons = np.array([[loc.latitude, loc.longitude] for loc in locations])
+    else:
+        latlons = np.atleast_2d(np.asarray(locations, dtype=float))
     if latlons.shape[-1] != 2:
         raise ValueError("locations must be (n, 2) [latitude, longitude]")
+    if len(latlons) == 0 or not np.isfinite(latlons).all():
+        raise ValueError("locations must contain at least one finite coordinate pair")
+    if np.any(np.abs(latlons[:, 0]) > 90):
+        raise ValueError("latitudes must lie within [-90, 90] degrees")
     return latlons
 
 
@@ -69,6 +83,8 @@ def _extract_b(b_obs, obs_latlons):
             names = ("X", "Y", "Z")
         else:
             raise ValueError("Dataset must contain Bx/By[/Bz] or X/Y[/Z] variables")
+        if names[0] not in b_obs or names[1] not in b_obs:
+            raise ValueError(f"Dataset must contain both {names[0]} and {names[1]}")
         present = [n for n in names if n in b_obs]
         arrays = [b_obs[n].transpose("time", "obs").values for n in present]
         B = np.stack(arrays, axis=-1)
@@ -86,6 +102,10 @@ def _extract_b(b_obs, obs_latlons):
 
     if B.shape[-1] == 2:  # no vertical component measured
         B = np.concatenate([B, np.full(B.shape[:-1] + (1,), np.nan)], axis=-1)
+    if B.shape[1] != len(latlons):
+        raise ValueError(
+            f"B contains {B.shape[1]} observatories but obs_latlons contains {len(latlons)}"
+        )
     return B, latlons, times, obs_names
 
 
@@ -99,6 +119,7 @@ def _distance_to_gap(missing):
     flat = missing.reshape(ntimes, -1)
     dist = np.full(flat.shape, ntimes, dtype=float)
     from scipy.ndimage import distance_transform_edt
+
     for j in np.nonzero(flat.any(axis=0))[0]:
         dist[:, j] = distance_transform_edt(~flat[:, j])
     return dist.reshape(missing.shape)
@@ -182,16 +203,43 @@ class SECSInterpolator:
     >>> b_pred = interp.predict(latlons)           # doctest: +SKIP
     """
 
-    def __init__(self, grid="auto", spacing=2.0, pad=5.0, altitude_km=110.,
-                 epsilon=0.05, fit_bz=False, method="lstsq", tau=3600.,
-                 prior_std=None, gate_sigma=None, smoother=True, robust=None):
+    def __init__(
+        self,
+        grid="auto",
+        spacing=2.0,
+        pad=5.0,
+        altitude_km=110.0,
+        epsilon=0.05,
+        fit_bz=False,
+        method="lstsq",
+        tau=3600.0,
+        prior_std=None,
+        gate_sigma=None,
+        smoother=True,
+        robust=None,
+    ):
         if method not in ("lstsq", "kalman"):
             raise ValueError("method must be one of: lstsq, kalman")
         if robust not in (None, "huber", "bisquare"):
             raise ValueError("robust must be one of: None, huber, bisquare")
         if robust is not None and method == "kalman":
-            raise ValueError("robust= applies to method='lstsq'; for "
-                             "method='kalman' use gate_sigma= instead")
+            raise ValueError(
+                "robust= applies to method='lstsq'; for method='kalman' use gate_sigma= instead"
+            )
+        if spacing is not None and (not np.isfinite(spacing) or spacing <= 0):
+            raise ValueError("spacing must be finite and positive or None")
+        if not np.isfinite(pad) or pad < 0:
+            raise ValueError("pad must be finite and non-negative")
+        if not np.isfinite(altitude_km) or altitude_km <= 0:
+            raise ValueError("altitude_km must be finite and positive")
+        if not np.isfinite(epsilon) or not 0 <= epsilon < 1:
+            raise ValueError("epsilon must lie in [0, 1)")
+        if not np.isfinite(tau) or tau <= 0:
+            raise ValueError("tau must be finite and positive")
+        if prior_std is not None and (not np.isfinite(prior_std) or prior_std <= 0):
+            raise ValueError("prior_std must be finite and positive or None")
+        if gate_sigma is not None and (not np.isfinite(gate_sigma) or gate_sigma <= 0):
+            raise ValueError("gate_sigma must be finite and positive or None")
         self.grid = grid
         self.spacing = spacing
         self.pad = pad
@@ -217,9 +265,14 @@ class SECSInterpolator:
             grid = repr(tuple(self.grid))
         else:
             grid = f"<{len(self.grid)} poles>"
-        parts = [f"grid={grid}", f"spacing={self.spacing}",
-                 f"pad={self.pad}", f"altitude_km={self.altitude_km}",
-                 f"epsilon={self.epsilon}", f"method={self.method!r}"]
+        parts = [
+            f"grid={grid}",
+            f"spacing={self.spacing}",
+            f"pad={self.pad}",
+            f"altitude_km={self.altitude_km}",
+            f"epsilon={self.epsilon}",
+            f"method={self.method!r}",
+        ]
         if self.fit_bz:
             parts.append("fit_bz=True")
         if self.method == "kalman":
@@ -230,42 +283,67 @@ class SECSInterpolator:
                 parts.append("smoother=False")
         if self.robust is not None:
             parts.append(f"robust={self.robust!r}")
-        state = (f"fitted: {len(self.obs_latlons_)} obs"
-                 if self._secs is not None else "unfitted")
+        state = f"fitted: {len(self.obs_latlons_)} obs" if self._secs is not None else "unfitted"
         return f"SECSInterpolator({', '.join(parts)}, {state})"
 
     def _config(self):
         """Constructor arguments reproducing this interpolator's setup."""
-        return {name: getattr(self, name) for name in
-                ("grid", "spacing", "pad", "altitude_km", "epsilon", "fit_bz",
-                 "method", "tau", "prior_std", "gate_sigma", "smoother",
-                 "robust")}
+        return {
+            name: getattr(self, name)
+            for name in (
+                "grid",
+                "spacing",
+                "pad",
+                "altitude_km",
+                "epsilon",
+                "fit_bz",
+                "method",
+                "tau",
+                "prior_std",
+                "gate_sigma",
+                "smoother",
+                "robust",
+            )
+        }
 
     def _grid_latlonr(self, obs_latlons):
         """SEC pole locations (npoles, 3 [lat, lon, r]) for the fit."""
         pysecs = _require_pysecs()
-        r_shell = R_EARTH + self.altitude_km*1e3
+        r_shell = R_EARTH + self.altitude_km * 1e3
         if isinstance(self.grid, str) and self.grid == "auto":
-            obs_loc = np.column_stack(
-                [obs_latlons, np.full(len(obs_latlons), R_EARTH)])
-            return pysecs.make_grid(obs_loc, r_shell, spacing=self.spacing,
-                                    padding=self.pad)
+            obs_loc = np.column_stack([obs_latlons, np.full(len(obs_latlons), R_EARTH)])
+            return pysecs.make_grid(obs_loc, r_shell, spacing=self.spacing, padding=self.pad)
         if np.ndim(self.grid) == 1 and len(self.grid) == 4:
             if self.spacing is None:
-                raise ValueError("spacing=None (station-informed) is only "
-                                 "available with grid='auto'; give a numeric "
-                                 "spacing with an explicit bounding box")
+                raise ValueError(
+                    "spacing=None (station-informed) is only "
+                    "available with grid='auto'; give a numeric "
+                    "spacing with an explicit bounding box"
+                )
             west, south, east, north = self.grid
-            south, north = max(south, -90.), min(north, 90.)
-            lats = np.arange(south, north + self.spacing/2, self.spacing)
-            lons = np.arange(west, east + self.spacing/2, self.spacing)
+            south, north = max(south, -90.0), min(north, 90.0)
+            lats = np.arange(south, north + self.spacing / 2, self.spacing)
+            lons = np.arange(west, east + self.spacing / 2, self.spacing)
             lat, lon = map(np.ravel, np.meshgrid(lats, lons, indexing="ij"))
             return np.column_stack([lat, lon, np.full(lat.size, r_shell)])
         poles = np.atleast_2d(np.asarray(self.grid, dtype=float))
+        if poles.ndim != 2 or poles.shape[1] != 2 or len(poles) == 0:
+            raise ValueError("explicit grid must have shape (npoles, 2) [lat, lon]")
+        if not np.isfinite(poles).all() or np.any(np.abs(poles[:, 0]) > 90):
+            raise ValueError("explicit grid must contain finite, valid latitudes/longitudes")
         return np.column_stack([poles, np.full(len(poles), r_shell)])
 
-    def fit(self, b_obs, obs_latlons=None, obs_std=None, times=None,
-            gaps="mask", weight_gaps=False, gap_inflation=10., gap_window=60):
+    def fit(
+        self,
+        b_obs,
+        obs_latlons=None,
+        obs_std=None,
+        times=None,
+        gaps="mask",
+        weight_gaps=False,
+        gap_inflation=10.0,
+        gap_window=60,
+    ):
         """Fit the SEC amplitudes to observed magnetic fields.
 
         :param b_obs: xarray Dataset with ``Bx``/``By``[/``Bz``] (or
@@ -297,18 +375,29 @@ class SECSInterpolator:
         """
         pysecs = _require_pysecs()
         B, latlons, ds_times, obs_names = _extract_b(b_obs, obs_latlons)
+        if B.shape[0] == 0:
+            raise ValueError("B must contain at least one time sample")
         self._is_xarray_fit = ds_times is not None
         self._times = ds_times if ds_times is not None else times
 
-        std = np.ones(B.shape) * (np.asarray(obs_std, dtype=float)
-                                  if obs_std is not None else 1.)
+        try:
+            std = np.broadcast_to(
+                np.asarray(1.0 if obs_std is None else obs_std, dtype=float), B.shape
+            ).copy()
+        except ValueError:
+            raise ValueError(f"obs_std must be broadcastable to B shape {B.shape}") from None
+        if np.any((std <= 0) | np.isnan(std)):
+            raise ValueError("obs_std must contain positive values or infinity")
         if not self.fit_bz:
             std[:, :, 2] = np.inf
 
         missing = np.isnan(B)
         if gaps == "drop":
-            keep = ~missing[:, :, :2].any(axis=(0, 2)) if not self.fit_bz \
+            keep = (
+                ~missing[:, :, :2].any(axis=(0, 2))
+                if not self.fit_bz
                 else ~missing.any(axis=(0, 2))
+            )
             if not keep.any():
                 raise ValueError("gaps='drop' removed every observatory")
             B, std, latlons = B[:, keep], std[:, keep], latlons[keep]
@@ -319,13 +408,17 @@ class SECSInterpolator:
             raise ValueError("gaps must be one of: mask, drop")
 
         if weight_gaps and missing.any():
+            if not np.isfinite(gap_inflation) or gap_inflation < 1:
+                raise ValueError("gap_inflation must be finite and at least 1")
+            if not isinstance(gap_window, (int, np.integer)) or gap_window < 1:
+                raise ValueError("gap_window must be a positive integer")
             dist = _distance_to_gap(missing)
             with np.errstate(invalid="ignore"):
-                ramp = np.clip(1. - (dist - 1.)/gap_window, 0., 1.)
-            std = std * (1. + (gap_inflation - 1.)*ramp)
+                ramp = np.clip(1.0 - (dist - 1.0) / gap_window, 0.0, 1.0)
+            std = std * (1.0 + (gap_inflation - 1.0) * ramp)
         # Masked samples never enter the fit; zero-fill so B/std is 0, not NaN
         std[missing] = np.inf
-        B = np.where(missing, 0., B)
+        B = np.where(missing, 0.0, B)
 
         self.obs_latlons_ = latlons
         self.obs_names_ = obs_names
@@ -336,16 +429,31 @@ class SECSInterpolator:
 
         if self.method == "kalman":
             if self._times is None:
-                raise ValueError("method='kalman' needs the observation "
-                                 "times: fit with a Dataset or pass times=")
+                raise ValueError(
+                    "method='kalman' needs the observation times: fit with a Dataset or pass times="
+                )
+            time_values = np.asarray(self._times)
+            if len(time_values) != len(B):
+                raise ValueError(
+                    f"times must have one entry per B sample ({len(B)}); got {len(time_values)}"
+                )
+            deltas = np.diff(time_values)
+            zero = np.timedelta64(0, "ns") if deltas.dtype.kind == "m" else 0
+            if np.any(deltas <= zero):
+                raise ValueError("times must be strictly increasing")
             self._kalman = pysecs.KalmanSECS(
-                self._secs, tau=self.tau, prior_std=self.prior_std,
-                gate_sigma=self.gate_sigma, smoother=self.smoother,
-                epsilon=self.epsilon)
+                self._secs,
+                tau=self.tau,
+                prior_std=self.prior_std,
+                gate_sigma=self.gate_sigma,
+                smoother=self.smoother,
+                epsilon=self.epsilon,
+            )
             self._kalman.fit(obs_loc, B, np.asarray(self._times), obs_std=std)
         else:
-            self._secs.fit(obs_loc=obs_loc, obs_B=B, obs_std=std,
-                           epsilon=self.epsilon, robust=self.robust)
+            self._secs.fit(
+                obs_loc=obs_loc, obs_B=B, obs_std=std, epsilon=self.epsilon, robust=self.robust
+            )
         return self
 
     def predict(self, locations, return_var=False):
@@ -369,17 +477,22 @@ class SECSInterpolator:
         if not self._is_xarray_fit:
             return (B, var) if return_var else B
         import xarray as xr
-        coords = {"time": self._times,
-                  "latitude": ("loc", latlons[:, 0]),
-                  "longitude": ("loc", latlons[:, 1])}
+
+        coords = {
+            "time": self._times,
+            "latitude": ("loc", latlons[:, 0]),
+            "longitude": ("loc", latlons[:, 1]),
+        }
         out = xr.Dataset(
-            {name: (("time", "loc"), B[:, :, i], {"units": "nT"})
-             for i, name in enumerate(("Bx", "By", "Bz"))},
-            coords=coords)
+            {
+                name: (("time", "loc"), B[:, :, i], {"units": "nT"})
+                for i, name in enumerate(("Bx", "By", "Bz"))
+            },
+            coords=coords,
+        )
         if var is not None:
             for i, name in enumerate(("Bx", "By", "Bz")):
-                out[f"{name}_var"] = (("time", "loc"), var[:, :, i],
-                                      {"units": "nT2"})
+                out[f"{name}_var"] = (("time", "loc"), var[:, :, i], {"units": "nT^2"})
         return out
 
     def _predict_arrays(self, latlons, return_var):
@@ -423,8 +536,9 @@ class SECSInterpolator:
         lats = np.atleast_1d(np.asarray(lats, dtype=float))
         lons = np.atleast_1d(np.asarray(lons, dtype=float))
         if lats.ndim != 1 or lons.ndim != 1:
-            raise ValueError("lats and lons must be 1-D grid-axis arrays; "
-                             "use predict() for general point sets")
+            raise ValueError(
+                "lats and lons must be 1-D grid-axis arrays; use predict() for general point sets"
+            )
         glat, glon = np.meshgrid(lats, lons, indexing="ij")
         latlons = np.column_stack([glat.ravel(), glon.ravel()])
         B, var = self._predict_arrays(latlons, return_var)
@@ -436,15 +550,16 @@ class SECSInterpolator:
         if not self._is_xarray_fit:
             return (B, var) if return_var else B
         import xarray as xr
+
         dims = ("time", "latitude", "longitude")
         coords = {"time": self._times, "latitude": lats, "longitude": lons}
         out = xr.Dataset(
-            {name: (dims, B[..., i], {"units": "nT"})
-             for i, name in enumerate(("Bx", "By", "Bz"))},
-            coords=coords)
+            {name: (dims, B[..., i], {"units": "nT"}) for i, name in enumerate(("Bx", "By", "Bz"))},
+            coords=coords,
+        )
         if var is not None:
             for i, name in enumerate(("Bx", "By", "Bz")):
-                out[f"{name}_var"] = (dims, var[..., i], {"units": "nT2"})
+                out[f"{name}_var"] = (dims, var[..., i], {"units": "nT^2"})
         return out
 
     def transfer_matrix(self, locations):
@@ -492,7 +607,8 @@ class SECSInterpolator:
             raise ValueError(
                 "transfer_matrix requires method='lstsq'; method='kalman' "
                 "couples samples temporally (RTS smoother) and has no single "
-                "constant transfer matrix")
+                "constant transfer matrix"
+            )
         VWU_patterns = self._secs._VWU_patterns
         if VWU_patterns is None or len(VWU_patterns) != 1:
             n = 0 if VWU_patterns is None else len(VWU_patterns)
@@ -503,20 +619,21 @@ class SECSInterpolator:
                 f"weight_gaps=True, or robust= all vary the uncertainty over "
                 f"time). Refit with gap-free input, gaps='drop' with no "
                 f"remaining NaNs, weight_gaps=False, robust=None; or compose "
-                f"predict() per sample instead.")
+                f"predict() per sample instead."
+            )
 
-        VWU = VWU_patterns[0]                                    # (nsec, nobs*3)
+        VWU = VWU_patterns[0]  # (nsec, nobs*3)
         std_flat = self._obs_std_.reshape(len(self._obs_std_), -1)[0]  # (nobs*3,)
 
         latlons = _extract_latlons(locations)
         pred_loc = np.column_stack([latlons, np.full(len(latlons), R_EARTH)])
-        T_pred = self._secs._calc_T(pred_loc)                     # (npred, 3, nsec)
-        T_pred_flat = T_pred.reshape(-1, T_pred.shape[-1])        # (npred*3, nsec)
+        T_pred = self._secs._calc_T(pred_loc)  # (npred, 3, nsec)
+        T_pred_flat = T_pred.reshape(-1, T_pred.shape[-1])  # (npred*3, nsec)
 
-        M_flat = (VWU.T / std_flat[:, None]) @ T_pred_flat.T      # (nobs*3, npred*3)
+        M_flat = (VWU.T / std_flat[:, None]) @ T_pred_flat.T  # (nobs*3, npred*3)
         nobs, npred = len(self.obs_latlons_), len(latlons)
         M = M_flat.reshape(nobs, 3, npred, 3)
-        return M[:, :2, :, :2]                                    # drop Bz in/out
+        return M[:, :2, :, :2]  # drop Bz in/out
 
     def loo_score(self, b_obs, obs_latlons=None, metric="rmse", **overrides):
         """Leave-one-out observatory skill score, for tuning the setup.
@@ -537,12 +654,13 @@ class SECSInterpolator:
         # One implementation of the fold loop lives in bezpy.validation;
         # this is the tuning-oriented front end (config overrides, dict out).
         from ..validation import leave_one_out
+
         config = self._config()
-        fit_kwargs = {key: overrides.pop(key) for key in list(overrides)
-                      if key not in config}
+        fit_kwargs = {key: overrides.pop(key) for key in list(overrides) if key not in config}
         config.update(overrides)
         if obs_latlons is not None:
             fit_kwargs["obs_latlons"] = obs_latlons
-        df = leave_one_out(b_obs, interp=SECSInterpolator(**config),
-                           metrics=(metric,), **fit_kwargs)
+        df = leave_one_out(
+            b_obs, interp=SECSInterpolator(**config), metrics=(metric,), **fit_kwargs
+        )
         return df[metric].to_dict()

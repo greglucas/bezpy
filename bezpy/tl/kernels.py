@@ -51,8 +51,7 @@ Reference: Kelbert, A., & Lucas, G. M. (2020). Modified GIC estimation using
 https://doi.org/10.1029/2020SW002467
 """
 
-__all__ = ["voltage_functional", "voltage_matrix", "apply_voltage_matrix",
-           "TelluricResponse"]
+__all__ = ["voltage_functional", "voltage_matrix", "apply_voltage_matrix", "TelluricResponse"]
 
 import numpy as np
 import scipy.fft
@@ -79,6 +78,8 @@ def voltage_functional(line, n_inputs, how="delaunay"):
     :param n_inputs: number of E-field input locations (sites or 1d regions)
     :param how: one of ``nn``, ``1d``, ``delaunay``
     """
+    if not isinstance(n_inputs, (int, np.integer)) or n_inputs < 1:
+        raise ValueError("n_inputs must be a positive integer")
     L = np.zeros((n_inputs, 2))
     valid = True
 
@@ -105,7 +106,7 @@ def voltage_functional(line, n_inputs, how="delaunay"):
         raise ValueError("how must be a string of: nn, 1d, or delaunay")
 
     # Fold in the mV/km * km -> V conversion from calc_voltages
-    return L / 1000., valid
+    return L / 1000.0, valid
 
 
 def voltage_matrix(lines, n_inputs, how="delaunay"):
@@ -132,12 +133,20 @@ def apply_voltage_matrix(E, L, valid=None):
     :param valid: optional boolean mask; invalid lines are set to NaN
     :return: voltages in volts, shape ``(ntimes, nlines)``
     """
-    E = np.atleast_3d(E)
+    E = np.asarray(E, dtype=float)
+    L = np.asarray(L, dtype=float)
+    if E.ndim != 3 or E.shape[-1] != 2:
+        raise ValueError("E must have shape (ntimes, n_inputs, 2)")
+    if L.ndim != 3 or L.shape[2] != 2 or L.shape[1] != E.shape[1]:
+        raise ValueError(f"L must have shape (nlines, {E.shape[1]}, 2); got {L.shape}")
     ntimes = E.shape[0]
     L_sparse = scipy.sparse.csr_matrix(L.reshape(L.shape[0], -1))
     V = E.reshape(ntimes, -1) @ L_sparse.T
     if valid is not None:
-        V[:, ~np.asarray(valid)] = np.nan
+        valid = np.asarray(valid, dtype=bool)
+        if valid.shape != (L.shape[0],):
+            raise ValueError(f"valid must have shape ({L.shape[0]},)")
+        V[:, ~valid] = np.nan
     return V
 
 
@@ -192,8 +201,17 @@ class TelluricResponse:
         :meth:`calc_voltages` matches observatory columns positionally.
     """
 
-    def __init__(self, L, sites, valid=None, periods=None, extrapolate="asymptotic",
-                 tau_master=None, M=None, obs_names=None):
+    def __init__(
+        self,
+        L,
+        sites,
+        valid=None,
+        periods=None,
+        extrapolate="asymptotic",
+        tau_master=None,
+        M=None,
+        obs_names=None,
+    ):
         if extrapolate not in ("zeros", "asymptotic"):
             raise ValueError("extrapolate must be one of: zeros, asymptotic")
         self.L = None if L is None else np.asarray(L)
@@ -225,13 +243,22 @@ class TelluricResponse:
                 self.n_obs = self.tau_master.shape[1]
         elif self.periods is not None:
             # Build tau once at the master periods (ascending period order)
-            self.tau_master = self._build_tau(1. / self.periods)
+            self.tau_master = self._build_tau(1.0 / self.periods)
         else:
             self.tau_master = None
 
     @classmethod
-    def from_lines(cls, lines, sites, how="delaunay", periods=None,
-                   extrapolate="asymptotic", resample_km=None, secs=None, M=None):
+    def from_lines(
+        cls,
+        lines,
+        sites,
+        how="delaunay",
+        periods=None,
+        extrapolate="asymptotic",
+        resample_km=None,
+        secs=None,
+        M=None,
+    ):
         """Build from TransmissionLines and Sites, setting weights as needed.
 
         :param resample_km: if given, densify each line's geometry to at most
@@ -261,11 +288,18 @@ class TelluricResponse:
 
         obs_names = None
         if secs is not None:
-            M2 = secs.transfer_matrix(sites)               # (nobs, 2, nsites, 2)
-            M = np.transpose(M2, (2, 0, 3, 1))              # (nsites, nobs, 2, 2)
+            M2 = secs.transfer_matrix(sites)  # (nobs, 2, nsites, 2)
+            M = np.transpose(M2, (2, 0, 3, 1))  # (nsites, nobs, 2, 2)
             obs_names = list(secs.obs_names_) if secs.obs_names_ is not None else None
-        return cls(L, sites, valid=valid, periods=periods, extrapolate=extrapolate,
-                   M=M, obs_names=obs_names)
+        return cls(
+            L,
+            sites,
+            valid=valid,
+            periods=periods,
+            extrapolate=extrapolate,
+            M=M,
+            obs_names=obs_names,
+        )
 
     @property
     def nlines(self):
@@ -297,25 +331,29 @@ class TelluricResponse:
         tau = np.zeros(shape, dtype=complex)
         for s, site in enumerate(self.sites):
             Lx, Ly = L[:, s, 0], L[:, s, 1]
-            touched = np.nonzero((Lx != 0.) | (Ly != 0.))[0]
+            touched = np.nonzero((Lx != 0.0) | (Ly != 0.0))[0]
             if touched.size == 0:
                 continue
             Z = self._calcZ(site, freqs)  # (xx, xy, yx, yy) x nfreq
             if not multi:
                 # V = Lx*Ex + Ly*Ey with Ex = Zxx Bx + Zxy By, Ey = Zyx Bx + Zyy By
-                tau[touched, 0, :] += Lx[touched, None]*Z[0] + Ly[touched, None]*Z[2]
-                tau[touched, 1, :] += Lx[touched, None]*Z[1] + Ly[touched, None]*Z[3]
+                tau[touched, 0, :] += Lx[touched, None] * Z[0] + Ly[touched, None] * Z[2]
+                tau[touched, 1, :] += Lx[touched, None] * Z[1] + Ly[touched, None] * Z[3]
             else:
                 # Effective response to observatory k's B: Z'^k = Z @ M[s, k],
                 # i.e. fold the (frequency-independent) SECS transfer matrix
                 # into the site's impedance before the L-weighted site sum.
-                Ms = self.M[s]                                  # (nobs, 2, 2)
-                Zmat = np.array([[Z[0], Z[1]], [Z[2], Z[3]]])   # (2, 2, nfreq)
-                Zp = np.einsum('abf,kbc->kacf', Zmat, Ms)       # (nobs, 2, 2, nfreq)
-                tau[touched, :, 0, :] += (Lx[touched, None, None]*Zp[None, :, 0, 0, :]
-                                          + Ly[touched, None, None]*Zp[None, :, 1, 0, :])
-                tau[touched, :, 1, :] += (Lx[touched, None, None]*Zp[None, :, 0, 1, :]
-                                          + Ly[touched, None, None]*Zp[None, :, 1, 1, :])
+                Ms = self.M[s]  # (nobs, 2, 2)
+                Zmat = np.array([[Z[0], Z[1]], [Z[2], Z[3]]])  # (2, 2, nfreq)
+                Zp = np.einsum("abf,kbc->kacf", Zmat, Ms)  # (nobs, 2, 2, nfreq)
+                tau[touched, :, 0, :] += (
+                    Lx[touched, None, None] * Zp[None, :, 0, 0, :]
+                    + Ly[touched, None, None] * Zp[None, :, 1, 0, :]
+                )
+                tau[touched, :, 1, :] += (
+                    Lx[touched, None, None] * Zp[None, :, 0, 1, :]
+                    + Ly[touched, None, None] * Zp[None, :, 1, 1, :]
+                )
         return tau
 
     def calc_tau(self, freqs, lines=slice(None)):
@@ -332,23 +370,23 @@ class TelluricResponse:
 
         freqs = np.asarray(freqs, float)
         with np.errstate(divide="ignore"):
-            x = np.log10(1. / freqs)
+            x = np.log10(1.0 / freqs)
         # Interpolate in log-period, matching how Z itself is interpolated.
         # extrapolate=False -> NaN outside the master band (and at DC where
         # x is +inf).
-        spline = scipy.interpolate.CubicSpline(np.log10(self.periods),
-                                               self.tau_master[lines],
-                                               axis=-1, extrapolate=False)
+        spline = scipy.interpolate.CubicSpline(
+            np.log10(self.periods), self.tau_master[lines], axis=-1, extrapolate=False
+        )
         tau = spline(x)
 
         if self.extrapolate == "asymptotic":
             # Continue tau past the master band with the same sqrt(f)
             # asymptote used for Z (tau is a linear combination of Z's).
             tau_edges = self.tau_master[lines]
-            f_hi, f_lo = 1./self.periods[0], 1./self.periods[-1]
-            high, low = freqs > f_hi, (freqs < f_lo) & (freqs > 0.)
-            tau[..., high] = tau_edges[..., :1] * np.sqrt(freqs[high]/f_hi)
-            tau[..., low] = tau_edges[..., -1:] * np.sqrt(freqs[low]/f_lo)
+            f_hi, f_lo = 1.0 / self.periods[0], 1.0 / self.periods[-1]
+            high, low = freqs > f_hi, (freqs < f_lo) & (freqs > 0.0)
+            tau[..., high] = tau_edges[..., :1] * np.sqrt(freqs[high] / f_hi)
+            tau[..., low] = tau_edges[..., -1:] * np.sqrt(freqs[low] / f_lo)
 
         # Zero whatever remains outside (DC always; the band edges for the
         # "zeros" hard band-stop, mirroring ext=1 for Z).
@@ -395,19 +433,24 @@ class TelluricResponse:
             raise ValueError(
                 "magnetic field input contains NaNs, which would corrupt the "
                 "FFT; interpolate them (bezpy.mag.prepare(gaps='interpolate')) "
-                "or predict gap-free fields with SECS first")
+                "or predict gap-free fields with SECS first"
+            )
         multi = self.n_obs is not None
         if multi and (mag_x.ndim != 2 or mag_x.shape[1] != self.n_obs):
-            raise ValueError(f"this response has {self.n_obs} observatory "
-                             f"inputs; mag_x/mag_y must have shape "
-                             f"(ntimes, {self.n_obs})")
+            raise ValueError(
+                f"this response has {self.n_obs} observatory "
+                f"inputs; mag_x/mag_y must have shape "
+                f"(ntimes, {self.n_obs})"
+            )
         if not multi and mag_x.ndim != 1:
-            raise ValueError("this response is single-input; mag_x/mag_y must "
-                             "be 1-D (build with secs= or M= for multi-"
-                             "observatory input)")
+            raise ValueError(
+                "this response is single-input; mag_x/mag_y must "
+                "be 1-D (build with secs= or M= for multi-"
+                "observatory input)"
+            )
         N0 = mag_x.shape[0]
         # Same padding rule as Site.convolve_fft (prevents circular convolution)
-        N = 2**(int(np.log2(N0))+2)
+        N = 2 ** (int(np.log2(N0)) + 2)
         freqs = scipy.fft.rfftfreq(N, d=dt)
 
         mag_x_fft = scipy.fft.rfft(mag_x, n=N, axis=0, workers=-1)
@@ -419,10 +462,11 @@ class TelluricResponse:
             sel = slice(i0, min(i0 + line_chunk, self.nlines))
             tau = tau_grid[sel] if tau_grid is not None else self.calc_tau(freqs, lines=sel)
             if multi:
-                V_fft = (np.einsum('lof,fo->lf', tau[:, :, 0, :], mag_x_fft)
-                        + np.einsum('lof,fo->lf', tau[:, :, 1, :], mag_y_fft))
+                V_fft = np.einsum("lof,fo->lf", tau[:, :, 0, :], mag_x_fft) + np.einsum(
+                    "lof,fo->lf", tau[:, :, 1, :], mag_y_fft
+                )
             else:
-                V_fft = tau[:, 0, :]*mag_x_fft + tau[:, 1, :]*mag_y_fft
+                V_fft = tau[:, 0, :] * mag_x_fft + tau[:, 1, :] * mag_y_fft
             voltages[:, sel] = scipy.fft.irfft(V_fft, axis=-1, workers=-1)[:, :N0].T
 
         if self.valid is not None:
@@ -441,26 +485,31 @@ class TelluricResponse:
         if self.tau_master is None:
             raise ValueError(
                 "Only master-grid responses are storable (pass periods= when "
-                "building); exact mode is tied to a run's FFT grid.")
+                "building); exact mode is tied to a run's FFT grid."
+            )
         import xarray as xr
+
         valid = np.ones(self.nlines, dtype=bool) if self.valid is None else self.valid
         multi = self.n_obs is not None
-        dims = ("line", "obs", "component", "period") if multi \
-            else ("line", "component", "period")
-        coords = {"period": ("period", self.periods, {"units": "s"}),
-                  "component": ["N", "E"]}
+        dims = ("line", "obs", "component", "period") if multi else ("line", "component", "period")
+        coords = {"period": ("period", self.periods, {"units": "s"}), "component": ["N", "E"]}
         if multi and self.obs_names is not None:
             coords["obs"] = ("obs", self.obs_names)
         # Complex data split into real/imag so any netCDF engine can store it
         ds = xr.Dataset(
-            {"tau_real": (dims, self.tau_master.real),
-             "tau_imag": (dims, self.tau_master.imag),
-             "valid": (("line",), valid)},
+            {
+                "tau_real": (dims, self.tau_master.real),
+                "tau_imag": (dims, self.tau_master.imag),
+                "valid": (("line",), valid),
+            },
             coords=coords,
-            attrs={"title": "Power line telluric response functions",
-                   "units": "V/nT",
-                   "extrapolate": self.extrapolate,
-                   "reference": "Kelbert & Lucas (2020), doi:10.1029/2020SW002467"})
+            attrs={
+                "title": "Power line telluric response functions",
+                "units": "V/nT",
+                "extrapolate": self.extrapolate,
+                "reference": "Kelbert & Lucas (2020), doi:10.1029/2020SW002467",
+            },
+        )
         ds.to_netcdf(path)
 
     @classmethod
@@ -473,10 +522,17 @@ class TelluricResponse:
         older single-input files (no ``obs`` dimension) restore unchanged.
         """
         import xarray as xr
+
         with xr.open_dataset(path) as ds:
             ds.load()
-        tau = ds["tau_real"].values + 1j*ds["tau_imag"].values
+        tau = ds["tau_real"].values + 1j * ds["tau_imag"].values
         obs_names = ds["obs"].values.tolist() if "obs" in ds.coords else None
-        return cls(L=None, sites=None, valid=ds["valid"].values,
-                   periods=ds["period"].values, extrapolate=ds.attrs["extrapolate"],
-                   tau_master=tau, obs_names=obs_names)
+        return cls(
+            L=None,
+            sites=None,
+            valid=ds["valid"].values,
+            periods=ds["period"].values,
+            extrapolate=ds.attrs["extrapolate"],
+            tau_master=tau,
+            obs_names=obs_names,
+        )
