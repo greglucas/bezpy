@@ -21,18 +21,24 @@ multiple different ways.
 Worked, end-to-end tutorials live in the
 [documentation](https://github.com/greglucas/bezpy/tree/main/docs) — a
 storm B→E map, storm catalogs, a continuous scan to a hazard map, line
-voltages via kernels, and gridded impedance / live maps). The sections below
+voltages via kernels, and gridded impedance / live maps. The sections below
 give a quick tour of each stage.
 
 [scripts/](https://github.com/greglucas/bezpy/tree/main/scripts) holds runnable
 command-line examples, including
 `mt_site_example.py` (inspect an MT site and turn B into E three ways) and
 `japan_halloween.py` (the Halloween 2003 storm at the Japanese observatories).
+`china_may2024.py` downloads a published Zenodo archive, verifies its
+checksum, reads all 22 North China tensors, and reports their screening and
+coordinate metadata.
 For publication work, start with the
 [reproducibility guide](https://github.com/greglucas/bezpy/blob/main/docs/reproducibility.md),
 which maps papers to
 current APIs, lists historical compatibility settings, and distinguishes
-method reproduction from exact computational reproduction.
+method reproduction from exact computational reproduction. The
+[regional data guide](https://github.com/greglucas/bezpy/blob/main/docs/regional-studies.md)
+tracks executable and request-restricted inputs for New Zealand, China, and
+future regional comparisons.
 
 ## Install
 
@@ -166,6 +172,15 @@ bezpy.data.ingest_mt_xml("TEST01.xml")
 print(bezpy.data.mt_inventory())
 site = bezpy.data.load_mt_site("WVO55")                        # -> bezpy.mt.Site3d
 sites = bezpy.data.load_mt_sites(bbox=(-110, 35, -100, 45), min_rating=4)
+```
+
+Versioned paper datasets can also be downloaded by exact Zenodo record and
+filename. The repository checksum is verified before the file enters the
+cache:
+
+```python
+archive = bezpy.data.download_zenodo_file(15107366, "Impedance.zip")
+china_sites = bezpy.mt.read_zfile_archive(archive)
 ```
 
 ### Transmission line geometries
@@ -338,7 +353,7 @@ I = apply_gic_matrix(E, K, valid)  # (ntimes, ntransformers) Amps
 or reduce it continuously alongside E and V: `bezpy.pipeline.scan(...,
 network=net)` adds an `I_max`/`I_max_time` reducer group. See
 `docs/tutorials/network-gic.md` for building your own network and
-`VALIDATION.md` (item 1.1) for how the shipped benchmark is cross-validated.
+`docs/validation.md` (item 1.1) for how the shipped benchmark is cross-validated.
 
 ## Development and testing
 
@@ -371,6 +386,11 @@ The code is released under the MIT license
 This package has been developed from different publications. Please consider citing the papers
 that are relevant to the work you are doing if you are utilizing this code. The culmination of much of the work was contained in our paper
 "A 100-year geoelectric hazard analysis for the U.S. high-voltage power grid."
+
+The complete linked paper-to-code index, including the Mid-Atlantic, Pacific
+Northwest, Northeast, MT-sampling, E3 EMP, March 1989, and modified-GIC
+studies, is maintained in the
+[publication reproduction guide](https://github.com/greglucas/bezpy/blob/main/docs/reproducibility.md).
 
 [doi:10.1029/2019SW002329](https://doi.org/10.1029/2019SW002329)
 

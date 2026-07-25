@@ -358,7 +358,7 @@ def test_repr(synthetic):
 
 
 # ---------------------------------------------------------------------
-# transfer_matrix: the constant obs -> prediction linear map (roadmap 2.1)
+# transfer_matrix: the constant obs -> prediction linear map
 # ---------------------------------------------------------------------
 
 

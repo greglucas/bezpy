@@ -89,7 +89,7 @@ def test_plot_hazard_map():
 
 
 def test_plot_hazard_map_fades_uncertain_sites():
-    """roadmap 1.2: sites at/above uncertainty_limit are faded, others keep
+    """Sites at/above uncertainty_limit are faded, others keep
     full opacity; no effect without both relative_uncertainty and the limit."""
     fig, ax = matplotlib.pyplot.subplots()
     artist = plot_hazard_map(ax, LATLONS, [1., 10., 100.],

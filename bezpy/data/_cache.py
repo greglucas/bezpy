@@ -53,6 +53,27 @@ def _atomic_write_text(path, text, encoding="utf-8"):
             tmp.unlink()
 
 
+def _atomic_write_bytes(path, content):
+    """Replace a cache file atomically after a successful binary download."""
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = tempfile.NamedTemporaryFile(
+        mode="wb",
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+        delete=False,
+    )
+    tmp = pathlib.Path(handle.name)
+    try:
+        with handle:
+            handle.write(content)
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
 def get_cache_dir(subdir=None, create=True):
     """Return the bezpy data cache directory.
 

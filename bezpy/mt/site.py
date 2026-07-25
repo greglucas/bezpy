@@ -100,7 +100,7 @@ class Site:
 
     def z_sensitivities(self, freqs, extrapolate="asymptotic", eps_scale=1e-2):
         """First-order sensitivity of the interpolated impedance to each
-        reported measurement (roadmap 1.2 phase 2).
+        reported measurement.
 
         Base implementation: no variance information on this site type, so
         there are no sensitivities to report (returns ``[]``).
@@ -373,7 +373,8 @@ class Site3d(Site):
               Z = 0 at DC on the long-period side and growing as sqrt(f) on
               the short-period side. This preserves the short-period content
               that dominates dB/dt-driven E instead of truncating it (see
-              ``VALIDATION.md`` D6: synthetic relative RMS error 0.03-0.07 vs
+              ``docs/validation.md`` D6: synthetic relative RMS error
+              0.03-0.07 vs
               0.65-0.82 for ``"zeros"``, confirmed directionally on real
               storms).
             * ``"zeros"`` (legacy, the historical behavior): a hard
@@ -423,7 +424,7 @@ class Site3d(Site):
         return Z_interp
 
     def perturbed(self, rng):
-        """A copy with ``Z`` perturbed within ``Z_var`` (roadmap 1.2 phase 1).
+        """A copy with ``Z`` perturbed within ``Z_var``.
 
         Draws an independent complex Gaussian per period/component with
         variance ``Z_var`` (real and imaginary parts each get half the
@@ -481,8 +482,8 @@ class Site3d(Site):
 
     def z_sensitivities(self, freqs, extrapolate="asymptotic", eps_scale=1e-2):
         """First-order sensitivity of the interpolated impedance to each
-        reported measurement (roadmap 1.2 phase 2 -- the "analytic variance"
-        counterpart of :meth:`perturbed`'s Monte Carlo draws).
+        reported measurement (the "analytic variance" counterpart of
+        :meth:`perturbed`'s Monte Carlo draws).
 
         For every period/component with a finite, positive ``Z_var``, a
         numerical (central-difference) Jacobian column of the *production*
@@ -493,7 +494,7 @@ class Site3d(Site):
         for the spline -- FITPACK's automatic smoothing makes an exact
         symbolic derivative fragile to depend on, and the numerical Jacobian
         captures whatever that smoothing actually does (including its
-        noise-damping effect -- see ``VALIDATION.md`` 1.2 for why the
+        noise-damping effect -- see ``docs/validation.md`` 1.2 for why the
         propagated variance produces an under-covering interval as a result,
         matching phase 1's ensemble finding).
 
@@ -849,7 +850,7 @@ class SiteCollection:
             sized from a ~512 MB workspace budget). The interpolated-impedance
             cache is kept only when all sites fit in one block.
         :param return_var: also propagate each ``Site3d``'s ``Z_var`` into a
-            first-order Ex/Ey variance (roadmap 1.2 phase 2; see
+            first-order Ex/Ey variance (see
             ``Site3d.z_sensitivities``). E is treated as linear in Z at fixed
             B (this does not include B uncertainty -- that stays ensemble-
             only, ``calc_geoelectric_field``'s ``perturb_b=``). Sites without

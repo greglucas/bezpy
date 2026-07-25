@@ -37,7 +37,7 @@ def make_sites(n_lat=4, n_lon=4):
 
 
 def make_var_sites(n_lat=4, n_lon=4, relative_std=0.1):
-    """Site3d sites with Z_var (roadmap 1.2 ensemble tests need real
+    """Site3d sites with Z_var (ensemble tests need real
     impedance uncertainty; make_sites' Site1d sites have none by design)."""
     from bezpy.mt.site import Site3d
 
@@ -261,7 +261,7 @@ def test_calc_geoelectric_field_perturb_b_widens_spread():
 
 
 def test_calc_geoelectric_field_return_var():
-    """roadmap 1.2 phase 2: return_var=True adds Ex_var/Ey_var, zero for
+    """return_var=True adds Ex_var/Ey_var, zero for
     sites without Z_var, mutually exclusive with n_realizations."""
     b_obs = make_b_obs()
     sites = make_var_sites(n_lat=2, n_lon=2)
@@ -352,7 +352,7 @@ def test_quantile_sketch_retains_and_signals_overflow():
 
 
 def test_scan_n_realizations_spreads_and_matches_single_run():
-    """Ensemble scan (roadmap 1.2 phase 1): the realization dimension lands
+    """Ensemble scan: the realization dimension lands
     on every reduced variable, the perturbed-sites-fixed-for-the-whole-scan
     contract holds (each realization is one internally consistent E_max
     series, not per-chunk noise), and the *_max_std spread is nonzero for

@@ -11,7 +11,7 @@ Two tools:
   the true E at any point and the true V along any line are computable
   exactly. Every method option (``how=``, ``resample_km=``,
   ``extrapolate=``) is scored against that truth instead of tradition;
-  ``VALIDATION.md`` records the current results.
+  ``docs/validation.md`` records the current results.
 """
 
 __all__ = ["leave_one_out", "synthetic_scenario",
@@ -409,7 +409,7 @@ def _calibration_scenario(n_trials, ntimes, dt, relative_std, periods, rng):
 def score_ensemble_calibration(n_trials=30, n_realizations=150, ntimes=2048,
                                dt=60., relative_std=0.05, periods=None, seed=0):
     """Coverage of ``calc_geoelectric_field``'s ``n_realizations`` ensemble
-    against known truth (roadmap 1.2 phase 1 acceptance test).
+    against known truth (ensemble-calibration acceptance test).
 
     Simulates the actual estimation process the ensemble represents: one
     true layered impedance (exact, from a known ``Site1d`` profile) is
@@ -428,8 +428,8 @@ def score_ensemble_calibration(n_trials=30, n_realizations=150, ntimes=2048,
     0.6-0.65 across period counts and noise levels) as a result. This is a
     property of reusing the *production* impedance-interpolation path (the
     same one every real analysis goes through), not a test artifact -- see
-    ``VALIDATION.md`` for the measured values. Exact analytic propagation
-    (roadmap 1.2 phase 2) is the intended fix.
+    ``docs/validation.md`` for the measured values. Exact analytic
+    propagation is the deterministic comparison.
 
     :param n_trials: independent noisy-impedance draws (pooled samples)
     :param n_realizations: ensemble draws per trial
@@ -466,11 +466,11 @@ def score_ensemble_calibration(n_trials=30, n_realizations=150, ntimes=2048,
 def score_analytic_calibration(n_trials=15, ntimes=1024, dt=60.,
                                relative_std=0.05, periods=None, seed=0):
     """Coverage of ``calc_geoelectric_field(..., return_var=True)``'s
-    analytic +-1 std band against known truth (roadmap 1.2 phase 2
+    analytic +-1 std band against known truth (the analytic-calibration
     acceptance test) -- the deterministic counterpart of
     :func:`score_ensemble_calibration`, same scenario (see
     :func:`_calibration_scenario`), so the two numbers are directly
-    comparable in ``VALIDATION.md``.
+    comparable in ``docs/validation.md``.
 
     Uses the point estimate's own ``Ex_var``/``Ey_var`` (no Monte Carlo
     draws) as the +-1 std band and checks how often the known truth falls

@@ -142,7 +142,7 @@ def plot_hazard_map(ax, latlons, values, log=True, cmap="magma_r",
     :param log: color on a log scale (hazard values span decades)
     :param add_colorbar: attach a colorbar to the axes' figure
     :param relative_uncertainty: optional per-site relative uncertainty
-        (e.g. ``E_max_std / E_max`` from an ensemble ``scan``, roadmap 1.2).
+        (e.g. ``E_max_std / E_max`` from an ensemble ``scan``).
         Sites at or above ``uncertainty_limit`` are faded (see
         ``faded_alpha``) instead of dropped, so untrustworthy cells stay on
         the map but read as visually de-emphasized -- a scatter has no

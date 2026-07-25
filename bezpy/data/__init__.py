@@ -66,6 +66,7 @@ from .mt import (
     search_mt,
     stored_mt_surveys,
 )
+from .repositories import download_zenodo_file, zenodo_record
 from .tl import (
     download_transmission_lines,
     load_transmission_lines,
@@ -88,6 +89,8 @@ __all__ = [
     "download_mt", "download_mt_spud", "download_mt_search", "search_mt",
     "ingest_mt_xml", "load_mt_site", "load_mt_sites", "mt_inventory",
     "stored_mt_surveys", "mt",
+    # versioned research repositories
+    "download_zenodo_file", "zenodo_record",
     # transmission line geometries
     "download_transmission_lines", "load_transmission_lines", "read_geojson",
     "tl",

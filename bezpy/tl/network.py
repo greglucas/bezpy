@@ -285,7 +285,7 @@ class Network:
         with :meth:`solve` or :func:`gic_matrix` for a chosen E field. Node
         count and connectivity reproduce ``lanl-ansi/PowerModelsGMD.jl``'s
         ``epri21.m``, cross-checked against that project's own PowerWorld
-        verification data (see ``VALIDATION.md``, item 1.1).
+        verification data (see ``docs/validation.md``, item 1.1).
         """
         path = files("bezpy.tl").joinpath("data", "epri21_network.json")
         with path.open() as f:

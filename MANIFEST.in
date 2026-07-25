@@ -1,4 +1,7 @@
 include README.md LICENSE CITATION.cff CONTRIBUTING.md CHANGELOG.md
+include mkdocs.yml
+recursive-include docs *.md
+recursive-include scripts *.py
 include bezpy/mt/data_1d/earth_model*.txt
 include bezpy/mag/data/*.dat
 include bezpy/tl/data/*.json

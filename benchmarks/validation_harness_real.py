@@ -1,5 +1,5 @@
-"""Real-storm method-comparison harness (roadmap 1.3 / VALIDATION.md "Still
-to add"): the reference-storm comparison and epsilon/tau tuning curves that
+"""Real-storm method-comparison harness (docs/validation.md "Still to add"):
+the reference-storm comparison and epsilon/tau tuning curves that
 `benchmarks/validation_harness.py` cannot provide from synthetic truth alone
 -- real observatory noise, real gaps, and real EMTF impedance bands.
 

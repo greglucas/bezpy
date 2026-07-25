@@ -1,5 +1,5 @@
 """Method-comparison harness: scores every method option against synthetic
-truth and prints the tables recorded in VALIDATION.md.
+truth and prints the tables recorded in docs/validation.md.
 
 Run:  python benchmarks/validation_harness.py
 """

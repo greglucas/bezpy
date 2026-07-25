@@ -27,7 +27,7 @@ A change that can alter a numerical result should include:
 - explicit units, coordinates, Fourier sign, missing-data, and uncertainty
   assumptions in its public docstring;
 - an entry under **Result-changing fixes** in `CHANGELOG.md`;
-- an update to `VALIDATION.md` when it changes a validated method or default.
+- an update to `docs/validation.md` when it changes a validated method or default.
 
 Do not silently replace an established method. Preserve it behind an explicit
 option when scientifically defensible, or document why recreating it would

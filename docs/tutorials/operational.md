@@ -65,8 +65,8 @@ Two fixed sources, independent of how often you call `update`:
 
 * A **start-up transient** of `nowcast.warmup_samples` before *any* output
   appears — larger than `nmax` alone because of how `DTIR.convolve`'s
-  `mode="same"` convolution is aligned (verified directly, not assumed; see
-  `ROADMAP.md` 2.2). For the 900-18000s / `dt=60`\ s example above, that is
+  `mode="same"` convolution is aligned (verified directly, not assumed). For
+  the 900-18000s / `dt=60`\ s example above, that is
   ~20 hours.
 * Thereafter, a **steady-state delay** of `|nmin|` samples: DTIR is only
   quasi-causal (Kelbert et al. 2017's design uses a small acausal lead), so

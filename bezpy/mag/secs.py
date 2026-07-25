@@ -580,7 +580,7 @@ class SECSInterpolator:
 
         This is the constant-matrix contraction behind
         :meth:`bezpy.tl.kernels.TelluricResponse.from_lines`'s ``secs=``
-        argument (roadmap 2.1): folding SECS interpolation into a per-line
+        argument: folding SECS interpolation into a per-line
         kernel needs the linear map itself, not a prediction. For ordinary
         interpolation use :meth:`predict`.
 

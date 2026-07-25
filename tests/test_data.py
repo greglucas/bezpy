@@ -5,6 +5,7 @@ generators, and everything else (netCDF store, provenance layout, cross-level
 merge, inventory, IAGA/MT ingest) runs against a temporary cache directory.
 """
 
+import hashlib
 import json
 import urllib.parse as urlparse
 
@@ -360,6 +361,73 @@ def test_mt_duplicate_code_warns(cache, sample_emtf_path):
     data.ingest_mt_xml(str(sample_emtf_path), survey="B")
     with pytest.warns(UserWarning, match="multiple surveys"):
         data.load_mt_site("TEST01")
+
+
+# ---------------------------------------------------------------------------
+# Versioned research repositories (Zenodo)
+# ---------------------------------------------------------------------------
+def _zenodo_session(content=b"public research data"):
+    checksum = hashlib.md5(content).hexdigest()  # noqa: S324 - matches Zenodo metadata
+    record = {
+        "id": 123,
+        "files": [
+            {
+                "key": "Impedance.zip",
+                "checksum": f"md5:{checksum}",
+                "links": {"self": "https://zenodo.example/files/Impedance.zip/content"},
+            }
+        ],
+    }
+
+    class FakeSession:
+        def __init__(self):
+            self.file_calls = 0
+
+        def get(self, url, timeout=None):
+            if url.endswith("/api/records/123"):
+                return _FakeResponse(payload=record)
+            self.file_calls += 1
+            return _FakeResponse(content=content)
+
+    return FakeSession()
+
+
+def test_download_zenodo_file_checksum_and_cache(cache):
+    session = _zenodo_session()
+    path = data.download_zenodo_file(123, "Impedance.zip", session=session)
+    assert path == cache / "repositories" / "zenodo" / "123" / "Impedance.zip"
+    assert path.read_bytes() == b"public research data"
+    assert session.file_calls == 1
+
+    # Metadata is refreshed so repository changes are noticed, but valid file
+    # content is reused without another large-file request.
+    assert data.download_zenodo_file("123", "Impedance.zip", session=session) == path
+    assert session.file_calls == 1
+
+
+def test_download_zenodo_file_rejects_unknown_or_unsafe_name(cache):
+    session = _zenodo_session()
+    with pytest.raises(FileNotFoundError, match="Available files: Impedance.zip"):
+        data.download_zenodo_file(123, "missing.zip", session=session)
+    with pytest.raises(ValueError, match="path components"):
+        data.download_zenodo_file(123, "../Impedance.zip", session=session)
+
+
+def test_download_zenodo_file_does_not_cache_bad_content(cache):
+    session = _zenodo_session()
+    # Keep the record checksum but corrupt the subsequent content response.
+    original_get = session.get
+
+    def corrupt(url, timeout=None):
+        response = original_get(url, timeout=timeout)
+        if url.endswith("/content"):
+            response.content = b"corrupt"
+        return response
+
+    session.get = corrupt
+    with pytest.raises(OSError, match="Checksum mismatch"):
+        data.download_zenodo_file(123, "Impedance.zip", session=session)
+    assert not (cache / "repositories" / "zenodo" / "123" / "Impedance.zip").exists()
 
 
 # ---------------------------------------------------------------------------

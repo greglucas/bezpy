@@ -45,7 +45,7 @@ def test_true_e_matches_pipeline_at_sites(scenario):
 
 def test_interpolation_scores(scenario):
     """The harness measures rankings; it must not presuppose them (see
-    VALIDATION.md for the current results). Verify completeness and sanity:
+    docs/validation.md for the current results). Verify completeness and sanity:
     every option lands well under 100% error against truth."""
     lines = make_lines()
     table = score_interpolation_methods(
@@ -64,11 +64,11 @@ def test_extrapolation_asymptotic_beats_zeros(scenario):
 
 
 def test_ensemble_calibration_covers_truth_near_nominal_rate():
-    """The roadmap 1.2 phase 1 acceptance test: the n_realizations ensemble's
+    """The ensemble-calibration acceptance test: the n_realizations ensemble's
     +-1 std band must cover known truth at approximately the nominal 68%
     rate -- not exactly (the production spline-smoothing path damps
     propagated noise a bit, see score_ensemble_calibration's docstring and
-    VALIDATION.md), but nowhere near 0% (no propagation happening) or 100%
+    docs/validation.md), but nowhere near 0% (no propagation happening) or 100%
     (grossly overstated uncertainty)."""
     result = score_ensemble_calibration(n_trials=15, n_realizations=60, ntimes=1024, seed=0)
     assert 0.45 < result["coverage_1sigma"] < 0.80
@@ -76,13 +76,13 @@ def test_ensemble_calibration_covers_truth_near_nominal_rate():
 
 
 def test_analytic_calibration_is_undercovering_but_not_broken():
-    """The roadmap 1.2 phase 2 acceptance test: analytic (return_var=True)
+    """The analytic-calibration acceptance test: analytic (return_var=True)
     coverage does NOT hit the nominal 68% -- it lands around 0.32-0.37,
     substantially more anti-conservative (too narrow/overconfident) than
     phase 1's ensemble (~0.6-0.65), because the Jacobian is frozen at the one
     noisy measured impedance and misses the smoothing spline's knot-selection
     variability that only shows up when it is actually refit under different
-    noise draws (see VALIDATION.md 1.2 for the full write-up and per-site
+    noise draws (see docs/validation.md 1.2 for the full write-up and per-site
     evidence this is systematic, not a few outliers). This test enforces the
     OBSERVED, reproducible range -- not the aspirational nominal rate -- so it
     fails if a future change breaks propagation entirely (near 0%) or makes it

@@ -113,7 +113,8 @@ i_eff = effective_gic(i_hi, i_lo)   # a=b=1 by default; override per TPL-007 tur
 
 The benchmark's topology, and `Network`'s solve on it, are cross-checked
 against `lanl-ansi/PowerModelsGMD.jl`'s own PowerWorld-computed verification
-data for this exact test system — see `VALIDATION.md` item 1.1 for the
+data for this exact test system — see the [validation guide](../validation.md)
+item 1.1 for the
 full derivation, including the well-understood factor-of-3 that reconciles
 bezpy's single-line-equivalent total current against NERC's per-phase
 "effective GIC" reporting convention.

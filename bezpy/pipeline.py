@@ -274,8 +274,8 @@ def calc_geoelectric_field(
         takes precedence over a ``SiteCollection`` passed as ``sites``.
         Ignored when ``n_realizations`` is set -- each realization builds
         its own perturbed collection, so there is no cache to reuse.
-    :param n_realizations: uncertainty propagation (roadmap 1.2 phase 1,
-        "ensemble mode"). When set, each site's impedance is redrawn
+    :param n_realizations: ensemble uncertainty propagation. When set, each
+        site's impedance is redrawn
         ``n_realizations`` times within its ``Z_var`` (independent complex
         Gaussian per period/component; see ``Site3d.perturbed``) and the
         whole chain reran per draw, adding a leading ``realization``
@@ -295,8 +295,8 @@ def calc_geoelectric_field(
         only impedance uncertainty is propagated.
     :param seed: RNG seed for reproducible realizations (default None: a
         fresh, unseeded draw each call)
-    :param return_var: analytic uncertainty propagation (roadmap 1.2 phase
-        2 -- the deterministic, "linear chain" counterpart of
+    :param return_var: analytic uncertainty propagation (the deterministic,
+        "linear chain" counterpart of
         ``n_realizations``'s Monte Carlo draws). Adds ``Ex_var``/``Ey_var``
         ((mV/km)^2) computed via ``SiteCollection.convolve_fft(...,
         return_var=True)``: a first-order propagation of each site's
@@ -310,7 +310,7 @@ def calc_geoelectric_field(
         redundant). Substantially more expensive than the point estimate
         (roughly one extra FFT convolution per valid impedance
         measurement per site), so this is meant for single-window/case-
-        study use, not wired into ``scan``. See ``VALIDATION.md`` 1.2 for
+        study use, not wired into ``scan``. See ``docs/validation.md`` 1.2 for
         the calibration test and its measured coverage.
     :return: Dataset with ``Ex``/``Ey`` in mV/km; site latitude/longitude
         coordinates; pad metadata already trimmed. Dims ``(time, site)``, or
@@ -442,7 +442,7 @@ def calc_voltages(lines, e, how="delaunay", return_var=False):
     :param how: E interpolation scheme (``"delaunay"`` default, ``"nn"``)
     :param return_var: also propagate ``Ex_var``/``Ey_var`` (from
         ``calc_geoelectric_field(..., return_var=True)``) into a per-line
-        voltage variance (roadmap 1.2 phase 2), via the closed form
+        voltage variance via the closed form
         ``var(V) = sum_j L_j^2 var(E_j)`` -- exact given the E-site
         variances (``L`` is the same static, real, known kernel used for
         the point estimate, and the site-to-site independence assumption
@@ -450,7 +450,7 @@ def calc_voltages(lines, e, how="delaunay", return_var=False):
         phase 1/2). Requires a Dataset ``e`` carrying ``Ex_var``/``Ey_var``.
         This is the propagated **data** variance only -- the delaunay-vs-nn
         interpolation-*scheme* divergence is a separate, **structural**
-        uncertainty not included here (see ``VALIDATION.md`` D7 for its
+        uncertainty not included here (see ``docs/validation.md`` D7 for its
         measured magnitude); add it yourself if you need one combined
         number, since how large it is depends on your own site geometry.
     :return: DataArray ``(time, line)`` of voltages in volts (NaN for lines
@@ -813,7 +813,7 @@ def scan(
         behavior).
     :param field_kwargs: forwarded to :func:`calc_geoelectric_field`
         (``interp``, ``extrapolate``, ``leave_one_out``, ...)
-    :param n_realizations: uncertainty propagation (roadmap 1.2 phase 1).
+    :param n_realizations: ensemble uncertainty propagation.
         When set, each site's impedance is redrawn ``n_realizations`` times
         within its ``Z_var`` *once, up front* (the perturbed sites are fixed
         for the whole scan -- a site's true impedance does not fluctuate
@@ -1180,7 +1180,7 @@ def storm_scan(
 
 
 # ----------------------------------------------------------------------------
-# Nowcast: causal, streaming B -> E (-> V) (roadmap 2.2)
+# Nowcast: causal, streaming B -> E (-> V)
 # ----------------------------------------------------------------------------
 
 
@@ -1203,7 +1203,7 @@ def _site_periods(site, periods):
 def _resolve_nmin_nmax(sites, dt, nmin, nmax, periods):
     """``(nmin, nmax)`` in samples, auto-derived from the sites' period band
     when requested, plus the undersampled-period warning (see the DTIR
-    reconstruction-fidelity evidence in ``ROADMAP.md`` 2.2)."""
+    reconstruction-fidelity evidence in ``docs/tutorials/operational.md``)."""
     bands = [_site_periods(site, periods) for site in sites]
     max_period = max(np.max(band) for band in bands)
     min_period = min(np.min(band) for band in bands)
@@ -1246,7 +1246,7 @@ class Nowcast:
     neither can produce a result as new B arrives live. ``Nowcast`` composes
     the same site impedances differently -- through ``bezpy.mt.impulse.DTIR``
     (a regularized time-domain impulse response, causal FIR convolution)
-    fed by ``SECSInterpolator.transfer_matrix`` (roadmap 2.1: a constant,
+    fed by ``SECSInterpolator.transfer_matrix`` (a constant,
     per-sample-independent observatory-to-site B map) -- into a stateful
     engine: :meth:`update` appends new B to a bounded rolling buffer and
     returns E (and V) for whatever interval just became causally valid.

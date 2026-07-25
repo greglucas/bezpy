@@ -6,11 +6,12 @@ be asserted exactly.
 """
 
 import os
+import zipfile
 
 import numpy as np
 import pytest
 
-from bezpy.mt import Site3d, read_edi, read_zfile
+from bezpy.mt import Site3d, SiteCollection, read_edi, read_zfile, read_zfile_archive
 from bezpy.mt.legacy import EDIFile, ZFile
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -35,6 +36,26 @@ def test_read_zfile_site():
     np.testing.assert_allclose(site.Z_var[:, 0], [0.09, 0.09, 0.16, 0.16])
     # calc_resisitivity ran (resistivity available for plotting)
     assert site.resistivity is not None
+
+
+def test_read_zfile_archive_without_extracting(tmp_path):
+    archive = tmp_path / "survey.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.write(ZSS, "survey/TST01.zrr")
+        zf.writestr("survey/README.txt", "not a transfer function")
+
+    sites = read_zfile_archive(archive)
+    assert isinstance(sites, SiteCollection)
+    assert len(sites) == 1
+    assert sites.sites[0].name == "TST01"
+
+
+def test_read_zfile_archive_requires_transfer_functions(tmp_path):
+    archive = tmp_path / "empty.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("README.txt", "no transfer functions")
+    with pytest.raises(ValueError, match="No EMTF Z-files"):
+        read_zfile_archive(archive)
 
 
 def test_zfile_rotation_invariants():

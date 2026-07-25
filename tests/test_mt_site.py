@@ -174,7 +174,7 @@ def test_site3d_rejects_unsorted_or_duplicate_periods():
 
 def test_perturbed_no_variance_returns_self():
     """Site1d (and a Site3d without Z_var) has nothing to propagate, so
-    every ensemble realization must be identical (roadmap 1.2 phase 1)."""
+    every ensemble realization must be identical."""
     rng = np.random.default_rng(0)
     site1d = bezpy.mt.Site1d("hs", thicknesses=[1e9], resistivities=[100.0])
     assert site1d.perturbed(rng) is site1d
@@ -211,7 +211,7 @@ def test_perturbed_draws_within_reported_variance(site3d):
 
 def test_z_param_jacobian_matches_independent_finite_difference(site3d):
     """_z_param_jacobian must match a hand-rolled central difference through
-    calcZ directly (roadmap 1.2 phase 2) -- and must hold Z_var identical
+    calcZ directly -- and must hold Z_var identical
     between the two (Z_var None vs given selects different spline smoothing,
     see spline_interp; comparing across that mismatch is the wrong test)."""
     freqs = np.logspace(-4, -1, 20)
@@ -246,7 +246,7 @@ def test_z_sensitivities_empty_without_variance():
 
 
 def test_convolve_fft_return_var_matches_ensemble_in_linear_regime(rng):
-    """Analytic Ex_var/Ey_var (roadmap 1.2 phase 2) must agree with the
+    """Analytic Ex_var/Ey_var must agree with the
     Monte Carlo ensemble spread (phase 1) in the small-relative-variance
     regime where the production spline's nonlinearity is negligible --
     the two propagation methods derive from the same Z_var and should

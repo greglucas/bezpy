@@ -403,11 +403,11 @@ def test_telluric_response_rejects_nan_input():
 
 # ---------------------------------------------------------------------
 # Multi-input kernels: tau gains an obs axis via a SECS transfer matrix
-# (roadmap 2.1)
+# (constant observatory-to-site SECS transfer matrix)
 # ---------------------------------------------------------------------
 
 def test_telluric_multi_obs_identity_matches_single_input(site_grid, site_xys):
-    """Acceptance test from ROADMAP.md 2.1: one observatory (identity M)
+    """One observatory (identity M)
     must reproduce the classic single-input path to rounding error."""
     lines = make_lines()
     mag_x = RNG.standard_normal(1000)

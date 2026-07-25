@@ -4,7 +4,7 @@
 
 The first release of the rebuilt package: bezpy grows from a collection of
 per-paper utilities into a full B → E → V → I hazard-analysis pipeline with
-an evidence-driven validation story. See `VALIDATION.md` for the
+an evidence-driven validation story. See `docs/validation.md` for the
 method-comparison results behind the defaults.
 
 ### Result-changing fixes (read before reproducing published numbers)
@@ -38,7 +38,7 @@ method-comparison results behind the defaults.
   skill scores from earlier runs are unreliable; RMSE/MAE/correlation scores
   were always correct.
 - **`extrapolate` default changed `"zeros"` -> `"asymptotic"`** (not a bug --
-  a deferred default settled with evidence; see `VALIDATION.md` D6 and its
+  a deferred default settled with evidence; see `docs/validation.md` D6 and its
   "D6 real-storm confirmation"). `Site3d.calcZ`, `SiteCollection.convolve_fft`,
   `calc_geoelectric_field`, and `TelluricResponse` all switch: impedances are
   now continued past the measured period band with the physical half-space
@@ -61,21 +61,21 @@ method-comparison results behind the defaults.
   `storm_scan` for catalog windows. `scan(..., workers=)` parallelizes
   independent chunks across processes; results (and resumable checkpoints)
   are bit-identical to the sequential default.
-- Uncertainty propagation, phase 1 (roadmap 1.2): `calc_geoelectric_field(...,
+- Uncertainty propagation, phase 1: `calc_geoelectric_field(...,
   n_realizations=)` and `scan(..., n_realizations=)` redraw each site's `Z`
   within its reported `Z_var` (`Site3d.perturbed`) and rerun the chain per
   draw, adding a `realization` dimension (`scan` also gains `*_max_mean`/
   `*_max_std` convenience variables). `calc_geoelectric_field(...,
   perturb_b=True)` additionally propagates SECS prediction variance. See
-  `VALIDATION.md` "1.2 -- Uncertainty propagation, phase 1" for the
+  `docs/validation.md` "1.2 -- Uncertainty propagation, phase 1" for the
   calibration test and its documented mild, smoothing-spline-driven
   undercoverage.
-- Uncertainty propagation, phase 2 (roadmap 1.2): `calc_geoelectric_field(...,
+- Uncertainty propagation, phase 2: `calc_geoelectric_field(...,
   return_var=True)` / `SiteCollection.convolve_fft(..., return_var=True)`
   propagate `Z_var` analytically (`Site3d.z_sensitivities`, a numerical
   Jacobian of the production `calcZ` pipeline) instead of by Monte Carlo
   redraw, and `calc_voltages(..., return_var=True)` applies the exact
-  `var(V) = sum L_j^2 var(E_j)` step. **Read `VALIDATION.md` "1.2 --
+  `var(V) = sum L_j^2 var(E_j)` step. **Read `docs/validation.md` "1.2 --
   Uncertainty propagation, phase 2" before trusting the numbers**: its
   calibration test shows ~0.32-0.37 coverage@1σ against nominal 0.68 --
   substantially more *anti-conservative* (too narrow/overconfident) than
@@ -93,7 +93,7 @@ method-comparison results behind the defaults.
   `I` reducer group next to `E`/`V`. Ships the Horton et al. (2012) EPRI
   21-bus GIC test system as package data
   (`Network.epri21_benchmark()`) with its own cross-tool validation (see
-  `VALIDATION.md` 1.1).
+  `docs/validation.md` 1.1).
 - `bezpy.storms` — `find_storms` (index catalog) and `find_events`
   (threshold + runs declustering on any series).
 - `bezpy.stats.return_level` — GPD/POT with profile-likelihood or bootstrap
@@ -107,7 +107,7 @@ method-comparison results behind the defaults.
   telluric response functions (Kelbert & Lucas 2020), with netCDF round-trip
   and FFT-grid caching; `TransmissionLine.resampled` great-circle
   densification; `filter_bbox`/`filter_polygon` (no geopandas).
-- Multi-input telluric kernels (roadmap 2.1): `SECSInterpolator.transfer_matrix`
+- Multi-input telluric kernels: `SECSInterpolator.transfer_matrix`
   exposes the constant, frequency- and time-independent observatory-to-site B
   map that a `method="lstsq"` fit with a time-invariant uncertainty pattern
   reduces to (raises clearly for `method="kalman"` or a gappy/robust fit,
@@ -115,10 +115,9 @@ method-comparison results behind the defaults.
   secs=)`/`M=` folds it into tau, which gains an `obs` axis, so line voltages
   come from several observatories' B directly (`V(ω) = Σ_k [τ_x^k(ω) Bx^k(ω)
   + τ_y^k(ω) By^k(ω)]`); the single-input path and old single-input `.nc`
-  files are unaffected. See `ROADMAP.md` 2.1 for what's follow-on (the
-  Level-1 `secs+local-z` E-interpolation scheme and its D7 harness entry,
-  `pipeline` integration).
-- Operational/real-time mode (roadmap 2.2): `bezpy.pipeline.Nowcast` composes
+  files are unaffected. The Level-1 `secs+local-z` E-interpolation scheme and
+  full `pipeline` integration remain future extensions.
+- Operational/real-time mode: `bezpy.pipeline.Nowcast` composes
   `bezpy.mt.impulse.DTIR` (causal FIR) with `SECSInterpolator.transfer_matrix`
   into a stateful engine -- `update(new_b)` appends B to a bounded rolling
   buffer and returns only the newly causally-valid E (and V, via the static
@@ -128,12 +127,12 @@ method-comparison results behind the defaults.
   chunks or `method="kalman"`. `bezpy download`/`update`/`scan`/`nowcast`
   (`bezpy/cli.py`, `pyproject.toml [project.scripts]`) wrap the data,
   scan, and nowcast APIs for operational use without writing Python. See
-  `ROADMAP.md` 2.2 and `docs/tutorials/operational.md` for the measured
+  `docs/tutorials/operational.md` for the measured
   latency (~20h startup transient + `|nmin|`-sample steady-state lag for a
   representative band) and accuracy (DTIR reconstructs broadband/storm-like
   B to ~5% relative RMS vs the batch FFT path, but narrowband B far worse
   -- 10-50% -- even within an otherwise well-sampled period band) numbers;
-  `despike_obs=` is not supported here (deferred, see `ROADMAP.md`).
+  `despike_obs=` is not supported by `Nowcast`.
 - `bezpy.data` — observatory archive (USGS/NRCan/INTERMAGNET, provenance-
   and level-aware merge), activity indices (Kp/ap/Dst), EMTF XML archive with
   SPUD download, HIFLD transmission-line download, IAGA ingest.
@@ -158,9 +157,15 @@ method-comparison results behind the defaults.
 - `bezpy.plot` — map helpers (cartopy optional); `plot_hazard_map` accepts
   `vmin`/`vmax` (saturating log color limits) or a full `norm` override, and
   `relative_uncertainty=`/`uncertainty_limit=` to fade sites whose ensemble
-  spread (roadmap 1.2) exceeds a limit.
+  spread exceeds a limit.
 - Runnable example scripts (`scripts/mt_site_example.py`,
-  `scripts/japan_halloween.py`) replace the old Jupyter notebooks.
+  `scripts/japan_halloween.py`, `scripts/china_may2024.py`) replace the old
+  Jupyter notebooks and include an open, checksum-verified China MT dataset;
+  the documentation and scripts are included in the source distribution.
+- `bezpy.data.download_zenodo_file` downloads named research artifacts using
+  live record metadata and refuses to cache content that fails its repository
+  checksum; `bezpy.mt.read_zfile_archive` reads a ZIP of EMTF Z-files without
+  extracting it.
 - Documentation site (mkdocs-material) with tutorials; CI (lint, 3.10–3.14,
   oldest-pins job).
 
@@ -218,7 +223,7 @@ method-comparison results behind the defaults.
 
 - `bezpy.data` access without the optional dependencies now raises an
   ImportError with the install hint (previously `bezpy.data` was `None`).
-- Defaults that may change with more evidence (tracked in `VALIDATION.md`):
+- Defaults that may change with more evidence (tracked in `docs/validation.md`):
   SECS fitting stays `method="lstsq"`; band-edge handling is
   `extrapolate="asymptotic"`. The legacy hard band-stop remains available as
   `extrapolate="zeros"`.

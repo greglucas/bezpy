@@ -5,7 +5,7 @@ equality, an isolated ungrounded winding carrying no current, and the
 GSU-transformer cross-check against real PowerWorld-computed values) are
 cross-validated in the session that added this module against
 `lanl-ansi/PowerModelsGMD.jl`'s own EPRI-21 topology and verification data
--- see VALIDATION.md item 1.1 for the full derivation and the well-understood
+-- see docs/validation.md item 1.1 for the full derivation and the well-understood
 factor-of-3 (single-line-equivalent total vs NERC TPL-007's per-phase
 "effective GIC" reporting convention) that reconciles the two.
 """
@@ -101,7 +101,7 @@ def epri21():
 
 
 # Line-induced voltages (volts) for the EPRI-21 benchmark's own reference
-# field, in `epri21.branches` order (see VALIDATION.md item 1.1); a fixed
+# field, in `epri21.branches` order (see docs/validation.md item 1.1); a fixed
 # input vector shared by every test below that needs a driven solve.
 EPRI21_LINE_V = np.array(
     [
@@ -171,7 +171,7 @@ def test_epri21_matches_published_gsu_currents(epri21):
 
     That data reports GIC per phase; bezpy's Network solves the
     single-line-equivalent circuit (all three phases lumped), so the two
-    differ by a consistent, verified factor of 3 (see VALIDATION.md 1.1).
+    differ by a consistent, verified factor of 3 (see docs/validation.md 1.1).
     """
     node_v = epri21.solve(EPRI21_LINE_V)
     neutral = epri21.neutral_currents(node_v)

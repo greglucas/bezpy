@@ -9,14 +9,17 @@ periods ascending). Impedance values are taken from the files as-is -- both
 formats conventionally store practical units, (mV/km)/nT.
 """
 
-__all__ = ["read_zfile", "read_edi"]
+__all__ = ["read_zfile", "read_zfile_archive", "read_edi"]
 
+import io
+import pathlib
 import re
 import warnings
+import zipfile
 
 import numpy as np
 
-from .site import Site3d
+from .site import Site3d, SiteCollection
 
 
 class ZFile:
@@ -27,9 +30,12 @@ class ZFile:
     north using the recorded channel orientations.
     """
 
-    def __init__(self, filename):
-        with open(filename) as f:
-            self._parse(f)
+    def __init__(self, source):
+        if hasattr(source, "read"):
+            self._parse(source)
+        else:
+            with open(source) as f:
+                self._parse(f)
 
     def _parse(self, f):
         # skip header lines
@@ -350,6 +356,36 @@ def read_zfile(filename, angle=0.0):
     :return: Site3d with periods ascending and Z as (xx, xy, yx, yy)
     """
     return _to_site3d(ZFile(filename), angle)
+
+
+def read_zfile_archive(filename, angle=0.0):
+    """Read every EMTF Z-file in a ZIP archive without extracting it.
+
+    This covers repositories that distribute a survey as a ZIP of
+    ``.zss``, ``.zrr``, or ``.zmm`` transfer-function files. Other members
+    are ignored and the returned sites are sorted by archive member name.
+
+    :param filename: path to a ZIP archive
+    :param angle: rotate channels to this angle in degrees east of geographic
+        north (default 0: geographic)
+    :return: :class:`SiteCollection` containing all transfer functions
+    :raises ValueError: if the archive contains no supported Z-files
+    """
+    with zipfile.ZipFile(filename) as archive:
+        names = sorted(
+            info.filename
+            for info in archive.infolist()
+            if not info.is_dir()
+            and pathlib.PurePosixPath(info.filename).suffix.lower() in {".zss", ".zrr", ".zmm"}
+        )
+        if not names:
+            raise ValueError(f"No EMTF Z-files found in ZIP archive {filename}")
+        sites = []
+        for name in names:
+            with archive.open(name) as raw:
+                with io.TextIOWrapper(raw, encoding="utf-8") as text:
+                    sites.append(_to_site3d(ZFile(text), angle))
+    return SiteCollection(sites)
 
 
 def read_edi(filename, angle=0.0):

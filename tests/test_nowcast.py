@@ -1,4 +1,4 @@
-"""Tests for bezpy.pipeline.Nowcast (roadmap 2.2).
+"""Tests for bezpy.pipeline.Nowcast.
 
 Synthetic setup: Site1d half spaces (physical impedances valid at all
 frequencies, so the period band for DTIR can be chosen freely rather than
@@ -7,7 +7,7 @@ B -- many active frequencies at once, like a real storm. This matters: DTIR's
 regularized inversion reconstructs broadband B much better than narrowband
 B (a couple of dominant tones), even entirely within a period band that is
 otherwise well-sampled relative to dt (see the accuracy note in
-``Nowcast``'s docstring, and ``ROADMAP.md`` 2.2 for the measured numbers). A
+``Nowcast``'s docstring and the operational tutorial for measured numbers). A
 narrowband synthetic would understate error at unlucky frequencies and give
 a misleadingly optimistic picture -- these tests deliberately don't do that.
 """

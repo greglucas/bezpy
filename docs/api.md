@@ -12,6 +12,8 @@
 
 ::: bezpy.data.inventory
 
+::: bezpy.data.repositories
+
 ## Pipeline
 
 ::: bezpy.pipeline
