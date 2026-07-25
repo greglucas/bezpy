@@ -1,11 +1,29 @@
 """Helper functions"""
 
 __all__ = ["haversine_distance", "haversine_dl", "fast_interp_weights", "fast_interpolate",
-           "filter_bbox", "filter_polygon"]
+           "delaunay_weights", "filter_bbox", "filter_polygon"]
 
 import numpy as np
 import shapely
 from scipy.spatial import Delaunay
+
+
+def gnomonic_forward(lats, lons, lat0, lon0, what="points"):
+    """Forward gnomonic projection of (lats, lons) radians about (lat0, lon0).
+
+    Returns ``(x, y)`` plane coordinates. Only valid within 90 degrees of the
+    projection center; ``what`` names the offending point set in the error.
+    """
+    cos_c = np.sin(lat0) * np.sin(lats) + np.cos(lat0) * np.cos(lats) * np.cos(lons - lon0)
+    if np.any(cos_c <= 0.0):
+        raise ValueError(
+            f"gnomonic projection is invalid for {what} 90 degrees or more "
+            "from the site network's mean location; use use_gnomic=False or "
+            "split the domain"
+        )
+    x = (np.cos(lats) * np.sin(lons - lon0)) / cos_c
+    y = (np.cos(lat0) * np.sin(lats) - np.sin(lat0) * np.cos(lats) * np.cos(lons - lon0)) / cos_c
+    return x, y
 
 
 def filter_polygon(lines, polygon, predicate="intersects"):
@@ -110,3 +128,57 @@ def fast_interpolate(values, vtx, wts, fill_value=np.nan):
     ret = np.einsum('nj,nj->n', np.take(values, vtx), wts)
     ret[np.any(wts < 0, axis=1)] = fill_value
     return ret
+
+
+def delaunay_weights(source_latlons, target_latlons, use_gnomic=True):
+    """Barycentric weights interpolating from source points onto target points.
+
+    Both point sets go through **one** projection before triangulation --
+    projecting only one of them skews the weights (the pre-0.5.0
+    ``set_delaunay_weights`` bug), so this is the single place that
+    projection is done for every Delaunay interpolation in bezpy.
+
+    :param source_latlons: ``(nsources, 2)`` array of ``(latitude, longitude)``
+        in degrees -- the locations values are known at (e.g. MT sites)
+    :param target_latlons: ``(ntargets, 2)`` array of ``(latitude, longitude)``
+        in degrees -- the locations to interpolate onto
+    :param use_gnomic: project through a gnomonic projection centered on the
+        source network (default), which maps great circles to straight lines;
+        requires every point within 90 degrees of the network's mean location.
+        Otherwise longitudes are shrunk by ``cos(latitude)``.
+    :return: ``(vtx, wts)`` for :func:`fast_interpolate`. A target outside the
+        source convex hull has a negative weight, which ``fast_interpolate``
+        turns into ``fill_value``.
+    """
+    source = np.asarray(source_latlons, dtype=float)
+    target = np.asarray(target_latlons, dtype=float)
+    if source.ndim != 2 or source.shape[1] != 2 or len(source) < 3:
+        raise ValueError(
+            "source_latlons must have shape (nsources, 2) [latitude, longitude] "
+            "with at least 3 points for a Delaunay triangulation"
+        )
+    if target.ndim != 2 or target.shape[1] != 2 or len(target) == 0:
+        raise ValueError("target_latlons must have shape (ntargets, 2) [latitude, longitude]")
+    if not np.isfinite(source).all() or not np.isfinite(target).all():
+        raise ValueError("latitudes and longitudes must all be finite")
+
+    src = np.deg2rad(source)
+    tgt = np.deg2rad(target)
+    if use_gnomic:
+        lat0 = np.mean(src[:, 0])
+        lon0 = np.mean(src[:, 1])
+        src_xy = np.column_stack(
+            gnomonic_forward(src[:, 0], src[:, 1], lat0, lon0, what="source points")
+        )
+        tgt_xy = np.column_stack(
+            gnomonic_forward(tgt[:, 0], tgt[:, 1], lat0, lon0, what="target points")
+        )
+    else:
+        # (lon, lat) axis order, longitudes shrunk by cos(latitude) to adjust
+        # for the converging meridians near the poles.
+        src_xy = src[:, ::-1].copy()
+        tgt_xy = tgt[:, ::-1].copy()
+        src_xy[:, 0] *= np.abs(np.cos(src_xy[:, 1]))
+        tgt_xy[:, 0] *= np.abs(np.cos(tgt_xy[:, 1]))
+
+    return fast_interp_weights(src_xy, tgt_xy)

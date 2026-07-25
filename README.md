@@ -332,6 +332,46 @@ and reproduces the classic convolve-then-interpolate pipeline to rounding
 error. tau evaluated on the FFT grid is cached between equal-length chunks,
 so scanning a long record pays the construction cost once.
 
+## NERC TPL-007 compliance inputs (`bezpy.tpl007`)
+
+TPL-007 sets the field a GMD Vulnerability Assessment plans against as
+`E_peak = 8 x alpha x beta`, and lets a planner replace the tabulated 1-D
+physiographic `beta` with one computed from a "technically justified" Earth
+model. That is the one place in a mandatory compliance workflow where
+measured 3-D magnetotellurics changes the answer:
+
+```python
+from bezpy.tpl007 import alpha_factor, beta_factor, peak_geoelectric_field, tabulated_beta
+
+# NERC's reference geomagnetic field waveform (not redistributed here), nT
+mag_x, mag_y = np.loadtxt("benchmark_waveform.txt", unpack=True)
+
+betas = beta_factor(sites, mag_x, mag_y, dt=10)   # DataFrame, one row per site
+betas["tabulated"] = tabulated_beta("AP1")        # 0.33, what the table would say
+betas["E_peak"] = peak_geoelectric_field(alpha_factor(52.0), betas["beta"])
+```
+
+`beta` is computed as a ratio against the reference Quebec Earth model
+driven by the same waveform — which is exact by the definition of that
+waveform, and insensitive to any overall rescaling of it. The denominator is
+reported in every row, so a correct benchmark waveform shows up as
+`reference_peak_E == 8.0` and a wrong one raises a warning instead of being
+silently absorbed into `beta`.
+
+Geoelectric fields at substation locations, for handing to whatever tool
+holds the network model, use the same interpolation as the voltage kernels:
+
+```python
+e_sub = bezpy.calc_substation_fields(e, latlons, names=codes)
+e_sub["Ex"]              # (time, substation), mV/km
+e_sub["within_hull"]     # substations with no MT coverage are NaN, not guessed
+```
+
+See the [TPL-007 tutorial](https://github.com/greglucas/bezpy/blob/main/docs/tutorials/tpl007.md)
+and **[validation item 1.3](https://github.com/greglucas/bezpy/blob/main/docs/validation.md)**
+— which reproduces the standard's own Table 3 to ~0.1 in `beta` and is
+explicit about the residual bias that is not yet closed.
+
 ## Network GIC: line voltages to transformer amperes (`bezpy.tl.network`)
 
 Line voltages are the quantity most published hazard studies stop at; what

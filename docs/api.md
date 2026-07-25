@@ -32,6 +32,10 @@
 
 ::: bezpy.stats
 
+## NERC TPL-007 compliance (`bezpy.tpl007`)
+
+::: bezpy.tpl007
+
 ## Transmission lines (`bezpy.tl`)
 
 ::: bezpy.tl.transmissionline

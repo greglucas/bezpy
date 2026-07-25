@@ -51,6 +51,30 @@ method-comparison results behind the defaults.
 
 ### New
 
+- `bezpy.tpl007` — NERC TPL-007 compliance quantities from measured
+  conductivity: `beta_factor` (the Earth-conductivity scaling factor from a
+  3-D impedance, replacing the standard's tabulated 1-D physiographic
+  value), `alpha_factor` (eq. 3 or Table 2 — they disagree by up to 0.026),
+  `peak_geoelectric_field` (eq. 1/2), `tabulated_beta` (Table 3 lookup, for
+  comparison against the computed value), and the `QUEBEC_REFERENCE_MODEL`
+  the standard normalizes against. `beta` is computed as a ratio against
+  that reference model driven by the same waveform rather than a literal
+  `E / 8`, which is exact by the definition of the reference waveform,
+  insensitive to rescaling it, and turns a wrong waveform into a warning
+  instead of a silently wrong `beta`. NERC's reference waveform file is not
+  redistributed; the caller supplies it. Validated against the standard's
+  own Table 3 — see `docs/validation.md` item 1.3, **including the residual
+  bias that is not yet closed**.
+- `bezpy.calc_substation_fields` — interpolate the site geoelectric field
+  onto arbitrary point locations (substations), using the same gnomonic
+  Delaunay weights as the voltage kernels, so the two agree exactly.
+  Locations outside the MT network's convex hull return NaN and are flagged
+  in a `within_hull` coordinate rather than silently extrapolated.
+- `bezpy.tl.utils.delaunay_weights` — the projection-plus-triangulation step
+  shared by `TransmissionLine.set_delaunay_weights` and
+  `calc_substation_fields`, so there is one place that both point sets go
+  through the same gnomonic projection (the pre-0.5.0 bug was doing it to
+  only one of them).
 - `bezpy.mag.SECSInterpolator` — fit/predict SECS interpolation (pysecs 0.4:
   Kalman smoothing, robust fits, prediction variances), per-sample gap
   masking instead of interpolate-then-drop, `predict_grid`, `loo_score`.

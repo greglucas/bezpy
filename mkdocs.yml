@@ -54,6 +54,7 @@ nav:
       - Line voltages via kernels: tutorials/line-voltages.md
       - Gridded impedance and live maps: tutorials/gridded-impedance.md
       - Network GIC: tutorials/network-gic.md
+      - TPL-007 beta and substation fields: tutorials/tpl007.md
       - Operational mode: tutorials/operational.md
   - API reference: api.md
   - Validation results: validation.md

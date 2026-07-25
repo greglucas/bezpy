@@ -25,7 +25,14 @@ The single-window building blocks :func:`calc_geoelectric_field` and
 ``bezpy.calc_geoelectric_field`` / ``bezpy.calc_voltages``.
 """
 
-__all__ = ["calc_geoelectric_field", "calc_voltages", "scan", "storm_scan", "Nowcast"]
+__all__ = [
+    "calc_geoelectric_field",
+    "calc_substation_fields",
+    "calc_voltages",
+    "scan",
+    "storm_scan",
+    "Nowcast",
+]
 
 import concurrent.futures
 import hashlib
@@ -44,6 +51,7 @@ from .mt.impulse import DTIR
 from .mt.site import Site3d, SiteCollection
 from .tl.kernels import apply_voltage_matrix, voltage_matrix
 from .tl.network import apply_gic_matrix, gic_matrix
+from .tl.utils import delaunay_weights
 
 # Histogram sketch used for streaming quantiles: log-spaced finite bins with
 # ~1.5% resolution, plus an overflow bin. The overflow bin prevents extreme
@@ -514,6 +522,100 @@ def calc_voltages(lines, e, how="delaunay", return_var=False):
         V_var, dims=("time", "line"), coords=v_da.coords, attrs={"units": "V^2"}, name="voltage_var"
     )
     return v_da, v_var_da
+
+
+def calc_substation_fields(e, latlons, names=None, use_gnomic=True):
+    """Interpolate the site geoelectric field onto arbitrary point locations.
+
+    The MT sites where E is computed are wherever the surveys happened; the
+    points a transmission planner needs E at are their substations. This maps
+    one onto the other with the **same** gnomonic Delaunay interpolation the
+    voltage kernels use (:func:`bezpy.tl.utils.delaunay_weights`), so a
+    substation field and a line voltage from the same run are consistent.
+
+    Substations outside the convex hull of the MT network cannot be
+    interpolated, only extrapolated, so they are returned as NaN and flagged
+    in the ``within_hull`` coordinate rather than silently filled. Check it:
+
+    .. code-block:: python
+
+        e_sub = bezpy.calc_substation_fields(e, latlons, names=codes)
+        outside = e_sub["substation"][~e_sub["within_hull"]].values
+
+    :param e: ``Ex``/``Ey`` Dataset from :func:`calc_geoelectric_field`
+        (mV/km), carrying ``latitude``/``longitude`` along ``site``. Any
+        leading dimensions (e.g. ``realization``) are preserved.
+    :param latlons: ``(nsubstations, 2)`` array of ``(latitude, longitude)``
+        in degrees
+    :param names: optional labels for the substations (default: integer
+        index). Must be unique.
+    :param use_gnomic: passed to :func:`bezpy.tl.utils.delaunay_weights`
+    :return: Dataset with ``Ex``/``Ey`` in mV/km dimensioned
+        ``(..., time, substation)``, with ``latitude``/``longitude`` and
+        ``within_hull`` along ``substation``
+    """
+    xr = _require_xarray()
+    if not isinstance(e, xr.Dataset) or "Ex" not in e or "Ey" not in e:
+        raise ValueError("e must be an Ex/Ey Dataset from calc_geoelectric_field")
+
+    latlons = np.asarray(latlons, dtype=float)
+    if latlons.ndim != 2 or latlons.shape[1] != 2 or len(latlons) == 0:
+        raise ValueError("latlons must have shape (nsubstations, 2) [latitude, longitude]")
+    if not np.isfinite(latlons).all():
+        raise ValueError("substation latitudes and longitudes must all be finite")
+    if np.any(np.abs(latlons[:, 0]) > 90):
+        raise ValueError("substation latitudes must lie within [-90, 90] degrees")
+
+    if names is None:
+        names = np.arange(len(latlons))
+    else:
+        names = np.asarray(names)
+        if names.shape != (len(latlons),):
+            raise ValueError("names must have one label per substation")
+        if len(set(names.tolist())) != len(names):
+            raise ValueError("substation names must be unique")
+
+    site_latlons = np.column_stack([e["latitude"].values, e["longitude"].values])
+    vtx, wts = delaunay_weights(site_latlons, latlons, use_gnomic=use_gnomic)
+    within_hull = ~np.any(wts < 0, axis=1)
+    if not within_hull.any():
+        raise ValueError(
+            "no substation falls inside the convex hull of the MT sites; "
+            "the E field cannot be interpolated to any of them (check that "
+            "latlons is (latitude, longitude) and covers the same region)"
+        )
+
+    def _interp(values):
+        # values: (..., nsites) -> (..., nsubstations)
+        out = np.einsum("...nj,nj->...n", np.take(values, vtx, axis=-1), wts)
+        out[..., ~within_hull] = np.nan
+        return out
+
+    interpolated = {}
+    for component in ("Ex", "Ey"):
+        interpolated[component] = xr.apply_ufunc(
+            _interp,
+            e[component],
+            input_core_dims=[["site"]],
+            output_core_dims=[["substation"]],
+        ).assign_attrs(units="mV/km")
+
+    result = xr.Dataset(interpolated)
+    result = result.assign_coords(
+        substation=names,
+        latitude=("substation", latlons[:, 0]),
+        longitude=("substation", latlons[:, 1]),
+        within_hull=("substation", within_hull),
+    )
+    if not within_hull.all():
+        warnings.warn(
+            f"{(~within_hull).sum()} of {len(within_hull)} substations fall outside "
+            "the MT site convex hull; their fields are NaN (see the "
+            "within_hull coordinate)",
+            stacklevel=2,
+        )
+    # Put time first so the result reads like the (time, substation) inputs.
+    return result.transpose(..., "time", "substation")
 
 
 def _chunk_edges(times, chunk):

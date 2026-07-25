@@ -585,6 +585,69 @@ around it or split the window. Unit coverage:
 `test_mag_processing.py::test_despike_*`,
 `test_pipeline.py::test_despike_obs_recovers_field_from_spiked_observatory`.
 
+## 1.3 — TPL-007 beta factors (`bezpy.tpl007.beta_factor`)
+
+`beta_factor` computes the NERC TPL-007 Earth-conductivity scaling factor
+from an impedance, so a utility can replace the standard's tabulated 1-D
+physiographic `beta` with one derived from measured 3-D magnetotellurics.
+Because the number feeds a mandatory compliance filing, it needs an oracle.
+
+**The oracle.** TPL-007-4 Attachment 1 Table 3 publishes `beta` for 28 named
+1-D Earth models, and bezpy already ships 22 of them
+(`bezpy.mt.get_1d_site`). Driving those profiles through the real
+`beta_factor` path and comparing against the published column exercises the
+whole chain — layered-Earth impedance, FFT convolution, peak, normalization
+— against numbers bezpy had no hand in producing.
+
+**The gap.** `beta` is defined against the reference geomagnetic field
+waveform NERC distributes with the standard (the March 13–14 1989 Ottawa
+record scaled to 60° geomagnetic latitude). bezpy does not redistribute that
+file, so the comparison below substitutes a synthetic band-limited storm.
+The standard itself warns the factors "are dependent upon the frequency
+content of the reference storm", so exact agreement is not available this
+way — **this item is not closed.**
+
+**Measured.** 22 models, synthetic driver band-limited to 100–10,000 s:
+
+| | Spearman | median abs. error | median bias |
+| --- | --- | --- | --- |
+| test fixture (n = 16,384, seed 1989) | 0.918 | 0.116 | −0.11 |
+| longer series (n = 32,768, 8 seeds) | 0.973 | 0.058 | −0.054 |
+
+Individual models land close — PT1 1.18 vs 1.17, FL1 0.77 vs 0.76, BR1 0.23
+vs 0.22, CO1 0.26 vs 0.27 — but the errors are **not** centered: 18 of 22
+computed values fall below the published ones.
+
+**What the bias is.** Not spectral tilt: sweeping the driver's spectral
+exponent over 0.5–2.5 leaves the bias at −0.05 to −0.12. It is *which
+periods set the peak*. Evaluating the single-frequency ratio
+`|Z_model(f)| / |Z_quebec(f)|` — the value `beta` must take if one period
+dominates — pins Table 3 to the **600–1,200 s** band for every model checked:
+
+| period | BOU | PB1 | IP1 | IP4 | CP2 | PT1 | FL1 | AP1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 60 s | 0.07 | 0.27 | 0.70 | 0.12 | 1.39 | 1.15 | 0.73 | 0.26 |
+| 600 s | 0.22 | 0.56 | 0.95 | 0.34 | 0.81 | 1.26 | 0.70 | 0.29 |
+| 1200 s | 0.32 | 0.67 | 0.96 | 0.47 | 0.67 | 1.16 | 0.75 | 0.33 |
+| 12000 s | 0.71 | 1.11 | 1.17 | 1.04 | 0.54 | 1.22 | 1.04 | 0.47 |
+| **Table 3** | **0.28** | **0.62** | **0.94** | **0.41** | **0.95** | **1.17** | **0.76** | **0.33** |
+
+That is a physically sensible place for a storm's peak geoelectric field to
+live (the substorm timescale), and it says the residual bias is a property
+of the synthetic driver's peak statistics, not of the implementation. It is
+consistent with, but does not prove, a correct implementation.
+
+**Reading this for a compliance filing.** A systematic −0.05 in `beta` is
+roughly 5–15% of a typical value, which is material. Do not treat the
+tabulated-vs-computed difference as validated at better than ~0.1 in `beta`
+until this is rerun with NERC's actual reference waveform — at which point
+the residual bias should vanish, and if it does not, the implementation is
+wrong. `beta_factor` warns whenever the supplied waveform does not reproduce
+the reference model's defining 8 V/km, which is the check that closes this.
+
+Unit coverage: `tests/test_tpl007.py` (the table comparison asserts ordering
+and a ≤0.15 median absolute error, i.e. the part that is established).
+
 ## Still to add
 
 - ~~Reference-storm comparison on real data (May 2024 or Halloween 2003)
@@ -617,3 +680,8 @@ around it or split the window. Unit coverage:
   correlated SECS-error model (matching real prediction-error persistence)
   would be a more honest B-uncertainty term if it turns out to matter next
   to the impedance term.
+- **1.3 is open**: rerun the Table 3 comparison with NERC's reference
+  geomagnetic field waveform (distributed on the TPL-007 Related Information
+  page) instead of a synthetic driver. That is the only way to close the
+  residual −0.05 bias, and it is a prerequisite for using `beta_factor`
+  output in a filing.

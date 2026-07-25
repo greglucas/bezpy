@@ -11,7 +11,7 @@ __all__ = ["TransmissionLine"]
 import numpy as np
 import shapely
 
-from .utils import fast_interp_weights, haversine_distance, haversine_dl
+from .utils import delaunay_weights, haversine_distance, haversine_dl
 
 
 def _lonlat_to_unit_vectors(lonlat_deg):
@@ -25,24 +25,6 @@ def _unit_vectors_to_lonlat(vec):
     lons = np.arctan2(vec[:, 1], vec[:, 0])
     lats = np.arctan2(vec[:, 2], np.hypot(vec[:, 0], vec[:, 1]))
     return np.rad2deg(np.column_stack([lons, lats]))
-
-
-def _gnomonic_forward(lats, lons, lat0, lon0, what="points"):
-    """Forward gnomonic projection of (lats, lons) radians about (lat0, lon0).
-
-    Returns ``(x, y)`` plane coordinates. Only valid within 90 degrees of the
-    projection center; ``what`` names the offending point set in the error.
-    """
-    cos_c = np.sin(lat0) * np.sin(lats) + np.cos(lat0) * np.cos(lats) * np.cos(lons - lon0)
-    if np.any(cos_c <= 0.0):
-        raise ValueError(
-            f"gnomonic projection is invalid for {what} 90 degrees or more "
-            "from the site network's mean location; use use_gnomic=False or "
-            "split the domain"
-        )
-    x = (np.cos(lats) * np.sin(lons - lon0)) / cos_c
-    y = (np.cos(lat0) * np.sin(lats) - np.sin(lat0) * np.cos(lats) * np.cos(lons - lon0)) / cos_c
-    return x, y
 
 
 def _coords_of(line):
@@ -223,31 +205,11 @@ class TransmissionLine:
         site_xys = _validate_site_xys(site_xys)
         if len(site_xys) < 3:
             raise ValueError("Delaunay interpolation requires at least 3 sites")
-        xys = np.deg2rad(site_xys)  # (lat, lon)
-        pts = np.deg2rad(self.pts)  # (lon, lat)
-        if use_gnomic:
-            # Project both point sets through one gnomonic projection centered
-            # on the site network, so great circles map to straight lines. The
-            # sites and the line points MUST go through the same projection --
-            # projecting only one of them skews the Delaunay weights (the
-            # pre-0.5.0 bug).
-            lon0 = np.mean(xys[:, 1])
-            lat0 = np.mean(xys[:, 0])
-            xys[:, 0], xys[:, 1] = _gnomonic_forward(
-                xys[:, 0], xys[:, 1], lat0, lon0, what="site points"
-            )
-            pts[:, 0], pts[:, 1] = _gnomonic_forward(
-                pts[:, 1], pts[:, 0], lat0, lon0, what="line points"
-            )
-        else:
-            # site_xys is (lat, lon) but self.pts is (lon, lat); put both in
-            # (lon, lat) axis order, then shrink longitudes by cos(latitude)
-            # to adjust for the distances near the poles.
-            xys = xys[:, ::-1].copy()
-            xys[:, 0] = xys[:, 0] * np.abs(np.cos(xys[:, 1]))
-            pts[:, 0] = pts[:, 0] * np.abs(np.cos(pts[:, 1]))
-
-        self.delaunay_vtx, self.delaunay_wts = fast_interp_weights(xys, pts)
+        # self.pts is (lon, lat); delaunay_weights takes (lat, lon) for both
+        # point sets and puts them through one shared projection.
+        self.delaunay_vtx, self.delaunay_wts = delaunay_weights(
+            site_xys, self.pts[:, ::-1], use_gnomic=use_gnomic
+        )
 
     def calc_voltages(self, E, how=None):
         """Calculates the voltages across this power line, given E(t).

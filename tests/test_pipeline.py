@@ -620,3 +620,99 @@ def test_filter_bbox_and_polygon():
     assert len(inside) == 2
     poly = shapely.geometry.box(-91, 29, -88, 32)
     assert filter_polygon(lines, poly) == [lines[-1]]
+
+
+# ------------------------------------------------- calc_substation_fields
+
+
+def test_calc_substation_fields_at_a_site_returns_that_site(setup):
+    """A substation placed exactly on an MT site must reproduce that site's
+    field -- barycentric weights at a vertex are (1, 0, 0)."""
+    b_obs, sites, _ = setup
+    e = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h")
+    target = 5
+    latlons = np.array([[sites[target].latitude, sites[target].longitude]])
+    sub = bezpy.calc_substation_fields(e, latlons, names=["SUB_A"])
+
+    assert sub["Ex"].dims == ("time", "substation")
+    assert bool(sub["within_hull"].values[0])
+    np.testing.assert_allclose(
+        sub["Ex"].values[:, 0], e["Ex"].values[:, target], rtol=1e-9, atol=1e-9
+    )
+    np.testing.assert_allclose(
+        sub["Ey"].values[:, 0], e["Ey"].values[:, target], rtol=1e-9, atol=1e-9
+    )
+
+
+def test_calc_substation_fields_midpoint_is_bounded_by_its_neighbours(setup):
+    """An interpolated point is a convex combination of the surrounding
+    sites, so it cannot exceed their range at any time step."""
+    b_obs, sites, _ = setup
+    e = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h")
+    lat = 0.5 * (sites[0].latitude + sites[-1].latitude)
+    lon = 0.5 * (sites[0].longitude + sites[-1].longitude)
+    sub = bezpy.calc_substation_fields(e, np.array([[lat, lon]]))
+    interpolated = sub["Ex"].values[:, 0]
+    assert interpolated.min() >= e["Ex"].values.min() - 1e-9
+    assert interpolated.max() <= e["Ex"].values.max() + 1e-9
+
+
+def test_calc_substation_fields_flags_points_outside_the_hull(setup):
+    """Extrapolation is refused, loudly and per-substation -- a silently
+    filled value here would propagate into a compliance number."""
+    b_obs, sites, _ = setup
+    e = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h")
+    latlons = np.array([[40.0, -103.0], [10.0, -103.0]])  # second is far south
+    with pytest.warns(UserWarning, match="outside the MT site convex hull"):
+        sub = bezpy.calc_substation_fields(e, latlons, names=["IN", "OUT"])
+    assert sub["within_hull"].values.tolist() == [True, False]
+    assert not np.isnan(sub["Ex"].values[:, 0]).any()
+    assert np.isnan(sub["Ex"].values[:, 1]).all()
+
+    with pytest.raises(ValueError, match="convex hull"):
+        bezpy.calc_substation_fields(e, np.array([[10.0, -103.0], [-20.0, -103.0]]))
+
+
+def test_calc_substation_fields_agrees_with_the_voltage_kernel(setup):
+    """The substation path and the line-voltage path share one interpolation.
+
+    Evaluating the substation field at every point along a line and doing the
+    quadrature by hand must reproduce ``calc_voltages`` exactly -- not
+    approximately -- because both reduce to the same per-point Delaunay
+    weights against the same segment vectors. A drifting projection or an
+    off-by-one in the segment/point pairing would break this identity while
+    leaving each path looking individually reasonable.
+    """
+    b_obs, sites, _ = setup
+    e = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h")
+    site_xys = np.array([[s.latitude, s.longitude] for s in sites])
+
+    line = TransmissionLine(shapely.geometry.LineString([(-104.0, 39.0), (-101.0, 42.0)]))
+    line.set_delaunay_weights(site_xys)
+    V = bezpy.calc_voltages([line], e).values[:, 0]
+
+    # voltage_functional pairs segment i's dl with point i's weights, so
+    # evaluate E at every point but the last.
+    sub = bezpy.calc_substation_fields(e, line.pts[:-1, ::-1])
+    E = np.stack([sub["Ex"].values, sub["Ey"].values], axis=-1)  # (time, npts, 2)
+    expected = np.einsum("tpc,pc->t", E, line.dl) / 1000.0
+    np.testing.assert_allclose(V, expected, rtol=1e-10, atol=1e-14)
+
+
+def test_calc_substation_fields_validation(setup):
+    b_obs, sites, _ = setup
+    e = bezpy.calc_geoelectric_field(b_obs, sites, pad="1h")
+    with pytest.raises(ValueError, match="nsubstations, 2"):
+        bezpy.calc_substation_fields(e, np.array([40.0, -103.0]))
+    with pytest.raises(ValueError, match="finite"):
+        bezpy.calc_substation_fields(e, np.array([[np.nan, -103.0]]))
+    with pytest.raises(ValueError, match="-90, 90"):
+        bezpy.calc_substation_fields(e, np.array([[100.0, -103.0]]))
+    with pytest.raises(ValueError, match="one label per substation"):
+        bezpy.calc_substation_fields(e, np.array([[40.0, -103.0]]), names=["A", "B"])
+    with pytest.raises(ValueError, match="unique"):
+        bezpy.calc_substation_fields(
+            e, np.array([[40.0, -103.0], [41.0, -103.0]]), names=["A", "A"]
+        )
+    with pytest.raises(ValueError, match="Ex/Ey Dataset"):
+        bezpy.calc_substation_fields(e["Ex"], np.array([[40.0, -103.0]]))
