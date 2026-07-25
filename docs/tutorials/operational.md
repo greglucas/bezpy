@@ -39,14 +39,20 @@ if result.sizes["time"]:
 A real poll loop:
 
 ```python
-last_end = None
+last_input_time = None
 while True:
     bezpy.data.update_observatory("BOU")
-    b_obs = bezpy.data.load_observatory_group(["BOU", "FRD", "TUC"], start=last_end)
+    b_obs = bezpy.data.load_observatory_group(
+        ["BOU", "FRD", "TUC"], start=last_input_time
+    )
+    if last_input_time is not None:
+        # Archive intervals are inclusive; Nowcast must receive each sample once.
+        b_obs = b_obs.isel(time=b_obs.time > last_input_time)
     if b_obs.sizes["time"]:
         result = nowcast.update(b_obs)
+        # Track consumed input even during the start-up period with no output.
+        last_input_time = b_obs.time.values[-1]
         if result.sizes["time"]:
-            last_end = result["time"].values[-1]
             save(result)
     time.sleep(60)
 ```
@@ -102,5 +108,12 @@ bezpy nowcast --obs BOU FRD TUC --bbox -110 35 -100 45 \
 Appends newly-finalized rows to a wide CSV (`time, <site>_Ex, <site>_Ey, ...`)
 every poll; `--once` runs a single poll/update/write cycle and exits, for
 cron/systemd-timer-driven operation instead of a long-running process.
+On startup the command loads the latest three days of archived input so the
+DTIR can warm up without reading an entire multi-year archive; change this
+with `--startup-window` when the selected impedance band needs a longer
+warmup. Inclusive archive boundaries are removed before each update, so a
+sample is never applied twice. On process restart the startup interval is
+replayed to rebuild in-memory DTIR state, but rows at or before the last
+timestamp already in the output CSV are not appended again.
 Streaming to a live dashboard is out of scope for this CLI — it is a
 reference/cron-friendly sink, not a production integration.

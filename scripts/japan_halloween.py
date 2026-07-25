@@ -18,6 +18,7 @@ it to ``bezpy.pipeline.scan`` to turn that long record into hazard statistics.
 """
 
 import argparse
+import pathlib
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
@@ -31,29 +32,43 @@ START, END = "2003-10-28", "2003-10-31"
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--source", default="wdc", choices=("wdc", "intermagnet"),
-                   help="magnetic-field source (default: wdc)")
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "--source",
+        default="wdc",
+        choices=("wdc", "intermagnet"),
+        help="magnetic-field source (default: wdc)",
+    )
     p.add_argument("--outdir", default=".", help="where the figure is written")
     return p.parse_args()
 
 
 def load_field(code, source):
-    """Download and load a gap-free, detrended (Bx, By) for the storm window."""
-    bezpy.data.download_observatory(code, START, END, source=source,
-                                    level="definitive", sampling_period=60)
-    df = bezpy.data.load_observatory(code, source=source, start=START, end=END,
-                                     as_dataframe=True)
-    df = df[["X", "Y"]].interpolate(limit_direction="both")
+    """Download and load a gap-free, detrended (Bx, By) storm window."""
+    bezpy.data.download_observatory(
+        code, START, END, source=source, level="definitive", sampling_period=60
+    )
+    df = bezpy.data.load_observatory(code, source=source, start=START, end=END, as_dataframe=True)
+    df = df[["X", "Y"]]
+    missing = int(df.isna().any(axis=1).sum())
+    if missing:
+        raise RuntimeError(
+            f"{code} contains {missing} missing magnetic samples in the storm "
+            "window; choose another quality level/source instead of filling "
+            "measurements silently"
+        )
     t = np.arange(len(df))
-    for col in ("X", "Y"):                     # remove the baseline (linear fit)
+    for col in ("X", "Y"):  # remove the baseline (linear fit)
         df[col] -= np.polyval(np.polyfit(t, df[col], 1), t)
     return df
 
 
 def main():
     args = parse_args()
+    outdir = pathlib.Path(args.outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
     # Collocated MT tensors (the JMA survey: KAK, MMB, KNY). Downloaded once,
     # then cached; the first call also fetches the SPUD index.
     bezpy.data.download_mt_search(survey="JMA", verbose=True)
@@ -75,7 +90,7 @@ def main():
 
     axes[-1].xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
     fig.tight_layout()
-    out = f"{args.outdir}/japan_halloween_2003.png"
+    out = outdir / "japan_halloween_2003.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     print(f"Figure written to {out}")
 
@@ -83,8 +98,9 @@ def main():
 def _merge_legends(ax_left, ax_right):
     handles = ax_left.get_legend_handles_labels()
     extra = ax_right.get_legend_handles_labels()
-    ax_left.legend(handles[0] + extra[0], handles[1] + extra[1],
-                   loc="upper right", ncol=4, fontsize=8)
+    ax_left.legend(
+        handles[0] + extra[0], handles[1] + extra[1], loc="upper right", ncol=4, fontsize=8
+    )
 
 
 if __name__ == "__main__":

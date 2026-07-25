@@ -1,5 +1,17 @@
 # API reference
 
+## Data acquisition and archives (`bezpy.data`)
+
+::: bezpy.data.magnetic
+
+::: bezpy.data.mt
+
+::: bezpy.data.tl
+
+::: bezpy.data.indices
+
+::: bezpy.data.inventory
+
 ## Pipeline
 
 ::: bezpy.pipeline
@@ -37,6 +49,10 @@
 ::: bezpy.mt.io
 
 ::: bezpy.mt.legacy
+
+::: bezpy.mt.modem
+
+::: bezpy.mt.screen
 
 ## Validation
 

@@ -18,14 +18,21 @@ multiple different ways.
 
 ## Examples
 
-Worked, end-to-end tutorials live in the documentation ([docs/](./docs/) — a
+Worked, end-to-end tutorials live in the
+[documentation](https://github.com/greglucas/bezpy/tree/main/docs) — a
 storm B→E map, storm catalogs, a continuous scan to a hazard map, line
 voltages via kernels, and gridded impedance / live maps). The sections below
 give a quick tour of each stage.
 
-[scripts/](./scripts/) holds runnable command-line examples, including
+[scripts/](https://github.com/greglucas/bezpy/tree/main/scripts) holds runnable
+command-line examples, including
 `mt_site_example.py` (inspect an MT site and turn B into E three ways) and
 `japan_halloween.py` (the Halloween 2003 storm at the Japanese observatories).
+For publication work, start with the
+[reproducibility guide](https://github.com/greglucas/bezpy/blob/main/docs/reproducibility.md),
+which maps papers to
+current APIs, lists historical compatibility settings, and distinguishes
+method reproduction from exact computational reproduction.
 
 ## Install
 
@@ -56,6 +63,11 @@ git clone https://github.com/greglucas/bezpy
 cd bezpy
 pip install -e ".[test]"
 ```
+
+See the
+[contributor guide](https://github.com/greglucas/bezpy/blob/main/CONTRIBUTING.md)
+for validation and documentation
+expectations, especially for changes that affect scientific results.
 
 ## Downloading and storing data (`bezpy.data`)
 
@@ -377,7 +389,7 @@ https://doi.org/10.1029/2019SW002329
 Love, J. J., Lucas, G. M., Kelbert, A., & Bedrosian, P. A. (2018).
 Geoelectric hazard maps for the Mid‐Atlantic United States:
 100 year extreme values and the 1989 magnetic storm.
-Geophysical Research Letters, 44, doi:10.1002/2017GL076042.
+Geophysical Research Letters, 45(1), 5–14, doi:10.1002/2017GL076042.
 ```
 
 ### Transmission line integrations
@@ -388,7 +400,7 @@ Geophysical Research Letters, 44, doi:10.1002/2017GL076042.
 Lucas, G. M., Love, J. J., & Kelbert, A. (2018). Calculation of voltages
 in electric power transmission lines during historic geomagnetic storms:
 An investigation using realistic earth impedances. Space Weather, 16,
-181–195, doi:10.1002/2017SW001779.
+185–195, doi:10.1002/2017SW001779.
 ```
 
 ### Time domain (DTIR)

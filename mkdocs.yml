@@ -45,6 +45,7 @@ plugins:
 nav:
   - Home: index.md
   - Units and conventions: conventions.md
+  - Reproducing publications: reproducibility.md
   - Tutorials:
       - One storm, B to E: tutorials/storm-to-e.md
       - Storm catalogs and case studies: tutorials/storm-catalog.md

@@ -62,14 +62,17 @@ secs = ["pysecs>=0.4"]
 # Everything needed to run the example command-line scripts in scripts/
 scripts = ["matplotlib>=3.5", "bezpy[data]"]
 # Documentation site (mkdocs-material + API reference from docstrings)
-docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.24"]
+docs = ["mkdocs>=1.5,<2", "mkdocs-material>=9.5", "mkdocstrings[python]>=0.24"]
 # Test and lint tooling (pulls in the optional stacks so their tests run;
 # cartopy stays out -- its tests skip when it is absent)
 test = ["pytest>=7.0", "pytest-cov", "ruff",
         "bezpy[data]", "bezpy[secs]", "bezpy[plotting]"]
 
 [project.urls]
-homepage = 'https://github.com/greglucas/bezpy'
+Homepage = "https://github.com/greglucas/bezpy"
+Repository = "https://github.com/greglucas/bezpy"
+Issues = "https://github.com/greglucas/bezpy/issues"
+Changelog = "https://github.com/greglucas/bezpy/blob/main/CHANGELOG.md"
 
 [tool.setuptools.dynamic]
 version = {attr = "bezpy.__version__"}

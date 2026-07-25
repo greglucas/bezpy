@@ -18,8 +18,8 @@ for code in ["BOU", "FRD", "TUC", "NEW", "FRN"]:
 b_obs = bezpy.data.load_observatory_group(["BOU", "FRD", "TUC", "NEW", "FRN"],
                                           "2024-05-08", "2024-05-14")
 
-# MT sites over the region of interest (EarthScope EMTF transfer functions,
-# downloaded previously with bezpy.data.download_mt_spud / download_mt)
+# Search and download the region's EarthScope EMTF transfer functions.
+bezpy.data.download_mt_search(bbox=(-110, 35, -100, 45), min_rating=3)
 sites = bezpy.data.load_mt_sites(bbox=(-110, 35, -100, 45), min_rating=3)
 ```
 
