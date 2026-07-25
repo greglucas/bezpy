@@ -417,8 +417,9 @@ to hit a target residual near `len(periods)`) rather than interpolating
 through every point -- the same production code path every real analysis
 uses. That smoothing damps noise in both the measured-Z spline and the
 ensemble redraws, but not symmetrically against a noise-free truth spline,
-so the propagated spread comes out mildly conservative (narrow) relative to
-the true error. This is an honest property of Phase 1, not a bug: it is
+so the propagated spread comes out mildly **anti-conservative** (too narrow,
+with undercoverage) relative to the true error. This is an honest property
+of Phase 1, not a bug: it is
 exactly why the roadmap scopes exact analytic propagation through the
 linear chain as a separate **Phase 2** rather than declaring Phase 1's
 ensemble numbers exact. `tests/test_validation.py::
@@ -426,7 +427,7 @@ test_ensemble_calibration_covers_truth_near_nominal_rate` enforces the
 bound (0.45-0.80) -- tight enough to catch a broken propagation (no
 perturbation happening reads as ~0%; a units/scale error, e.g. dropping the
 `/2` split, would read as a large, easily distinguished excursion), loose
-enough not to chase Phase 1's known mild conservatism as if it were a
+enough not to chase Phase 1's known mild undercoverage as if it were a
 regression.
 
 **Coverage.** `tests/test_mt_site.py::test_perturbed_*` (the noise model
@@ -466,7 +467,7 @@ to ~3-25% (ratio 0.75-1.03 across configurations tried, correlation
 (also checked directly against an independent hand-rolled finite
 difference, `test_z_param_jacobian_matches_independent_finite_difference`).
 
-**Calibration against real ground truth: substantially conservative.**
+**Calibration against real ground truth: substantially anti-conservative.**
 `bezpy.validation.score_analytic_calibration` runs the *same* truth-vs-
 measured scenario as phase 1's `score_ensemble_calibration` (shared code,
 `_calibration_scenario`), using `Ex_var` directly as the +-1 std band
@@ -512,7 +513,7 @@ calibrated band -- true uncertainty is likely several times larger.
 Improving this (e.g. averaging Jacobians over a few resampled knot
 configurations, closing some of the gap with phase 1 while staying
 cheaper than a full ensemble) is future work, not yet attempted.
-`tests/test_validation.py::test_analytic_calibration_is_conservative_but_not_broken`
+`tests/test_validation.py::test_analytic_calibration_is_undercovering_but_not_broken`
 enforces the *observed* range (0.20-0.55) rather than the nominal rate --
 loose enough not to flag the documented gap as a regression, tight enough
 to catch propagation breaking entirely (near 0%) or becoming wildly
@@ -525,7 +526,7 @@ test_z_param_jacobian_matches_independent_finite_difference`,
 `test_convolve_fft_return_var_zero_without_variance`;
 `tests/test_pipeline.py::test_calc_geoelectric_field_return_var`,
 `test_calc_voltages_return_var`;
-`tests/test_validation.py::test_analytic_calibration_is_conservative_but_not_broken`.
+`tests/test_validation.py::test_analytic_calibration_is_undercovering_but_not_broken`.
 
 ## D1 / D2 / D4 / D5 — covered by comparison tests
 
@@ -601,8 +602,9 @@ around it or split the window. Unit coverage:
 - ~~Roadmap 1.2 phase 2 (analytic variance propagation through the linear
   E/V chain)~~ -- done 2026-07-19 (`calc_geoelectric_field(...,
   return_var=True)`, `calc_voltages(..., return_var=True)`), but did NOT
-  remove phase 1's conservatism as hoped -- it is substantially *more*
-  conservative than the ensemble (~0.32-0.37 vs ~0.60-0.65 coverage@1σ),
+  remove phase 1's undercoverage as hoped -- it is substantially more
+  anti-conservative than the ensemble (~0.32-0.37 vs ~0.60-0.65
+  coverage@1σ),
   see "1.2 -- Uncertainty propagation, phase 2" above. Improving the
   analytic method (e.g. Jacobians averaged over a few resampled knot
   configurations) is still open.

@@ -494,8 +494,8 @@ class Site3d(Site):
         symbolic derivative fragile to depend on, and the numerical Jacobian
         captures whatever that smoothing actually does (including its
         noise-damping effect -- see ``VALIDATION.md`` 1.2 for why the
-        propagated variance runs a bit conservative as a result, matching
-        phase 1's ensemble finding).
+        propagated variance produces an under-covering interval as a result,
+        matching phase 1's ensemble finding).
 
         :param eps_scale: finite-difference step as a fraction of each
             measurement's own reported standard deviation (default 1%);
