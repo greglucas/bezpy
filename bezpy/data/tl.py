@@ -34,7 +34,7 @@ __all__ = [
 
 import json
 import pathlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ._cache import _atomic_write_text, get_cache_dir
 from ._http import http_get
@@ -190,7 +190,7 @@ def download_transmission_lines(
                 "service_url": url,
                 "where": where_clause,
                 "bbox": bbox,
-                "retrieved_utc": datetime.now(timezone.utc).isoformat(),
+                "retrieved_utc": datetime.now(UTC).isoformat(),
             },
         }
         _atomic_write_text(_tl_path(name), json.dumps(collection))
@@ -229,7 +229,7 @@ def download_transmission_lines(
             "service_url": url,
             "where": where_clause,
             "bbox": bbox,
-            "retrieved_utc": datetime.now(timezone.utc).isoformat(),
+            "retrieved_utc": datetime.now(UTC).isoformat(),
         },
     }
     path = _tl_path(name)

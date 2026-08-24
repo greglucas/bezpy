@@ -7,6 +7,12 @@ per-paper utilities into a full B → E → V → I hazard-analysis pipeline wit
 an evidence-driven validation story. See `docs/validation.md` for the
 method-comparison results behind the defaults.
 
+### Requirements
+
+- **Python 3.12 or newer** is now required (was 3.10). Dependency floors move
+  with it to the earliest releases shipping CPython 3.12 wheels: numpy 1.26,
+  pandas 2.1.1, scipy 1.11.2, shapely 2.0.2.
+
 ### Result-changing fixes (read before reproducing published numbers)
 
 - **Delaunay interpolation weights**: the gnomonic projection was applied to

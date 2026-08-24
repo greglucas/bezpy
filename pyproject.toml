@@ -12,7 +12,7 @@ authors = [
 ]
 description = "Geomagnetic field (B), Geoelectric field (E), and Magnetotelluric Impedance (Z) Python routines."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 keywords = ["geomagnetic", "geoelectric", "GIC", "hazard analysis"]
 license = "MIT"
 license-files = ["LICENSE"]
@@ -26,8 +26,6 @@ classifiers = [
     'Operating System :: POSIX :: Linux',
     'Programming Language :: Python',
     'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 3.10',
-    'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: 3.12',
     'Programming Language :: Python :: 3.13',
     'Programming Language :: Python :: 3.14',
@@ -37,10 +35,11 @@ classifiers = [
     'Topic :: Scientific/Engineering :: Visualization',
 ]
 dependencies = [
-    "numpy>=1.23",
-    "pandas>=1.5",
-    "scipy>=1.9",
-    "shapely>=2.0",
+    # Floors are the earliest releases shipping CPython 3.12 wheels.
+    "numpy>=1.26",
+    "pandas>=2.1.1",
+    "scipy>=1.11.2",
+    "shapely>=2.0.2",
 ]
 dynamic = ["version"]
 
@@ -89,7 +88,7 @@ addopts = "-ra"
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 # pycodestyle, pyflakes, isort, pyupgrade, numpy-specific rules

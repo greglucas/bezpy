@@ -42,7 +42,7 @@ future regional comparisons.
 
 ## Install
 
-bezpy requires Python 3.10+ and the core scientific stack
+bezpy requires Python 3.12+ and the core scientific stack
 (NumPy, pandas, SciPy, Shapely). The easiest method to install bezpy is
 directly from PyPI using pip.
 
@@ -413,7 +413,7 @@ pip install -e ".[docs,data,secs]"
 mkdocs serve    # live-reload preview at http://127.0.0.1:8000
 ```
 
-Continuous integration runs the tests across Python 3.10–3.14 (and against the
+Continuous integration runs the tests across Python 3.12–3.14 (and against the
 oldest supported dependency versions) on every push and pull request.
 
 ## License
