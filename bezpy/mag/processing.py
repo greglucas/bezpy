@@ -123,7 +123,7 @@ def _hampel_mask(values, window, nsig, sig_floor, iterations):
     return bad
 
 
-def despike(b, window="31min", nsig=6.0, sig_floor=3.0, iterations=5, return_flags=False):
+def despike(b, *, window="31min", nsig=6.0, sig_floor=3.0, iterations=5, return_flags=False):
     """Mask instrumental spikes, rails, and steps in magnetic time series.
 
     Field magnetometers -- especially variometers distributed through
@@ -289,6 +289,7 @@ def _pad_taper(ntimes, pad_left, pad_right):
 
 def prepare(
     b,
+    *,
     window=None,
     pad="auto",
     max_period=DEFAULT_MAX_PERIOD,

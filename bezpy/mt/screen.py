@@ -33,6 +33,7 @@ _OFFDIAG = (1, 2)
 
 def screen_impedance(
     site,
+    *,
     rho_bounds=(3e-2, 3e5),
     max_rel_err=0.75,
     max_roughness=0.6,
@@ -123,7 +124,7 @@ def screen_impedance(
     }
 
 
-def screen_sites(sites, values=None, k=8, loo_decades=0.74, min_neighbors=4, **imp_kwargs):
+def screen_sites(sites, *, values=None, k=8, loo_decades=0.74, min_neighbors=4, **imp_kwargs):
     """Screen a collection of MT sites; return a per-site verdict table.
 
     :param sites: sequence of ``Site3d``/``Site1d`` (need ``name``,

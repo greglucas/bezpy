@@ -328,7 +328,14 @@ def _parse_index_block(spud_id, block):
 
 
 def search_mt(
-    bbox=None, survey=None, min_rating=None, country=None, refresh=False, session=None, timeout=300
+    *,
+    bbox=None,
+    survey=None,
+    min_rating=None,
+    country=None,
+    refresh=False,
+    session=None,
+    timeout=300,
 ):
     """Search the SPUD EMTF archive for transfer functions to download.
 
@@ -397,6 +404,7 @@ def search_mt(
 
 
 def download_mt_search(
+    *,
     bbox=None,
     survey=None,
     min_rating=None,

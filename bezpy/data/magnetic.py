@@ -213,6 +213,7 @@ def fetch_observatory(
     code,
     start,
     end,
+    *,
     source="auto",
     level="variation",
     elements=DEFAULT_ELEMENTS,
@@ -273,6 +274,7 @@ def download_observatory(
     code,
     start,
     end,
+    *,
     source="auto",
     level="variation",
     elements=DEFAULT_ELEMENTS,
@@ -332,6 +334,7 @@ def download_observatory(
 
 def update_observatory(
     code,
+    *,
     source="auto",
     level="variation",
     until=None,
@@ -394,7 +397,7 @@ def _last_stored_time(code, source, level):
 # Load (with cross-level merge)
 # ----------------------------------------------------------------------------
 def load_observatory(
-    code, level=BEST, source=None, prefer=None, start=None, end=None, as_dataframe=False
+    code, *, level=BEST, source=None, prefer=None, start=None, end=None, as_dataframe=False
 ):
     """Load stored observatory data, merging levels by default.
 
@@ -564,7 +567,7 @@ def _slice_mask(index, start, end):
 # ----------------------------------------------------------------------------
 # IAGA ingest -- convert existing text files into the fast netCDF archive
 # ----------------------------------------------------------------------------
-def ingest_iaga(paths, code=None, source="iaga", level="definitive", sampling_period=60):
+def ingest_iaga(paths, *, code=None, source="iaga", level="definitive", sampling_period=60):
     """Convert existing IAGA-2002 text files into the netCDF archive.
 
     Lets users who already have IAGA files benefit from the fast, merge-aware

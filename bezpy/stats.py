@@ -163,6 +163,7 @@ def _bootstrap_ci(data, estimator, level, n_boot, rng):
 def return_level(
     data,
     years_observed,
+    *,
     return_period=100.0,
     method="gpd",
     threshold=None,

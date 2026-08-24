@@ -58,7 +58,7 @@ def _coherence_bands(observed, predicted, dt, bands):
 
 
 def leave_one_out(
-    b_obs, interp=None, metrics=("rmse", "mae", "correlation"), bands=None, dt=None, **fit_kwargs
+    b_obs, *, interp=None, metrics=("rmse", "mae", "correlation"), bands=None, dt=None, **fit_kwargs
 ):
     """Leave-one-out observatory skill for a SECS interpolation.
 
@@ -146,7 +146,7 @@ class SyntheticScenario:
     extrapolation options are tested fairly.
     """
 
-    def __init__(self, seed=0, n_lat=5, n_lon=5, ntimes=4096, dt=60.0):
+    def __init__(self, *, seed=0, n_lat=5, n_lon=5, ntimes=4096, dt=60.0):
         self.dt = dt
         rng = np.random.default_rng(seed)
         # Smooth log-resistivity field over the domain
@@ -261,7 +261,7 @@ def score_interpolation_methods(scenario, lines, how=("nn", "delaunay"), resampl
     return pd.DataFrame(rows).set_index(["how", "resample_km"])
 
 
-def score_fitting_methods(seed=0, ntimes=240, dt=60.0, noise=1.5, tau=600.0, gate_sigma=4.0):
+def score_fitting_methods(*, seed=0, ntimes=240, dt=60.0, noise=1.5, tau=600.0, gate_sigma=4.0):
     """Score SECS fitting methods against a synthetic SEC source (3.1).
 
     A smoothly time-varying SEC source generates the true field at a 6x6
@@ -438,7 +438,14 @@ def _calibration_scenario(n_trials, ntimes, dt, relative_std, periods, rng):
 
 
 def score_ensemble_calibration(
-    n_trials=30, n_realizations=150, ntimes=2048, dt=60.0, relative_std=0.05, periods=None, seed=0
+    *,
+    n_trials=30,
+    n_realizations=150,
+    ntimes=2048,
+    dt=60.0,
+    relative_std=0.05,
+    periods=None,
+    seed=0,
 ):
     """Coverage of ``calc_geoelectric_field``'s ``n_realizations`` ensemble
     against known truth (ensemble-calibration acceptance test).
@@ -496,7 +503,7 @@ def score_ensemble_calibration(
 
 
 def score_analytic_calibration(
-    n_trials=15, ntimes=1024, dt=60.0, relative_std=0.05, periods=None, seed=0
+    *, n_trials=15, ntimes=1024, dt=60.0, relative_std=0.05, periods=None, seed=0
 ):
     """Coverage of ``calc_geoelectric_field(..., return_var=True)``'s
     analytic +-1 std band against known truth (the analytic-calibration

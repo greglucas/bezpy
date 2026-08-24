@@ -14,6 +14,7 @@ def plot_apparent_resistivity(
     periods,
     Z,
     Z_var=None,
+    *,
     fig=None,
     ax_res=None,
     ax_phase=None,

@@ -51,7 +51,7 @@ _PAGE_SIZE = 2000
 
 
 def build_query_url(
-    service_url, where="1=1", out_fields="*", offset=0, count=_PAGE_SIZE, bbox=None
+    service_url, *, where="1=1", out_fields="*", offset=0, count=_PAGE_SIZE, bbox=None
 ):
     """Build an ArcGIS ``/query`` URL returning GeoJSON.
 
@@ -138,6 +138,7 @@ def load_transmission_lines(name="transmission_lines"):
 
 
 def download_transmission_lines(
+    *,
     bbox=None,
     min_voltage=None,
     where="1=1",

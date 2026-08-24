@@ -205,6 +205,7 @@ class SECSInterpolator:
 
     def __init__(
         self,
+        *,
         grid="auto",
         spacing=2.0,
         pad=5.0,
@@ -336,6 +337,7 @@ class SECSInterpolator:
     def fit(
         self,
         b_obs,
+        *,
         obs_latlons=None,
         obs_std=None,
         times=None,

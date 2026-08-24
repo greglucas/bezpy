@@ -146,6 +146,7 @@ def fetch_dataframe(
     code,
     start,
     end,
+    *,
     sampling_period=60,
     level="best",
     base_url=DEFAULT_BASE_URL,

@@ -109,7 +109,7 @@ def detrend_polynomial(data, deg=2):
     return data - np.polyval(poly, xvals)
 
 
-def filter_signal(data, sample_freq=1.0 / 60, lowcut=1e-4, highcut=1e-1, order=3):
+def filter_signal(data, *, sample_freq=1.0 / 60, lowcut=1e-4, highcut=1e-1, order=3):
     """A convenience method to apply butterworth filters to the data.
 
     data: array of samples at the given sampling frequency (no gaps)

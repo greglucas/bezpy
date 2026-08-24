@@ -71,6 +71,7 @@ class DTIR:
     # pylint: disable=too-many-instance-attributes,too-many-arguments
     def __init__(
         self,
+        *,
         dt=1,
         nmin=-60,
         nmax=600,

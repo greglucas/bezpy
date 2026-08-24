@@ -205,7 +205,13 @@ class Site3d(Site):
 
     # pylint: disable=too-many-arguments,too-many-locals
     def spline_interp(
-        self, freqs, logspace=True, extrapolate=1, mag_phase_interp=False, use_min_max_period=False
+        self,
+        freqs,
+        *,
+        logspace=True,
+        extrapolate=1,
+        mag_phase_interp=False,
+        use_min_max_period=False,
     ):
         """Performs spline interpolation through the site object.
 
@@ -826,7 +832,7 @@ class SiteCollection:
         return Z
 
     def convolve_fft(
-        self, mag_x, mag_y, dt=60, extrapolate="asymptotic", site_chunk=None, return_var=False
+        self, mag_x, mag_y, dt=60, *, extrapolate="asymptotic", site_chunk=None, return_var=False
     ):
         """Convolution in frequency space for all sites at once.
 

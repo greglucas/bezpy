@@ -228,6 +228,7 @@ def _max_site_period(sites):
 def calc_geoelectric_field(
     b_obs,
     sites,
+    *,
     interp="secs",
     window=None,
     pad="auto",
@@ -436,7 +437,7 @@ def calc_geoelectric_field(
     return trim_pad(e)
 
 
-def calc_voltages(lines, e, how="delaunay", return_var=False):
+def calc_voltages(lines, e, *, how="delaunay", return_var=False):
     """Voltages across transmission lines from site electric fields.
 
     Applies the precomputed Level-1 voltage kernels
@@ -524,7 +525,7 @@ def calc_voltages(lines, e, how="delaunay", return_var=False):
     return v_da, v_var_da
 
 
-def calc_substation_fields(e, latlons, names=None, use_gnomic=True):
+def calc_substation_fields(e, latlons, *, names=None, use_gnomic=True):
     """Interpolate the site geoelectric field onto arbitrary point locations.
 
     The MT sites where E is computed are wherever the surveys happened; the
@@ -849,6 +850,7 @@ def _scan_ensemble(
 def scan(
     b_obs,
     sites,
+    *,
     lines=None,
     network=None,
     chunk="1Y",
@@ -1197,7 +1199,7 @@ def _restore_reducers(existing, site_reducer, extra_reducers):
 
 
 def storm_scan(
-    catalog, b_obs, sites, lines=None, how="delaunay", despike_obs=False, **field_kwargs
+    catalog, b_obs, sites, *, lines=None, how="delaunay", despike_obs=False, **field_kwargs
 ):
     """Per-storm maxima for a catalog of explicit windows (case-study path).
 
@@ -1439,6 +1441,7 @@ class Nowcast:
         sites,
         secs,
         dt,
+        *,
         nmin="auto",
         nmax="auto",
         decay_factor=1e-2,

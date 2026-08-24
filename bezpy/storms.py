@@ -49,7 +49,7 @@ def _cluster(times, gap):
 
 
 def find_events(
-    series, threshold, direction="above", decluster="runs", gap="12h", min_duration=None
+    series, threshold, *, direction="above", decluster="runs", gap="12h", min_duration=None
 ):
     """Catalog threshold exceedances of a series with runs declustering.
 
@@ -103,7 +103,7 @@ def find_events(
     return pd.DataFrame(rows, columns=["start", "end", "peak_time", "peak_value", "duration"])
 
 
-def find_storms(index, dst_threshold=-140, kp_threshold=8, window="1.5D", min_duration=None):
+def find_storms(index, *, dst_threshold=-140, kp_threshold=8, window="1.5D", min_duration=None):
     """Catalog geomagnetic storms from index data (the papers' method).
 
     Samples where Dst drops below ``dst_threshold`` or Kp reaches

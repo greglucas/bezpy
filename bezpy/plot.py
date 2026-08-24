@@ -145,6 +145,7 @@ def plot_hazard_map(
     ax,
     latlons,
     values,
+    *,
     log=True,
     cmap="magma_r",
     add_colorbar=True,

@@ -239,6 +239,7 @@ def beta_factor(
     sites,
     mag_x,
     mag_y,
+    *,
     dt=10,
     event="benchmark",
     normalize="reference",
