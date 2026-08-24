@@ -1,7 +1,14 @@
 """Helper functions"""
 
-__all__ = ["haversine_distance", "haversine_dl", "fast_interp_weights", "fast_interpolate",
-           "delaunay_weights", "filter_bbox", "filter_polygon"]
+__all__ = [
+    "haversine_distance",
+    "haversine_dl",
+    "fast_interp_weights",
+    "fast_interpolate",
+    "delaunay_weights",
+    "filter_bbox",
+    "filter_polygon",
+]
 
 import numpy as np
 import shapely
@@ -52,8 +59,7 @@ def filter_bbox(lines, bbox, predicate="intersects"):
     :return: list of the matching TransmissionLine objects
     """
     west, south, east, north = bbox
-    return filter_polygon(lines, shapely.box(west, south, east, north),
-                          predicate=predicate)
+    return filter_polygon(lines, shapely.box(west, south, east, north), predicate=predicate)
 
 
 def haversine_distance(lon1, lat1, lon2, lat2):
@@ -69,7 +75,7 @@ def haversine_distance(lon1, lat1, lon2, lat2):
     dlon = lon2 - lon1
     dlat = lat2 - lat1
 
-    a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
+    a = np.sin(dlat / 2.0) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0) ** 2
 
     # Distance in km between points in x1 and points in x2
     return 6371 * 2 * np.arcsin(np.sqrt(a))
@@ -77,8 +83,8 @@ def haversine_distance(lon1, lat1, lon2, lat2):
 
 def haversine_dl(lon1, lat1, lon2, lat2):
     """Calculate haversine vectors in the lon/lat directions between each point.
-       dl is returned as an array of npts x 2, where the two coordinates
-       dx and dy == dLat and dLon respectively (x == North, y == East)."""
+    dl is returned as an array of npts x 2, where the two coordinates
+    dx and dy == dLat and dLon respectively (x == North, y == East)."""
 
     lon1, lat1, lon2, lat2 = map(np.deg2rad, [lon1, lat1, lon2, lat2])
 
@@ -92,14 +98,14 @@ def haversine_dl(lon1, lat1, lon2, lat2):
     # a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
 
     # Longitude calculation: dlat == 0
-    a = np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.)**2
+    a = np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0) ** 2
 
     # Distance in km between points in x1 and points in x2
     # multiply by sign of dlon to get vector pointing in the right direction
     dl_lon = (6371 * 2 * np.arcsin(np.sqrt(a))) * np.sign(dlon)
 
     # Latitudinal variation: dlon == 0
-    a = np.sin(dlat/2.)**2
+    a = np.sin(dlat / 2.0) ** 2
 
     # Distance in km between points in x1 and points in x2
     # multiply by sign of dlat to get vector pointing in the right direction
@@ -119,13 +125,13 @@ def fast_interp_weights(xyz, uvw, deg=2):
     vertices = np.take(tri.simplices, simplex, axis=0)
     temp = np.take(tri.transform, simplex, axis=0)
     delta = uvw - temp[:, deg]
-    bary = np.einsum('njk,nk->nj', temp[:, :deg, :], delta)
+    bary = np.einsum("njk,nk->nj", temp[:, :deg, :], delta)
     return vertices, np.hstack((bary, 1 - bary.sum(axis=1, keepdims=True)))
 
 
 def fast_interpolate(values, vtx, wts, fill_value=np.nan):
     """A method to perform fast Delaunay interpolation."""
-    ret = np.einsum('nj,nj->n', np.take(values, vtx), wts)
+    ret = np.einsum("nj,nj->n", np.take(values, vtx), wts)
     ret[np.any(wts < 0, axis=1)] = fill_value
     return ret
 

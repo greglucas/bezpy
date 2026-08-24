@@ -4,6 +4,7 @@ These helpers let a user see, at a glance, which observatories, sources, quality
 levels, and years they have downloaded, how complete each file is, and how much
 disk it uses -- without needing to know the on-disk layout.
 """
+
 __all__ = ["observatory_inventory", "summarize_observatory"]
 
 import numpy as np
@@ -86,12 +87,17 @@ def observatory_inventory(code=None, detailed=False):
         codes = [code.upper()]
     elif magnetic_root.exists():
         # Any code directory found under any source/level partition.
-        codes = sorted({
-            code_dir.name
-            for source_dir in magnetic_root.iterdir() if source_dir.is_dir()
-            for level_dir in source_dir.iterdir() if level_dir.is_dir()
-            for code_dir in level_dir.iterdir() if code_dir.is_dir()
-        })
+        codes = sorted(
+            {
+                code_dir.name
+                for source_dir in magnetic_root.iterdir()
+                if source_dir.is_dir()
+                for level_dir in source_dir.iterdir()
+                if level_dir.is_dir()
+                for code_dir in level_dir.iterdir()
+                if code_dir.is_dir()
+            }
+        )
     else:
         codes = []
 
@@ -103,8 +109,19 @@ def observatory_inventory(code=None, detailed=False):
                 path = _year_path(obs_code, source, level, year)
                 rows.append(_summarize_file(path, source, level, detailed))
 
-    columns = ["code", "source", "level", "year", "start", "end",
-               "n_samples", "coverage", "components", "size_mb", "path"]
+    columns = [
+        "code",
+        "source",
+        "level",
+        "year",
+        "start",
+        "end",
+        "n_samples",
+        "coverage",
+        "components",
+        "size_mb",
+        "path",
+    ]
     if detailed:
         columns.insert(9, "completeness")
 

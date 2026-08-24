@@ -257,9 +257,7 @@ def test_beta_components_equal_for_an_isotropic_ground(waveform):
         same = beta_factor(site, *_storm_like(same=True), dt=10)
         independent = beta_factor(site, *waveform, dt=10)
     assert same["beta_x"].iloc[0] == pytest.approx(same["beta_y"].iloc[0], rel=1e-12)
-    assert independent["beta_x"].iloc[0] != pytest.approx(
-        independent["beta_y"].iloc[0], rel=1e-3
-    )
+    assert independent["beta_x"].iloc[0] != pytest.approx(independent["beta_y"].iloc[0], rel=1e-3)
     # |E| >= max(|Ex|, |Ey|) pointwise, so the same holds for the peaks.
     for df in (same, independent):
         assert df["beta"].iloc[0] >= max(df["beta_x"].iloc[0], df["beta_y"].iloc[0]) - 1e-12

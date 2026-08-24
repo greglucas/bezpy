@@ -205,8 +205,8 @@ def peak_geoelectric_field(alpha, beta, event="benchmark"):
     :param event: ``"benchmark"`` (default) or ``"supplemental"``
     :return: peak geoelectric field in V/km
     """
-    return _reference_amplitude(event) * np.asarray(alpha, dtype=float) * np.asarray(
-        beta, dtype=float
+    return (
+        _reference_amplitude(event) * np.asarray(alpha, dtype=float) * np.asarray(beta, dtype=float)
     )
 
 
@@ -215,9 +215,7 @@ def _reference_amplitude(event):
     try:
         return _REFERENCE_PEAK_E[event]
     except KeyError:
-        raise ValueError(
-            f"event must be 'benchmark' or 'supplemental'; got {event!r}"
-        ) from None
+        raise ValueError(f"event must be 'benchmark' or 'supplemental'; got {event!r}") from None
 
 
 def _peak_magnitude(Ex, Ey):

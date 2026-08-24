@@ -9,6 +9,7 @@ observatory network and the docs' example MT site bbox; see
 
 Run:  python benchmarks/validation_harness_real.py
 """
+
 import warnings
 
 import numpy as np
@@ -29,10 +30,8 @@ OBS = ["BOU", "FRD", "TUC", "NEW", "FRN"]
 # MT site period in-region) real data to pad with instead of truncating the
 # storm itself.
 STORMS = {
-    "2024-05 Gannon": (("2024-05-10", "2024-05-12"),
-                       ("2024-05-07", "2024-05-15")),
-    "2003-10 Halloween": (("2003-10-29", "2003-11-01"),
-                          ("2003-10-26", "2003-11-04")),
+    "2024-05 Gannon": (("2024-05-10", "2024-05-12"), ("2024-05-07", "2024-05-15")),
+    "2003-10 Halloween": (("2003-10-29", "2003-11-01"), ("2003-10-26", "2003-11-04")),
 }
 
 SITE_BBOX = (-110, 35, -100, 45)  # matches docs/index.md's example network
@@ -55,8 +54,7 @@ def _load_detrended(window):
     makes the RMSE below comparable to the synthetic score_fitting_methods
     table, where the source has no such baseline to begin with.
     """
-    return prepare(_load(window), pad=0, detrend="linear", taper=None,
-                   gaps="mask")
+    return prepare(_load(window), pad=0, detrend="linear", taper=None, gaps="mask")
 
 
 def fitting_method_table():
@@ -65,19 +63,25 @@ def fitting_method_table():
     configs = {
         "lstsq (default)": {},
         "lstsq robust=huber": {"robust": "huber"},
-        "kalman tau=600": {"method": "kalman", "tau": 600.},
-        "kalman tau=3600": {"method": "kalman", "tau": 3600.},
+        "kalman tau=600": {"method": "kalman", "tau": 600.0},
+        "kalman tau=3600": {"method": "kalman", "tau": 3600.0},
     }
     rows = []
     for storm, (core, _) in STORMS.items():
         b_obs = _load_detrended(core)
         for name, kwargs in configs.items():
-            df = leave_one_out(b_obs, interp=SECSInterpolator(**kwargs),
-                               metrics=("rmse", "mae", "correlation"))
-            rows.append({"storm": storm, "method": name,
-                         "rmse_nT": df["rmse"].mean(),
-                         "mae_nT": df["mae"].mean(),
-                         "correlation": df["correlation"].mean()})
+            df = leave_one_out(
+                b_obs, interp=SECSInterpolator(**kwargs), metrics=("rmse", "mae", "correlation")
+            )
+            rows.append(
+                {
+                    "storm": storm,
+                    "method": name,
+                    "rmse_nT": df["rmse"].mean(),
+                    "mae_nT": df["mae"].mean(),
+                    "correlation": df["correlation"].mean(),
+                }
+            )
     return pd.DataFrame(rows).set_index(["storm", "method"])
 
 
@@ -90,12 +94,24 @@ def epsilon_tau_table():
         base = SECSInterpolator()
         for epsilon in (0.01, 0.02, 0.05, 0.1, 0.2):
             score = base.loo_score(b_obs, metric="rmse", epsilon=epsilon)
-            rows.append({"storm": storm, "param": "epsilon", "value": epsilon,
-                         "rmse_nT": np.mean(list(score.values()))})
-        for tau in (300., 600., 1800., 3600., 7200.):
+            rows.append(
+                {
+                    "storm": storm,
+                    "param": "epsilon",
+                    "value": epsilon,
+                    "rmse_nT": np.mean(list(score.values())),
+                }
+            )
+        for tau in (300.0, 600.0, 1800.0, 3600.0, 7200.0):
             score = base.loo_score(b_obs, metric="rmse", method="kalman", tau=tau)
-            rows.append({"storm": storm, "param": "tau (kalman)", "value": tau,
-                         "rmse_nT": np.mean(list(score.values()))})
+            rows.append(
+                {
+                    "storm": storm,
+                    "param": "tau (kalman)",
+                    "value": tau,
+                    "rmse_nT": np.mean(list(score.values())),
+                }
+            )
     return pd.DataFrame(rows).set_index(["storm", "param", "value"])
 
 
@@ -113,17 +129,21 @@ def extrapolate_table():
         start, end = pd.Timestamp(core[0]), pd.Timestamp(core[1])
         peaks = {}
         for option in ("zeros", "asymptotic"):
-            e = bezpy.calc_geoelectric_field(b_obs, sites, window=(start, end),
-                                             extrapolate=option)
+            e = bezpy.calc_geoelectric_field(b_obs, sites, window=(start, end), extrapolate=option)
             magnitude = np.hypot(e["Ex"].values, e["Ey"].values)
             peaks[option] = np.nanmax(magnitude, axis=0)
         ratio = peaks["asymptotic"] / peaks["zeros"]
-        rows.append({"storm": storm, "n_sites": len(sites),
-                     "ratio_median": np.median(ratio),
-                     "ratio_p90": np.quantile(ratio, 0.9),
-                     "ratio_max": np.max(ratio),
-                     "ratio_min": np.min(ratio),
-                     "n_nonfinite": int((~np.isfinite(ratio)).sum())})
+        rows.append(
+            {
+                "storm": storm,
+                "n_sites": len(sites),
+                "ratio_median": np.median(ratio),
+                "ratio_p90": np.quantile(ratio, 0.9),
+                "ratio_max": np.max(ratio),
+                "ratio_min": np.min(ratio),
+                "n_nonfinite": int((~np.isfinite(ratio)).sum()),
+            }
+        )
     return pd.DataFrame(rows).set_index("storm")
 
 
@@ -134,8 +154,7 @@ def main():
     print("=== Real-storm epsilon/tau tuning (mean LOO RMSE, nT) ===")
     print(epsilon_tau_table().to_string(float_format=lambda v: f"{v:.3f}"))
     print()
-    print("=== Real-storm extrapolate zeros vs asymptotic "
-          "(peak |E| ratio, asymptotic/zeros) ===")
+    print("=== Real-storm extrapolate zeros vs asymptotic (peak |E| ratio, asymptotic/zeros) ===")
     print(extrapolate_table().to_string(float_format=lambda v: f"{v:.3f}"))
 
 

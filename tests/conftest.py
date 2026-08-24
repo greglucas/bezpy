@@ -1,4 +1,5 @@
 """Shared pytest fixtures for the bezpy test suite."""
+
 import pathlib
 
 import numpy as np

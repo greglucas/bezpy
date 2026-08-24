@@ -19,10 +19,8 @@ import pooch
 
 from ._cache import get_cache_dir
 
-GFZ_KP_URL = ("https://kp.gfz-potsdam.de/app/files/"
-              "Kp_ap_Ap_SN_F107_since_1932.txt")
-OMNI2_URL = ("https://spdf.gsfc.nasa.gov/pub/data/omni/low_res_omni/"
-             "omni2_{year}.dat")
+GFZ_KP_URL = "https://kp.gfz-potsdam.de/app/files/Kp_ap_Ap_SN_F107_since_1932.txt"
+OMNI2_URL = "https://spdf.gsfc.nasa.gov/pub/data/omni/low_res_omni/omni2_{year}.dat"
 
 
 def _parse_gfz(text):
@@ -40,7 +38,7 @@ def _parse_gfz(text):
         kps = np.array(fields[7:15], dtype=float)
         aps = np.array(fields[15:23], dtype=float)
         for i in range(8):
-            rows.append((day + pd.Timedelta(hours=3*i), kps[i], aps[i]))
+            rows.append((day + pd.Timedelta(hours=3 * i), kps[i], aps[i]))
     frame = pd.DataFrame(rows, columns=["time", "kp", "ap"]).set_index("time")
     return frame.where(frame >= 0)  # negative = missing
 
@@ -52,8 +50,9 @@ def _parse_omni2(text):
         fields = line.split()
         if len(fields) < 41:
             continue
-        time = (pd.Timestamp(int(fields[0]), 1, 1)
-                + pd.Timedelta(days=int(fields[1]) - 1, hours=int(fields[2])))
+        time = pd.Timestamp(int(fields[0]), 1, 1) + pd.Timedelta(
+            days=int(fields[1]) - 1, hours=int(fields[2])
+        )
         dst = float(fields[40])
         rows.append((time, np.nan if dst >= 99999 else dst))
     return pd.DataFrame(rows, columns=["time", "dst"]).set_index("time")
@@ -64,16 +63,18 @@ def _fetch_gfz_table(refresh=False):
     cached = get_cache_dir("indices") / fname
     if refresh and cached.exists():
         cached.unlink()
-    path = pooch.retrieve(GFZ_KP_URL, known_hash=None, fname=fname,
-                          path=get_cache_dir("indices"))
+    path = pooch.retrieve(GFZ_KP_URL, known_hash=None, fname=fname, path=get_cache_dir("indices"))
     with open(path) as f:
         return _parse_gfz(f.read())
 
 
 def _fetch_omni2_year(year):
-    path = pooch.retrieve(OMNI2_URL.format(year=year), known_hash=None,
-                          fname=f"omni2_{year}.dat",
-                          path=get_cache_dir("indices"))
+    path = pooch.retrieve(
+        OMNI2_URL.format(year=year),
+        known_hash=None,
+        fname=f"omni2_{year}.dat",
+        path=get_cache_dir("indices"),
+    )
     with open(path) as f:
         return _parse_omni2(f.read())
 
@@ -97,8 +98,7 @@ def fetch_index(name, start, end, refresh=False):
     if name in ("kp", "ap"):
         series = _fetch_gfz_table(refresh=refresh)[name]
     elif name == "dst":
-        frames = [_fetch_omni2_year(year)
-                  for year in range(start.year, end.year + 1)]
+        frames = [_fetch_omni2_year(year) for year in range(start.year, end.year + 1)]
         series = pd.concat(frames)["dst"]
     else:
         raise ValueError("name must be one of: kp, ap, dst")

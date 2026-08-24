@@ -13,6 +13,7 @@ populated -- the relevant number when scanning many equal-length chunks.
 
 Run:  python benchmarks/bench_kernels.py
 """
+
 import time
 
 import numpy as np
@@ -27,7 +28,7 @@ RNG = np.random.default_rng(7)
 NSITES = 100
 NLINES = 200
 NVERTS = 10
-N0 = 43200          # 30 days of 1-minute data
+N0 = 43200  # 30 days of 1-minute data
 DT = 60.0
 
 LON0, LON1, LAT0, LAT1 = -110.0, -95.0, 32.0, 45.0
@@ -37,13 +38,16 @@ def make_site(i):
     site = Site3d(f"S{i:03d}")
     site.longitude = RNG.uniform(LON0, LON1)
     site.latitude = RNG.uniform(LAT0, LAT1)
-    site.periods = np.logspace(0.85, 4.48, 31)   # ~7 s to 30,000 s, as in EMTF
+    site.periods = np.logspace(0.85, 4.48, 31)  # ~7 s to 30,000 s, as in EMTF
     logt = np.log10(site.periods)
-    phases = RNG.uniform(0, 2*np.pi, 4)
+    phases = RNG.uniform(0, 2 * np.pi, 4)
     amps = RNG.uniform(0.5, 2.0, 4)
-    site.Z = np.array([a * (1 + 0.3*np.sin(logt + p)) *
-                       np.exp(1j*(0.5 + 0.2*np.cos(logt + p)))
-                       for a, p in zip(amps, phases)])
+    site.Z = np.array(
+        [
+            a * (1 + 0.3 * np.sin(logt + p)) * np.exp(1j * (0.5 + 0.2 * np.cos(logt + p)))
+            for a, p in zip(amps, phases)
+        ]
+    )
     site.Z_var = None
     return site
 
@@ -61,14 +65,16 @@ def make_line():
 
 
 def main():
-    print(f"sites={NSITES} lines={NLINES} verts/line={NVERTS} "
-          f"N0={N0} (30 d @ 1 min), N_fft=2^{int(np.log2(N0))+2}")
+    print(
+        f"sites={NSITES} lines={NLINES} verts/line={NVERTS} "
+        f"N0={N0} (30 d @ 1 min), N_fft=2^{int(np.log2(N0)) + 2}"
+    )
 
     sites = [make_site(i) for i in range(NSITES)]
     site_xys = np.array([[s.latitude, s.longitude] for s in sites])
     lines = [make_line() for _ in range(NLINES)]
 
-    mag_x = np.cumsum(RNG.standard_normal(N0))   # red-noise-ish storm B
+    mag_x = np.cumsum(RNG.standard_normal(N0))  # red-noise-ish storm B
     mag_y = np.cumsum(RNG.standard_normal(N0))
 
     t0 = time.perf_counter()
@@ -88,8 +94,10 @@ def main():
         t0 = time.perf_counter()
         V = np.column_stack([line.calc_voltages(E, how="delaunay") for line in lines])
         t_v = time.perf_counter() - t0
-        print(f"[A {label}] E fields: {t_e:8.2f} s   voltages: {t_v:8.2f} s   "
-              f"total: {t_e+t_v:8.2f} s")
+        print(
+            f"[A {label}] E fields: {t_e:8.2f} s   voltages: {t_v:8.2f} s   "
+            f"total: {t_e + t_v:8.2f} s"
+        )
         return V
 
     V_a = current("cold")
@@ -101,7 +109,7 @@ def main():
     t_build = time.perf_counter() - t0
     print(f"\n[B build] voltage matrix L            : {t_build:8.2f} s")
 
-    ex, ey = collection.convolve_fft(mag_x, mag_y, dt=DT)   # warm
+    ex, ey = collection.convolve_fft(mag_x, mag_y, dt=DT)  # warm
     t0 = time.perf_counter()
     ex, ey = collection.convolve_fft(mag_x, mag_y, dt=DT)
     E = np.stack([ex.T, ey.T], axis=-1)
@@ -109,8 +117,7 @@ def main():
     t0 = time.perf_counter()
     V_b = apply_voltage_matrix(E, L, valid)
     t_v = time.perf_counter() - t0
-    print(f"[B warm ] E fields: {t_e:8.2f} s   voltages: {t_v:8.2f} s   "
-          f"total: {t_e+t_v:8.2f} s")
+    print(f"[B warm ] E fields: {t_e:8.2f} s   voltages: {t_v:8.2f} s   total: {t_e + t_v:8.2f} s")
 
     # --- C. level 2: telluric response functions -----------------------------
     t0 = time.perf_counter()
@@ -121,13 +128,14 @@ def main():
     for label in ("cold", "warm"):
         t0 = time.perf_counter()
         V_c = tr.calc_voltages(mag_x, mag_y, dt=DT)
-        print(f"[C {label}] B spectra -> voltages         : "
-              f"{time.perf_counter()-t0:8.2f} s")
+        print(f"[C {label}] B spectra -> voltages         : {time.perf_counter() - t0:8.2f} s")
 
     # --- agreement ------------------------------------------------------------
     scale = np.sqrt(np.nanmean(V_a**2))
-    print(f"\nrel RMS  B vs A: {np.sqrt(np.nanmean((V_b-V_a)**2))/scale:.2e}"
-          f"   C vs A: {np.sqrt(np.nanmean((V_c-V_a)**2))/scale:.2e}")
+    print(
+        f"\nrel RMS  B vs A: {np.sqrt(np.nanmean((V_b - V_a) ** 2)) / scale:.2e}"
+        f"   C vs A: {np.sqrt(np.nanmean((V_c - V_a) ** 2)) / scale:.2e}"
+    )
     print(f"lines inside hull: {valid.sum()}/{NLINES}")
 
 

@@ -1,4 +1,5 @@
 """Tests for SiteCollection sequence behavior and the canonical dataset round trip."""
+
 import numpy as np
 import pytest
 
@@ -17,13 +18,16 @@ def make_site3d(name, lat, lon, periods, with_var=True, nan_entries=()):
     """A synthetic Site3d with a smooth, site-specific impedance tensor."""
     periods = np.asarray(periods, dtype=float)
     logt = np.log10(periods)
-    phases = RNG.uniform(0, 2*np.pi, 4)
+    phases = RNG.uniform(0, 2 * np.pi, 4)
     amps = RNG.uniform(0.5, 2.0, 4)
-    Z = np.array([a * (1 + 0.3*np.sin(logt + p)) *
-                  np.exp(1j * (0.5 + 0.2*np.cos(logt + p)))
-                  for a, p in zip(amps, phases)])
+    Z = np.array(
+        [
+            a * (1 + 0.3 * np.sin(logt + p)) * np.exp(1j * (0.5 + 0.2 * np.cos(logt + p)))
+            for a, p in zip(amps, phases)
+        ]
+    )
     for comp, iperiod in nan_entries:
-        Z[comp, iperiod] = np.nan + 1j*np.nan
+        Z[comp, iperiod] = np.nan + 1j * np.nan
     Z_var = RNG.uniform(0.01, 0.1, Z.shape) if with_var else None
     return Site3d(name, latitude=lat, longitude=lon, periods=periods, Z=Z, Z_var=Z_var)
 
@@ -33,8 +37,9 @@ def make_3d_sites(periods_b=None):
     periods_a = np.logspace(0.5, 4.0, 12)
     if periods_b is None:
         periods_b = periods_a
-    site_a = make_site3d("A01", 40.0, -105.0, periods_a,
-                         with_var=True, nan_entries=[(1, 3), (2, 7)])
+    site_a = make_site3d(
+        "A01", 40.0, -105.0, periods_a, with_var=True, nan_entries=[(1, 3), (2, 7)]
+    )
     site_b = make_site3d("B02", 42.5, -101.2, periods_b, with_var=False)
     return [site_a, site_b]
 
@@ -57,6 +62,7 @@ def assert_sites_equal(restored, original):
 # ---------------------------------------------------------------------
 # Sequence protocol
 # ---------------------------------------------------------------------
+
 
 def test_sequence_protocol():
     sites = make_3d_sites()
@@ -92,6 +98,7 @@ def test_latitudes_longitudes():
 # Canonical dataset round trip
 # ---------------------------------------------------------------------
 
+
 def test_3d_dataset_convention():
     pytest.importorskip("xarray")
     sites = make_3d_sites()
@@ -125,8 +132,10 @@ def test_3d_roundtrip_exact():
 
 def test_3d_no_var_at_all_omits_variable():
     pytest.importorskip("xarray")
-    sites = [make_site3d(f"S{i}", 40.0 + i, -105.0, np.logspace(1, 3, 8), with_var=False)
-             for i in range(2)]
+    sites = [
+        make_site3d(f"S{i}", 40.0 + i, -105.0, np.logspace(1, 3, 8), with_var=False)
+        for i in range(2)
+    ]
     ds = sites_to_dataset(sites)
     assert "Z_var" not in ds
     assert_sites_equal(sites_from_dataset(ds), sites)
@@ -155,8 +164,10 @@ def test_union_period_grid_roundtrip():
 
 def test_1d_roundtrip_exact():
     pytest.importorskip("xarray")
-    sites = [Site1d("CP", [1000.0, 5000.0, 1e5], [100.0, 20.0, 5.0]),
-             Site1d("IP", [500.0, 2.5e4], [300.0, 10.0])]
+    sites = [
+        Site1d("CP", [1000.0, 5000.0, 1e5], [100.0, 20.0, 5.0]),
+        Site1d("IP", [500.0, 2.5e4], [300.0, 10.0]),
+    ]
     sites[0].latitude, sites[0].longitude = 38.0, -90.0
     coll = SiteCollection(sites)
     ds = coll.to_dataset()

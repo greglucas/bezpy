@@ -115,7 +115,9 @@ def read_gridded_impedance(filename):
                         warnings.warn(
                             f"File declares units {match.group(0)!r} instead of "
                             f"the expected {_EXPECTED_UNITS!r}; impedance values "
-                            "are read as-is without conversion.", stacklevel=2)
+                            "are read as-is without conversion.",
+                            stacklevel=2,
+                        )
                 continue
 
             period, lat, lon, comp, value, error = row
@@ -132,7 +134,7 @@ def read_gridded_impedance(filename):
         periods = np.array(sorted({period for period, *_ in rows}))
         index = {period: i for i, period in enumerate(periods)}
 
-        Z = np.full((4, periods.size), np.nan + np.nan*1j, dtype=complex)
+        Z = np.full((4, periods.size), np.nan + np.nan * 1j, dtype=complex)
         Z_var = np.full((4, periods.size), np.nan)
         for period, comp, value, error in rows:
             Z[comp, index[period]] = value
@@ -142,7 +144,7 @@ def read_gridded_impedance(filename):
         site = Site3d(code)
         site.latitude = lat
         # 0-360 east longitude -> bezpy's -180..180 convention
-        site.longitude = lon - 360. if lon > 180. else lon
+        site.longitude = lon - 360.0 if lon > 180.0 else lon
         site.periods = periods
         site.Z = Z
         site.Z_var = Z_var if file_has_errors else None

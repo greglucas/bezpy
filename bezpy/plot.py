@@ -7,8 +7,7 @@ via the ``plotting`` extra, cartopy separately (its map features are simply
 skipped when it is absent and a plain axes is passed).
 """
 
-__all__ = ["add_map_features", "scale_vectors", "plot_vectors", "plot_lines",
-           "plot_hazard_map"]
+__all__ = ["add_map_features", "scale_vectors", "plot_vectors", "plot_lines", "plot_hazard_map"]
 
 import numpy as np
 
@@ -18,8 +17,8 @@ def _require_matplotlib():
         import matplotlib
     except ImportError:
         raise ImportError(
-            "bezpy.plot requires matplotlib; install it with "
-            "`pip install 'bezpy[plotting]'`") from None
+            "bezpy.plot requires matplotlib; install it with `pip install 'bezpy[plotting]'`"
+        ) from None
     return matplotlib
 
 
@@ -51,15 +50,24 @@ def add_map_features(ax, scale="50m", states=True):
             "the other bezpy.plot functions work on plain matplotlib axes"
         ) from None
     features = [
-        cfeature.NaturalEarthFeature("physical", "coastline", scale,
-                                     edgecolor="black", facecolor="none"),
-        cfeature.NaturalEarthFeature("cultural", "admin_0_boundary_lines_land",
-                                     scale, edgecolor="gray", facecolor="none"),
+        cfeature.NaturalEarthFeature(
+            "physical", "coastline", scale, edgecolor="black", facecolor="none"
+        ),
+        cfeature.NaturalEarthFeature(
+            "cultural", "admin_0_boundary_lines_land", scale, edgecolor="gray", facecolor="none"
+        ),
     ]
     if states:
-        features.append(cfeature.NaturalEarthFeature(
-            "cultural", "admin_1_states_provinces_lines", scale,
-            edgecolor="gray", facecolor="none", linewidth=0.5))
+        features.append(
+            cfeature.NaturalEarthFeature(
+                "cultural",
+                "admin_1_states_provinces_lines",
+                scale,
+                edgecolor="gray",
+                facecolor="none",
+                linewidth=0.5,
+            )
+        )
     return [ax.add_feature(feature) for feature in features]
 
 
@@ -77,10 +85,10 @@ def scale_vectors(x, y, scale=np.log10):
     """
     x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
     magnitude = np.hypot(x, y)
-    clamped = np.maximum(magnitude, 1.)
+    clamped = np.maximum(magnitude, 1.0)
     with np.errstate(divide="ignore", invalid="ignore"):
-        factor = np.where(magnitude > 0., scale(clamped)/magnitude, 0.)
-    return x*factor, y*factor
+        factor = np.where(magnitude > 0.0, scale(clamped) / magnitude, 0.0)
+    return x * factor, y * factor
 
 
 def plot_vectors(ax, latlons, vectors, scale="log", color="black", **kwargs):
@@ -104,8 +112,9 @@ def plot_vectors(ax, latlons, vectors, scale="log", color="black", **kwargs):
     elif scale != "linear":
         raise ValueError("scale must be 'log', 'linear', or a callable")
     # Quiver is (east, north) in plot axes: u = y component, v = x component
-    return ax.quiver(latlons[:, 1], latlons[:, 0], vec_y, vec_x,
-                     color=color, **_crs_kwargs(ax), **kwargs)
+    return ax.quiver(
+        latlons[:, 1], latlons[:, 0], vec_y, vec_x, color=color, **_crs_kwargs(ax), **kwargs
+    )
 
 
 def plot_lines(ax, lines, values=None, cmap="viridis", norm=None, **kwargs):
@@ -120,9 +129,11 @@ def plot_lines(ax, lines, values=None, cmap="viridis", norm=None, **kwargs):
     """
     _require_matplotlib()
     from matplotlib.collections import LineCollection
+
     segments = [line.pts for line in lines]
-    collection = LineCollection(segments, cmap=cmap if values is not None else None,
-                                norm=norm, **_crs_kwargs(ax), **kwargs)
+    collection = LineCollection(
+        segments, cmap=cmap if values is not None else None, norm=norm, **_crs_kwargs(ax), **kwargs
+    )
     if values is not None:
         collection.set_array(np.asarray(values, dtype=float))
     ax.add_collection(collection)
@@ -130,10 +141,19 @@ def plot_lines(ax, lines, values=None, cmap="viridis", norm=None, **kwargs):
     return collection
 
 
-def plot_hazard_map(ax, latlons, values, log=True, cmap="magma_r",
-                    add_colorbar=True, colorbar_label=None,
-                    relative_uncertainty=None, uncertainty_limit=None,
-                    faded_alpha=0.25, **kwargs):
+def plot_hazard_map(
+    ax,
+    latlons,
+    values,
+    log=True,
+    cmap="magma_r",
+    add_colorbar=True,
+    colorbar_label=None,
+    relative_uncertainty=None,
+    uncertainty_limit=None,
+    faded_alpha=0.25,
+    **kwargs,
+):
     """Scatter per-site hazard values (e.g. 100-year |E|) on a map.
 
     :param ax: matplotlib axes (or cartopy GeoAxes)
@@ -168,14 +188,24 @@ def plot_hazard_map(ax, latlons, values, log=True, cmap="magma_r",
             vmax = kwargs.pop("vmax", None)
             norm = matplotlib.colors.LogNorm(
                 vmin=positive.min() if vmin is None else vmin,
-                vmax=positive.max() if vmax is None else vmax)
+                vmax=positive.max() if vmax is None else vmax,
+            )
     alpha = kwargs.pop("alpha", None)
-    artist = ax.scatter(latlons[:, 1], latlons[:, 0], c=values, cmap=cmap,
-                        norm=norm, alpha=alpha, **_crs_kwargs(ax), **kwargs)
+    artist = ax.scatter(
+        latlons[:, 1],
+        latlons[:, 0],
+        c=values,
+        cmap=cmap,
+        norm=norm,
+        alpha=alpha,
+        **_crs_kwargs(ax),
+        **kwargs,
+    )
     if relative_uncertainty is not None and uncertainty_limit is not None:
         relative_uncertainty = np.asarray(relative_uncertainty, dtype=float)
-        alphas = np.where(relative_uncertainty >= uncertainty_limit,
-                          faded_alpha, 1.0 if alpha is None else alpha)
+        alphas = np.where(
+            relative_uncertainty >= uncertainty_limit, faded_alpha, 1.0 if alpha is None else alpha
+        )
         artist.set_alpha(alphas)
     if add_colorbar:
         ax.figure.colorbar(artist, ax=ax, label=colorbar_label)

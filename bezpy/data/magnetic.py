@@ -32,10 +32,17 @@ Sources currently supported:
 
 All times are handled in UTC.
 """
+
 __all__ = [
-    "observatory_metadata", "fetch_observatory", "download_observatory",
-    "update_observatory", "load_observatory", "load_observatory_group",
-    "observatory_years", "stored_partitions", "ingest_iaga",
+    "observatory_metadata",
+    "fetch_observatory",
+    "download_observatory",
+    "update_observatory",
+    "load_observatory",
+    "load_observatory_group",
+    "observatory_years",
+    "stored_partitions",
+    "ingest_iaga",
 ]
 
 import datetime
@@ -100,7 +107,7 @@ def stored_partitions(code):
                 if (level_dir / code).is_dir():
                     partitions.append((source_dir.name, level_dir.name))
     # Sort by (quality, source preference), highest first.
-    partitions.sort(key=lambda sl: (_partition_rank(sl[0], sl[1])), reverse=True)
+    partitions.sort(key=lambda sl: _partition_rank(sl[0], sl[1]), reverse=True)
     return partitions
 
 
@@ -161,33 +168,58 @@ def _resolve_source(code, source):
     return default_source(code) if source in (None, "auto") else source
 
 
-def _fetch_frame(code, start, end, source, level, elements, sampling_period,
-                 base_url, verbose):
+def _fetch_frame(code, start, end, source, level, elements, sampling_period, base_url, verbose):
     """Dispatch to the correct source client and return a DataFrame."""
     if source in ("usgs", "nrcan"):
         kwargs = {"base_url": base_url} if base_url else {}
         return _webservice.fetch_dataframe(
-            code, start, end, elements=elements,
-            sampling_period=sampling_period, level=level, verbose=verbose,
-            **kwargs)
+            code,
+            start,
+            end,
+            elements=elements,
+            sampling_period=sampling_period,
+            level=level,
+            verbose=verbose,
+            **kwargs,
+        )
     if source == "intermagnet":
         kwargs = {"base_url": base_url} if base_url else {}
         return _intermagnet.fetch_dataframe(
-            code, start, end, sampling_period=sampling_period, level=level,
-            verbose=verbose, **kwargs)
+            code,
+            start,
+            end,
+            sampling_period=sampling_period,
+            level=level,
+            verbose=verbose,
+            **kwargs,
+        )
     if source == "wdc":
         kwargs = {"base_url": base_url} if base_url else {}
         return _wdc.fetch_dataframe(
-            code, start, end, sampling_period=sampling_period, level=level,
-            verbose=verbose, **kwargs)
+            code,
+            start,
+            end,
+            sampling_period=sampling_period,
+            level=level,
+            verbose=verbose,
+            **kwargs,
+        )
     raise ValueError(
-        f"Unknown source {source!r}. Supported: 'usgs', 'nrcan', "
-        f"'intermagnet', 'wdc' (or 'auto').")
+        f"Unknown source {source!r}. Supported: 'usgs', 'nrcan', 'intermagnet', 'wdc' (or 'auto')."
+    )
 
 
-def fetch_observatory(code, start, end, source="auto", level="variation",
-                      elements=DEFAULT_ELEMENTS, sampling_period=60,
-                      base_url=None, verbose=False):
+def fetch_observatory(
+    code,
+    start,
+    end,
+    source="auto",
+    level="variation",
+    elements=DEFAULT_ELEMENTS,
+    sampling_period=60,
+    base_url=None,
+    verbose=False,
+):
     """Fetch observatory data into memory (no disk write).
 
     Returns an :class:`xarray.Dataset` indexed by UTC time. Use
@@ -195,16 +227,17 @@ def fetch_observatory(code, start, end, source="auto", level="variation",
     """
     source = _resolve_source(code, source)
     level = canonical_level(level)
-    df = _fetch_frame(code, start, end, source, level, elements,
-                      sampling_period, base_url, verbose)
+    df = _fetch_frame(code, start, end, source, level, elements, sampling_period, base_url, verbose)
 
     metadata = observatory_metadata(code)
     metadata.update({k: v for k, v in df.attrs.items() if v is not None})
-    metadata.update({
-        "source": source,
-        "level": level,
-        "sampling_period": int(sampling_period),
-    })
+    metadata.update(
+        {
+            "source": source,
+            "level": level,
+            "sampling_period": int(sampling_period),
+        }
+    )
     return frame_to_dataset(df, code, metadata)
 
 
@@ -236,9 +269,17 @@ def _store_frame(code, df, source, level, metadata):
     return written
 
 
-def download_observatory(code, start, end, source="auto", level="variation",
-                         elements=DEFAULT_ELEMENTS, sampling_period=60,
-                         base_url=None, verbose=False):
+def download_observatory(
+    code,
+    start,
+    end,
+    source="auto",
+    level="variation",
+    elements=DEFAULT_ELEMENTS,
+    sampling_period=60,
+    base_url=None,
+    verbose=False,
+):
     """Download an interval and store it in the local per-year archive.
 
     Parameters
@@ -264,9 +305,17 @@ def download_observatory(code, start, end, source="auto", level="variation",
     """
     source = _resolve_source(code, source)
     level = canonical_level(level)
-    ds = fetch_observatory(code, start, end, source=source, level=level,
-                           elements=elements, sampling_period=sampling_period,
-                           base_url=base_url, verbose=verbose)
+    ds = fetch_observatory(
+        code,
+        start,
+        end,
+        source=source,
+        level=level,
+        elements=elements,
+        sampling_period=sampling_period,
+        base_url=base_url,
+        verbose=verbose,
+    )
     df = dataset_to_frame(ds)
     if df.empty or not np.isfinite(df.to_numpy(dtype=float)).any():
         # Services commonly return a full time axis of nulls for levels they
@@ -274,14 +323,23 @@ def download_observatory(code, start, end, source="auto", level="variation",
         # that would create misleading all-NaN partitions in the archive.
         warnings.warn(
             f"No {level} data returned for {code} ({source}) "
-            f"between {start} and {end}; nothing stored.", stacklevel=2)
+            f"between {start} and {end}; nothing stored.",
+            stacklevel=2,
+        )
         return []
     return _store_frame(code, df, source, level, ds.attrs)
 
 
-def update_observatory(code, source="auto", level="variation", until=None,
-                       sampling_period=60, base_url=None, default_days=3,
-                       verbose=False):
+def update_observatory(
+    code,
+    source="auto",
+    level="variation",
+    until=None,
+    sampling_period=60,
+    base_url=None,
+    default_days=3,
+    verbose=False,
+):
     """Bring one source/level of an observatory's archive up to date.
 
     Fetches from just after the most recent stored sample (for this source and
@@ -301,21 +359,26 @@ def update_observatory(code, source="auto", level="variation", until=None,
     if last is None:
         start = until - datetime.timedelta(days=default_days)
         if verbose:
-            print(f"No local {level} data for {code} ({source}); "
-                  f"seeding last {default_days} days.")
+            print(f"No local {level} data for {code} ({source}); seeding last {default_days} days.")
     else:
         # Resume one sample after the last stored point to avoid a duplicate.
         start = last + datetime.timedelta(seconds=int(sampling_period))
 
     if start >= until:
         if verbose:
-            print(f"{code} ({source}/{level}) already up to date "
-                  f"(last sample {last}).")
+            print(f"{code} ({source}/{level}) already up to date (last sample {last}).")
         return []
 
-    return download_observatory(code, start, until, source=source, level=level,
-                                sampling_period=sampling_period,
-                                base_url=base_url, verbose=verbose)
+    return download_observatory(
+        code,
+        start,
+        until,
+        source=source,
+        level=level,
+        sampling_period=sampling_period,
+        base_url=base_url,
+        verbose=verbose,
+    )
 
 
 def _last_stored_time(code, source, level):
@@ -330,8 +393,9 @@ def _last_stored_time(code, source, level):
 # ----------------------------------------------------------------------------
 # Load (with cross-level merge)
 # ----------------------------------------------------------------------------
-def load_observatory(code, level=BEST, source=None, prefer=None, start=None,
-                     end=None, as_dataframe=False):
+def load_observatory(
+    code, level=BEST, source=None, prefer=None, start=None, end=None, as_dataframe=False
+):
     """Load stored observatory data, merging levels by default.
 
     Parameters
@@ -367,15 +431,16 @@ def load_observatory(code, level=BEST, source=None, prefer=None, start=None,
     want_level = None if level == BEST else canonical_level(level)
 
     partitions = [
-        (src, lvl) for src, lvl in stored_partitions(code)
-        if (source is None or src == source)
-        and (want_level is None or lvl == want_level)
+        (src, lvl)
+        for src, lvl in stored_partitions(code)
+        if (source is None or src == source) and (want_level is None or lvl == want_level)
     ]
     if not partitions:
         raise FileNotFoundError(
             f"No stored data for observatory {code.upper()} matching "
             f"source={source!r}, level={level!r}. "
-            f"Download it first with bezpy.data.download_observatory().")
+            f"Download it first with bezpy.data.download_observatory()."
+        )
 
     partitions = _apply_prefer(partitions, prefer)
 
@@ -396,8 +461,8 @@ def load_observatory(code, level=BEST, source=None, prefer=None, start=None,
 
     if not frames:
         raise FileNotFoundError(
-            f"No stored samples for observatory {code.upper()} in the requested "
-            f"window.")
+            f"No stored samples for observatory {code.upper()} in the requested window."
+        )
 
     merged = functools.reduce(lambda hi, lo: hi.combine_first(lo), frames)
     merged = merged.sort_index()
@@ -432,9 +497,10 @@ def load_observatory_group(codes, start=None, end=None, **kwargs):
         ``prefer``, ...).
     """
     from ..mag import combine_observatories
+
     return combine_observatories(
-        {code: load_observatory(code, start=start, end=end, **kwargs)
-         for code in codes})
+        {code: load_observatory(code, start=start, end=end, **kwargs) for code in codes}
+    )
 
 
 def _apply_prefer(partitions, prefer):
@@ -498,8 +564,7 @@ def _slice_mask(index, start, end):
 # ----------------------------------------------------------------------------
 # IAGA ingest -- convert existing text files into the fast netCDF archive
 # ----------------------------------------------------------------------------
-def ingest_iaga(paths, code=None, source="iaga", level="definitive",
-                sampling_period=60):
+def ingest_iaga(paths, code=None, source="iaga", level="definitive", sampling_period=60):
     """Convert existing IAGA-2002 text files into the netCDF archive.
 
     Lets users who already have IAGA files benefit from the fast, merge-aware
@@ -520,16 +585,17 @@ def ingest_iaga(paths, code=None, source="iaga", level="definitive",
         df, header = read_iaga(path, return_header=True)
         obs_code = (code or header.get("iaga code", "")).upper()
         if not obs_code:
-            raise ValueError(f"Could not determine observatory code for {path}; "
-                             "pass code=...")
+            raise ValueError(f"Could not determine observatory code for {path}; pass code=...")
 
         metadata = observatory_metadata(obs_code)
-        metadata.update({
-            "source": source,
-            "level": level,
-            "sampling_period": int(sampling_period),
-            "station_name": header.get("station name") or metadata.get("station_name"),
-        })
+        metadata.update(
+            {
+                "source": source,
+                "level": level,
+                "sampling_period": int(sampling_period),
+                "station_name": header.get("station name") or metadata.get("station_name"),
+            }
+        )
         written.extend(_store_frame(obs_code, df, source, level, metadata))
     return written
 

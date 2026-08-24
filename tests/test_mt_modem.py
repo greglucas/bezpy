@@ -17,6 +17,7 @@ exact equality:
 All coefficients are negative powers of two, so the decimal values written
 to the files round-trip exactly through float parsing.
 """
+
 import os
 
 import numpy as np
@@ -36,13 +37,12 @@ COMPONENTS = ("ZXX", "ZXY", "ZYX", "ZYY")
 
 def z_value(s, c, p):
     """Impedance for site s, component c, period index p (binary-exact)."""
-    return complex((s + 1) + 0.25*c + 0.0625*p,
-                   -(0.5*(s + 1) + 0.25*c + 0.0625*p))
+    return complex((s + 1) + 0.25 * c + 0.0625 * p, -(0.5 * (s + 1) + 0.25 * c + 0.0625 * p))
 
 
 def z_error(s, c, p):  # noqa: ARG001 - s kept for signature symmetry
     """Error bar for component c, period index p (binary-exact)."""
-    return 0.5 + 0.125*c + 0.03125*p
+    return 0.5 + 0.125 * c + 0.03125 * p
 
 
 def site_grid():
@@ -64,13 +64,15 @@ def _data_rows(periods, errors, lowercase=False, period_major=True):
         loops = [(p, s) for s in range(4) for p in period_order]
     for p, s in loops:
         code, lat, lon = site_grid()[s]
-        x, y = (lat - 40.125)*111000., (lon - 255.125)*85000.
+        x, y = (lat - 40.125) * 111000.0, (lon - 255.125) * 85000.0
         for c, comp in enumerate(COMPONENTS):
             value = z_value(s, c, p)
-            row = (f"{periods[p]:.6E}  {code}  {lat:.4f}  {lon:.4f}  "
-                   f"{x:.3f}  {y:.3f}  0.000  "
-                   f"{comp.lower() if lowercase else comp}  "
-                   f"{value.real:.6f}  {value.imag:.6f}")
+            row = (
+                f"{periods[p]:.6E}  {code}  {lat:.4f}  {lon:.4f}  "
+                f"{x:.3f}  {y:.3f}  0.000  "
+                f"{comp.lower() if lowercase else comp}  "
+                f"{value.real:.6f}  {value.imag:.6f}"
+            )
             if errors:
                 row += f"  {z_error(s, c, p):.6f}"
             rows.append(row)
@@ -103,8 +105,10 @@ def modem_text(periods=PERIODS, units="[mV/km]/[nT]", errors=True):
     ]
     for code, lat, lon in site_grid():
         for comp in ("TX", "TY"):
-            lines.append(f"{periods[0]:.6E}  {code}  {lat:.4f}  {lon:.4f}  "
-                         f"0.000  0.000  0.000  {comp}  0.010000  0.020000  0.100000")
+            lines.append(
+                f"{periods[0]:.6E}  {code}  {lat:.4f}  {lon:.4f}  "
+                f"0.000  0.000  0.000  {comp}  0.010000  0.020000  0.100000"
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -126,8 +130,7 @@ def plain_text(periods=PERIODS):
         "Columns: period code lat lon x y z component real imag",
         "Data follow below this thirteen-line description",
     ]
-    lines += _data_rows(periods, errors=False, lowercase=True,
-                        period_major=False)
+    lines += _data_rows(periods, errors=False, lowercase=True, period_major=False)
     return "\n".join(lines) + "\n"
 
 
@@ -135,11 +138,10 @@ def check_collection(collection, periods=PERIODS):
     """Assert the 4-site grid parsed exactly per the value formula."""
     assert isinstance(collection, SiteCollection)
     assert len(collection.sites) == 4
-    for s, (site, (code, lat, lon)) in enumerate(zip(collection.sites,
-                                                     site_grid())):
+    for s, (site, (code, lat, lon)) in enumerate(zip(collection.sites, site_grid())):
         assert site.name == code
         assert site.latitude == lat
-        assert site.longitude == lon - 360.  # converted to -180..180
+        assert site.longitude == lon - 360.0  # converted to -180..180
         np.testing.assert_array_equal(site.periods, periods)
         assert site.Z.shape == (4, len(periods))
         assert site.Z.dtype == complex
@@ -156,7 +158,7 @@ def test_read_modem_style_fixture():
         assert site.Z_var.shape == (4, 3)
         for c in range(4):
             for p in range(3):
-                assert site.Z_var[c, p] == z_error(s, c, p)**2
+                assert site.Z_var[c, p] == z_error(s, c, p) ** 2
         # Tipper rows and the second header block contributed nothing
         assert not np.any(np.isnan(site.Z))
 
@@ -186,8 +188,10 @@ def test_no_impedance_rows_raises(tmp_path):
     path = tmp_path / "tippers_only.dat"
     # Headers and tipper rows only: no impedance content
     text = "\n".join(
-        line for line in modem_text().splitlines()
-        if not (len(line.split()) > 7 and line.split()[7] in COMPONENTS))
+        line
+        for line in modem_text().splitlines()
+        if not (len(line.split()) > 7 and line.split()[7] in COMPONENTS)
+    )
     path.write_text(text + "\n")
     with pytest.raises(ValueError, match="[Nn]o.*impedance"):
         read_gridded_impedance(path)
@@ -197,9 +201,11 @@ def test_missing_component_is_nan(tmp_path):
     path = tmp_path / "missing_component.dat"
     text = modem_text()
     # Drop site S001's ZXY row at 10 s
-    lines = [line for line in text.splitlines()
-             if not (line.startswith("1.000000E+01") and "S001" in line
-                     and " ZXY " in line)]
+    lines = [
+        line
+        for line in text.splitlines()
+        if not (line.startswith("1.000000E+01") and "S001" in line and " ZXY " in line)
+    ]
     path.write_text("\n".join(lines) + "\n")
     site = read_gridded_impedance(path).sites[0]
     assert np.isnan(site.Z[1, 0])
@@ -220,7 +226,7 @@ def test_partial_error_column(tmp_path):
     # Some rows have errors, so Z_var exists; the stripped entry is NaN
     assert site.Z_var is not None
     assert np.isnan(site.Z_var[0, 0])
-    assert site.Z_var[1, 0] == z_error(0, 1, 0)**2
+    assert site.Z_var[1, 0] == z_error(0, 1, 0) ** 2
 
 
 def test_collection_convolve_fft(tmp_path):
@@ -228,13 +234,12 @@ def test_collection_convolve_fft(tmp_path):
     # Site3d's cubic-spline interpolation needs more than 3 periods, so
     # generate a 5-period variant with the same formula
     path = tmp_path / "five_periods.dat"
-    path.write_text(modem_text(periods=(10., 31.6, 100., 316., 1000.)))
+    path.write_text(modem_text(periods=(10.0, 31.6, 100.0, 316.0, 1000.0)))
     collection = read_gridded_impedance(path)
-    check_collection(collection, periods=(10., 31.6, 100., 316., 1000.))
+    check_collection(collection, periods=(10.0, 31.6, 100.0, 316.0, 1000.0))
 
     rng = np.random.default_rng(0)
-    ex, ey = collection.convolve_fft(rng.standard_normal(200),
-                                     rng.standard_normal(200), dt=60)
+    ex, ey = collection.convolve_fft(rng.standard_normal(200), rng.standard_normal(200), dt=60)
     assert ex.shape == (4, 200)
     assert ey.shape == (4, 200)
     assert np.all(np.isfinite(ex))

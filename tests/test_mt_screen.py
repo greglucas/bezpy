@@ -1,11 +1,11 @@
 """Tests for bezpy.mt.screen (impedance + spatial screening)."""
+
 import numpy as np
 
 from bezpy.mt import Site3d, screen_impedance, screen_sites
 
 
-def _site(name, rho=100.0, lat=40.0, lon=-105.0, rel_err=0.01,
-          periods=None, phase_deg=45.0):
+def _site(name, rho=100.0, lat=40.0, lon=-105.0, rel_err=0.01, periods=None, phase_deg=45.0):
     """A synthetic site: uniform apparent resistivity ``rho`` (ohm-m), first-
     quadrant phase, small relative error -- a clean 1D-like transfer function.
     Z organised (xx, xy, yx, yy); off-diagonals carry the signal."""
@@ -16,7 +16,7 @@ def _site(name, rho=100.0, lat=40.0, lon=-105.0, rel_err=0.01,
     zxy = absZ * np.exp(1j * np.radians(phase_deg))
     Z = np.zeros((4, len(periods)), dtype=complex)
     Z[1] = zxy
-    Z[2] = -zxy                      # yx = -xy, folds to the same phase
+    Z[2] = -zxy  # yx = -xy, folds to the same phase
     Z_var = (rel_err * np.abs(Z)) ** 2
     Z_var[Z_var == 0] = (rel_err * np.median(absZ)) ** 2
     s = Site3d(name)
@@ -40,7 +40,7 @@ def test_out_of_bounds_resistivity_is_bad():
 
 
 def test_huge_relative_error_is_bad():
-    s = _site("noisy", rel_err=2.0)      # |dZ|/|Z| = 2 everywhere
+    s = _site("noisy", rel_err=2.0)  # |dZ|/|Z| = 2 everywhere
     assert screen_impedance(s)["imp_flag"] == "bad"
 
 
@@ -56,15 +56,14 @@ def test_oscillating_resistivity_flagged():
 
 
 def test_out_of_quadrant_phase_is_bad():
-    s = _site("flipped", phase_deg=-60.0)   # third/fourth-quadrant phase
+    s = _site("flipped", phase_deg=-60.0)  # third/fourth-quadrant phase
     assert screen_impedance(s)["imp_flag"] == "bad"
 
 
 def test_screen_sites_spatial_outlier():
     # a compact cluster of clean sites, all fine on impedance
-    sites = [_site(f"s{i}", lat=40 + 0.1 * i, lon=-105 + 0.1 * (i % 3))
-             for i in range(9)]
-    values = np.array([1000.0] * 8 + [80000.0])   # last one is a wild outlier
+    sites = [_site(f"s{i}", lat=40 + 0.1 * i, lon=-105 + 0.1 * (i % 3)) for i in range(9)]
+    values = np.array([1000.0] * 8 + [80000.0])  # last one is a wild outlier
     table = screen_sites(sites, values=values, k=6, loo_decades=0.74)
     table = table.set_index("code")
     assert table.loc["s8", "spatial_flag"] == "bad"
@@ -75,8 +74,8 @@ def test_screen_sites_spatial_outlier():
 
 def test_screen_sites_impedance_only():
     sites = [_site("a"), _site("b")]
-    sites[1].Z = sites[1].Z * 1000.0     # b is non-physical
+    sites[1].Z = sites[1].Z * 1000.0  # b is non-physical
     table = screen_sites(sites).set_index("code")
     assert table.loc["a", "verdict"] == "ok"
     assert table.loc["b", "verdict"] == "bad"
-    assert (table["spatial_flag"] == "ok").all()   # no spatial screen without values
+    assert (table["spatial_flag"] == "ok").all()  # no spatial screen without values

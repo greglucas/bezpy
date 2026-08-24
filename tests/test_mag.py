@@ -1,4 +1,5 @@
 """Tests for bezpy.mag IAGA-2002 IO and signal utilities."""
+
 import numpy as np
 import pandas as pd
 import pytest

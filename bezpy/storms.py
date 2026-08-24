@@ -48,8 +48,9 @@ def _cluster(times, gap):
     return [(times[s], times[e]) for s, e in zip(starts, ends)]
 
 
-def find_events(series, threshold, direction="above", decluster="runs",
-                gap="12h", min_duration=None):
+def find_events(
+    series, threshold, direction="above", decluster="runs", gap="12h", min_duration=None
+):
     """Catalog threshold exceedances of a series with runs declustering.
 
     :param series: pandas Series (or 1-D xarray DataArray) indexed by time
@@ -90,14 +91,19 @@ def find_events(series, threshold, direction="above", decluster="runs",
         duration = end - start
         if min_duration is not None and duration < pd.Timedelta(min_duration):
             continue
-        rows.append({"start": start, "end": end, "peak_time": peak_idx,
-                     "peak_value": chunk.loc[peak_idx], "duration": duration})
-    return pd.DataFrame(rows, columns=["start", "end", "peak_time",
-                                       "peak_value", "duration"])
+        rows.append(
+            {
+                "start": start,
+                "end": end,
+                "peak_time": peak_idx,
+                "peak_value": chunk.loc[peak_idx],
+                "duration": duration,
+            }
+        )
+    return pd.DataFrame(rows, columns=["start", "end", "peak_time", "peak_value", "duration"])
 
 
-def find_storms(index, dst_threshold=-140, kp_threshold=8, window="1.5D",
-                min_duration=None):
+def find_storms(index, dst_threshold=-140, kp_threshold=8, window="1.5D", min_duration=None):
     """Catalog geomagnetic storms from index data (the papers' method).
 
     Samples where Dst drops below ``dst_threshold`` or Kp reaches
@@ -134,26 +140,26 @@ def find_storms(index, dst_threshold=-140, kp_threshold=8, window="1.5D",
     if not triggers:
         raise ValueError(
             "index has neither a 'dst' nor a 'kp' column matching the "
-            f"requested thresholds (columns: {list(index.columns)})")
+            f"requested thresholds (columns: {list(index.columns)})"
+        )
 
     window_td = pd.Timedelta(window)
-    trigger_times = pd.DatetimeIndex(np.concatenate(
-        [t.values for t in triggers])).sort_values().unique()
+    trigger_times = (
+        pd.DatetimeIndex(np.concatenate([t.values for t in triggers])).sort_values().unique()
+    )
 
     rows = []
     # Two triggers' windows overlap iff they are less than 2*window apart
-    for first, last in _cluster(trigger_times, 2*window_td):
+    for first, last in _cluster(trigger_times, 2 * window_td):
         if min_duration is not None and last - first < pd.Timedelta(min_duration):
             continue
         start, end = first - window_td, last + window_td
-        row = {"start": start, "end": end,
-               "trigger_start": first, "trigger_end": last}
+        row = {"start": start, "end": end, "trigger_start": first, "trigger_end": last}
         if "dst" in columns:
             row["min_dst"] = index[columns["dst"]].loc[start:end].min()
         if "kp" in columns:
             row["max_kp"] = index[columns["kp"]].loc[start:end].max()
         rows.append(row)
     base = ["start", "end", "trigger_start", "trigger_end"]
-    extremes = [name for name, col in (("min_dst", "dst"), ("max_kp", "kp"))
-                if col in columns]
+    extremes = [name for name, col in (("min_dst", "dst"), ("max_kp", "kp")) if col in columns]
     return pd.DataFrame(rows, columns=base + extremes)

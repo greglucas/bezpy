@@ -15,9 +15,17 @@ service:
 * :func:`fetch_dataframe` -- fetch an arbitrary interval, chunking long
   requests, and return a tidy :class:`pandas.DataFrame`.
 """
-__all__ = ["build_url", "parse_payload", "fetch_interval", "fetch_dataframe",
-           "wire_type", "default_source", "USGS_OBSERVATORIES",
-           "NRCAN_OBSERVATORIES"]
+
+__all__ = [
+    "build_url",
+    "parse_payload",
+    "fetch_interval",
+    "fetch_dataframe",
+    "wire_type",
+    "default_source",
+    "USGS_OBSERVATORIES",
+    "NRCAN_OBSERVATORIES",
+]
 
 import datetime
 
@@ -31,13 +39,37 @@ DEFAULT_BASE_URL = "https://geomag.usgs.gov"
 
 # USGS-operated observatories (real-time relayed under location code "R0").
 USGS_OBSERVATORIES = (
-    "BRW", "DED", "CMO", "SIT", "SHU", "NEW", "BOU", "FRD", "FRN", "TUC",
-    "BSL", "HON", "SJG", "GUA",
+    "BRW",
+    "DED",
+    "CMO",
+    "SIT",
+    "SHU",
+    "NEW",
+    "BOU",
+    "FRD",
+    "FRN",
+    "TUC",
+    "BSL",
+    "HON",
+    "SJG",
+    "GUA",
 )
 # NRCan observatories relayed through the USGS server (location code "R1").
 NRCAN_OBSERVATORIES = (
-    "ALE", "BLC", "BRD", "CBB", "FCC", "IQA", "MEA", "OTT", "RES", "STJ",
-    "SNK", "VIC", "YKC", "EUA",
+    "ALE",
+    "BLC",
+    "BRD",
+    "CBB",
+    "FCC",
+    "IQA",
+    "MEA",
+    "OTT",
+    "RES",
+    "STJ",
+    "SNK",
+    "VIC",
+    "YKC",
+    "EUA",
 )
 
 # The service caps a single JSON response at this many samples, where
@@ -90,8 +122,15 @@ def _isoformat(when):
     return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def build_url(code, start, end, elements=("X", "Y", "Z", "F"),
-              sampling_period=60, level="variation", base_url=DEFAULT_BASE_URL):
+def build_url(
+    code,
+    start,
+    end,
+    elements=("X", "Y", "Z", "F"),
+    sampling_period=60,
+    level="variation",
+    base_url=DEFAULT_BASE_URL,
+):
     """Build a geomagnetic web-service query URL.
 
     Parameters
@@ -146,8 +185,7 @@ def parse_payload(payload):
         if name is None:
             continue
         # None -> NaN so downstream code has a consistent missing-data marker.
-        arr = np.array([np.nan if v is None else v for v in element["values"]],
-                       dtype=float)
+        arr = np.array([np.nan if v is None else v for v in element["values"]], dtype=float)
         values[name.upper()] = arr
 
     meta_in = payload.get("metadata", {})
@@ -171,25 +209,48 @@ def _payload_to_frame(payload):
     return df
 
 
-def fetch_interval(code, start, end, elements=("X", "Y", "Z", "F"),
-                   sampling_period=60, level="variation",
-                   base_url=DEFAULT_BASE_URL, timeout=60, session=None):
+def fetch_interval(
+    code,
+    start,
+    end,
+    elements=("X", "Y", "Z", "F"),
+    sampling_period=60,
+    level="variation",
+    base_url=DEFAULT_BASE_URL,
+    timeout=60,
+    session=None,
+):
     """Fetch a single interval from the web service (no chunking).
 
     Returns a :class:`pandas.DataFrame` indexed by UTC time with one column per
     requested element. Requires the ``requests`` library.
     """
-    url = build_url(code, start, end, elements=elements,
-                    sampling_period=sampling_period, level=level,
-                    base_url=base_url)
+    url = build_url(
+        code,
+        start,
+        end,
+        elements=elements,
+        sampling_period=sampling_period,
+        level=level,
+        base_url=base_url,
+    )
     response = http_get(url, timeout=timeout, session=session)
     return _payload_to_frame(response.json())
 
 
-def fetch_dataframe(code, start, end, elements=("X", "Y", "Z", "F"),
-                    sampling_period=60, level="variation",
-                    base_url=DEFAULT_BASE_URL, timeout=60, session=None,
-                    chunk=None, verbose=False):
+def fetch_dataframe(
+    code,
+    start,
+    end,
+    elements=("X", "Y", "Z", "F"),
+    sampling_period=60,
+    level="variation",
+    base_url=DEFAULT_BASE_URL,
+    timeout=60,
+    session=None,
+    chunk=None,
+    verbose=False,
+):
     """Fetch an arbitrary interval, chunking long requests.
 
     Long intervals are split into pieces sized to stay under the service's JSON
@@ -200,7 +261,8 @@ def fetch_dataframe(code, start, end, elements=("X", "Y", "Z", "F"),
     if int(sampling_period) not in _VALID_SAMPLING_PERIODS:
         raise ValueError(
             f"sampling_period must be one of {_VALID_SAMPLING_PERIODS} seconds, "
-            f"got {sampling_period}.")
+            f"got {sampling_period}."
+        )
     if chunk is None:
         chunk = _max_chunk(elements, sampling_period)
 
@@ -216,10 +278,17 @@ def fetch_dataframe(code, start, end, elements=("X", "Y", "Z", "F"),
         chunk_end = min(chunk_start + chunk, end)
         if verbose:
             print(f"Fetching {code} [{level}] {chunk_start} -> {chunk_end}")
-        frame = fetch_interval(code, chunk_start, chunk_end, elements=elements,
-                               sampling_period=sampling_period, level=level,
-                               base_url=base_url, timeout=timeout,
-                               session=session)
+        frame = fetch_interval(
+            code,
+            chunk_start,
+            chunk_end,
+            elements=elements,
+            sampling_period=sampling_period,
+            level=level,
+            base_url=base_url,
+            timeout=timeout,
+            session=session,
+        )
         frames.append(frame)
         metadata.update(frame.attrs)
         chunk_start = chunk_end

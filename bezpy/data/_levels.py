@@ -24,6 +24,7 @@ Levels, from lowest to highest quality/latency:
 
 The numeric rank is used when merging overlapping data: higher rank wins.
 """
+
 __all__ = ["canonical_level", "level_rank", "LEVELS", "BEST"]
 
 # Sentinel meaning "merge everything, best quality wins" on load.
@@ -87,7 +88,8 @@ def canonical_level(level, allow_best=False):
         return _ALIASES[normalized]
     raise ValueError(
         f"Unknown data level {level!r}. Valid levels: "
-        f"{', '.join(LEVELS)}" + (" (or 'best')" if allow_best else ""))
+        f"{', '.join(LEVELS)}" + (" (or 'best')" if allow_best else "")
+    )
 
 
 def level_rank(level):

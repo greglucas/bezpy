@@ -4,6 +4,7 @@ The load-bearing property is *exact reassociation*: the kernels must
 reproduce the existing calc_voltages / convolve_fft pipeline to rounding
 error, because they perform the same linear operations in a different order.
 """
+
 import numpy as np
 import pytest
 import shapely.geometry
@@ -27,11 +28,14 @@ def make_site(name, lon, lat):
     site.periods = np.logspace(0.5, 4.3, 25)
     logt = np.log10(site.periods)
     # Smooth log-period variation, different per component and per site
-    phases = RNG.uniform(0, 2*np.pi, 4)
+    phases = RNG.uniform(0, 2 * np.pi, 4)
     amps = RNG.uniform(0.5, 2.0, 4)
-    site.Z = np.array([a * (1 + 0.3*np.sin(logt + p)) *
-                       np.exp(1j * (0.5 + 0.2*np.cos(logt + p)))
-                       for a, p in zip(amps, phases)])
+    site.Z = np.array(
+        [
+            a * (1 + 0.3 * np.sin(logt + p)) * np.exp(1j * (0.5 + 0.2 * np.cos(logt + p)))
+            for a, p in zip(amps, phases)
+        ]
+    )
     site.Z_var = None
     return site
 
@@ -40,8 +44,9 @@ def make_site(name, lon, lat):
 def site_grid():
     """5x5 grid of synthetic MT sites covering the test lines."""
     lons, lats = np.meshgrid(np.linspace(-110, -100, 5), np.linspace(35, 45, 5))
-    return [make_site(f"S{i}", lon, lat)
-            for i, (lon, lat) in enumerate(zip(lons.ravel(), lats.ravel()))]
+    return [
+        make_site(f"S{i}", lon, lat) for i, (lon, lat) in enumerate(zip(lons.ravel(), lats.ravel()))
+    ]
 
 
 @pytest.fixture(scope="module")
@@ -80,8 +85,7 @@ def test_voltage_functional_matches_delaunay(site_grid, site_xys):
 
 
 def test_voltage_functional_matches_1d():
-    line = TransmissionLine(shapely.geometry.LineString(
-        [(0.5, 0.5), (1.5, 1.5), (3.0, 3.0)]))
+    line = TransmissionLine(shapely.geometry.LineString([(0.5, 0.5), (1.5, 1.5), (3.0, 3.0)]))
     polys = [shapely.geometry.box(0, 0, 2, 2), shapely.geometry.box(2, 2, 5, 5)]
     line.set_1d_regions(polys, default_region=3)
     n_regions = 4
@@ -96,8 +100,7 @@ def test_voltage_functional_out_of_hull_flags_invalid(site_grid, site_xys):
     # A line starting outside the site grid: calc_voltages returns all-NaN.
     # (The out-of-hull vertex must not be the final one -- the last vertex's
     # weights are dropped by the [:-1] segment convention.)
-    line = TransmissionLine(shapely.geometry.LineString(
-        [(-120.0, 37.0), (-108.0, 37.0)]))
+    line = TransmissionLine(shapely.geometry.LineString([(-120.0, 37.0), (-108.0, 37.0)]))
     line.set_delaunay_weights(site_xys)
     _, valid = voltage_functional(line, len(site_grid), how="delaunay")
     assert not valid
@@ -114,8 +117,7 @@ def test_apply_voltage_matrix(site_grid, site_xys):
     V = apply_voltage_matrix(E, L, valid)
     assert V.shape == (30, len(lines))
     for i, line in enumerate(lines):
-        np.testing.assert_allclose(V[:, i], line.calc_voltages(E, how="delaunay"),
-                                   rtol=1e-10)
+        np.testing.assert_allclose(V[:, i], line.calc_voltages(E, how="delaunay"), rtol=1e-10)
 
 
 def current_pipeline_voltages(lines, sites, mag_x, mag_y, dt, how="delaunay"):
@@ -147,8 +149,7 @@ def test_telluric_exact_mode_matches_pipeline_nn(site_grid, site_xys):
     mag_x = RNG.standard_normal(1000)
     mag_y = RNG.standard_normal(1000)
 
-    expected = current_pipeline_voltages(lines, site_grid, mag_x, mag_y,
-                                         dt=60, how="nn")
+    expected = current_pipeline_voltages(lines, site_grid, mag_x, mag_y, dt=60, how="nn")
     tr = TelluricResponse.from_lines(lines, site_grid, how="nn")
     V = tr.calc_voltages(mag_x, mag_y, dt=60)
 
@@ -167,18 +168,18 @@ def test_telluric_master_grid_close_to_exact(site_grid, site_xys):
     # Master grid at the sites' own periods: the only differences are the
     # spline flavor (CubicSpline on tau vs UnivariateSpline per site) and
     # band-edge handling.
-    master = TelluricResponse(exact.L, site_grid, valid=exact.valid,
-                              periods=site_grid[0].periods)
+    master = TelluricResponse(exact.L, site_grid, valid=exact.valid, periods=site_grid[0].periods)
     V_master = master.calc_voltages(mag_x, mag_y, dt=60)
 
     scale = np.sqrt(np.mean(V_exact**2))
-    err = np.sqrt(np.mean((V_master - V_exact)**2))
+    err = np.sqrt(np.mean((V_master - V_exact) ** 2))
     assert err < 0.02 * scale
 
 
 def test_telluric_invalid_line_is_nan(site_grid, site_xys):
-    lines = make_lines() + [TransmissionLine(shapely.geometry.LineString(
-        [(-120.0, 37.0), (-108.0, 37.0)]))]
+    lines = make_lines() + [
+        TransmissionLine(shapely.geometry.LineString([(-120.0, 37.0), (-108.0, 37.0)]))
+    ]
     tr = TelluricResponse.from_lines(lines, site_grid, how="delaunay")
     V = tr.calc_voltages(RNG.standard_normal(500), RNG.standard_normal(500), dt=60)
     assert np.all(np.isnan(V[:, -1]))
@@ -198,6 +199,7 @@ def test_telluric_line_chunking_consistent(site_grid, site_xys):
 # ---------------------------------------------------------------------
 # Line resampling (build-time quadrature refinement)
 # ---------------------------------------------------------------------
+
 
 def test_resampled_geometry():
     line = make_lines()[0]
@@ -230,33 +232,33 @@ def test_resampled_constant_field_voltage(site_grid, site_xys):
         # telescope exactly, so allow the ~1e-5 quadrature difference
         # (relative to the voltage scale -- elements can be near zero).
         expected = line.calc_voltages(E, how="delaunay")
-        np.testing.assert_allclose(dense.calc_voltages(E, how="delaunay"),
-                                   expected, atol=1e-4 * np.max(np.abs(expected)))
+        np.testing.assert_allclose(
+            dense.calc_voltages(E, how="delaunay"), expected, atol=1e-4 * np.max(np.abs(expected))
+        )
 
 
 def test_from_lines_resample_km(site_grid, site_xys):
     lines = make_lines()
     mag_x, mag_y = RNG.standard_normal(500), RNG.standard_normal(500)
     coarse = TelluricResponse.from_lines(lines, site_grid, how="delaunay")
-    dense = TelluricResponse.from_lines(lines, site_grid, how="delaunay",
-                                        resample_km=1.0)
+    dense = TelluricResponse.from_lines(lines, site_grid, how="delaunay", resample_km=1.0)
     # The input lines must be untouched, and the refined quadrature should
     # give voltages close to (but not identical with) the coarse ones.
     assert all(line.npts <= 5 for line in lines)
     V_coarse = coarse.calc_voltages(mag_x, mag_y, dt=60)
     V_dense = dense.calc_voltages(mag_x, mag_y, dt=60)
     scale = np.sqrt(np.mean(V_coarse**2))
-    assert np.sqrt(np.mean((V_dense - V_coarse)**2)) < 0.1 * scale
+    assert np.sqrt(np.mean((V_dense - V_coarse) ** 2)) < 0.1 * scale
 
 
 # ---------------------------------------------------------------------
 # FFT-grid tau caching
 # ---------------------------------------------------------------------
 
+
 def test_tau_fft_grid_cache_reused(site_grid, site_xys, monkeypatch):
     lines = make_lines()
-    tr = TelluricResponse.from_lines(lines, site_grid, how="delaunay",
-                                     periods=site_grid[0].periods)
+    tr = TelluricResponse.from_lines(lines, site_grid, how="delaunay", periods=site_grid[0].periods)
     mag_x, mag_y = RNG.standard_normal(1000), RNG.standard_normal(1000)
     V1 = tr.calc_voltages(mag_x, mag_y, dt=60)
     assert tr._tau_grid_key is not None
@@ -264,6 +266,7 @@ def test_tau_fft_grid_cache_reused(site_grid, site_xys, monkeypatch):
     # A second equal-length chunk must not rebuild tau at all.
     def boom(*args, **kwargs):
         raise AssertionError("tau was rebuilt despite an identical FFT grid")
+
     monkeypatch.setattr(tr, "calc_tau", boom)
     V2 = tr.calc_voltages(mag_x, mag_y, dt=60)
     np.testing.assert_array_equal(V1, V2)
@@ -278,13 +281,15 @@ def test_tau_fft_grid_cache_reused(site_grid, site_xys, monkeypatch):
 # netCDF persistence of master-grid responses
 # ---------------------------------------------------------------------
 
+
 def test_netcdf_roundtrip(site_grid, site_xys, tmp_path):
     pytest.importorskip("xarray")
-    lines = make_lines() + [TransmissionLine(shapely.geometry.LineString(
-        [(-120.0, 37.0), (-108.0, 37.0)]))]  # one invalid line
-    tr = TelluricResponse.from_lines(lines, site_grid, how="delaunay",
-                                     periods=site_grid[0].periods,
-                                     extrapolate="asymptotic")
+    lines = make_lines() + [
+        TransmissionLine(shapely.geometry.LineString([(-120.0, 37.0), (-108.0, 37.0)]))
+    ]  # one invalid line
+    tr = TelluricResponse.from_lines(
+        lines, site_grid, how="delaunay", periods=site_grid[0].periods, extrapolate="asymptotic"
+    )
     path = tmp_path / "tau.nc"
     tr.to_netcdf(path)
     restored = TelluricResponse.from_netcdf(path)
@@ -296,8 +301,9 @@ def test_netcdf_roundtrip(site_grid, site_xys, tmp_path):
     np.testing.assert_allclose(restored.calc_tau(freqs), tr.calc_tau(freqs))
 
     mag_x, mag_y = RNG.standard_normal(1000), RNG.standard_normal(1000)
-    np.testing.assert_allclose(restored.calc_voltages(mag_x, mag_y, dt=60),
-                               tr.calc_voltages(mag_x, mag_y, dt=60))
+    np.testing.assert_allclose(
+        restored.calc_voltages(mag_x, mag_y, dt=60), tr.calc_voltages(mag_x, mag_y, dt=60)
+    )
 
 
 def test_netcdf_requires_master_grid(site_grid, tmp_path):
@@ -310,14 +316,15 @@ def test_netcdf_requires_master_grid(site_grid, tmp_path):
 # D6: band-edge extrapolation
 # ---------------------------------------------------------------------
 
-def make_halfspace_site3d(resistivity=100., periods=None):
+
+def make_halfspace_site3d(resistivity=100.0, periods=None):
     """A Site3d holding half-space impedances over a truncated band, so the
     analytic continuation outside the band is known exactly."""
-    reference = Site1d("halfspace", [1000.], [resistivity])
+    reference = Site1d("halfspace", [1000.0], [resistivity])
     site = Site3d("HS")
-    site.longitude, site.latitude = -105., 40.
+    site.longitude, site.latitude = -105.0, 40.0
     site.periods = np.logspace(1, 3, 15) if periods is None else periods
-    site.Z = reference.calcZ(1./site.periods)
+    site.Z = reference.calcZ(1.0 / site.periods)
     site.Z_var = None
     return site, reference
 
@@ -326,7 +333,7 @@ def test_calcz_asymptotic_matches_halfspace():
     site, reference = make_halfspace_site3d()
     # Frequencies well outside the measured band on both sides
     freqs = np.array([1e-4, 3e-4, 0.3, 1.0])
-    assert np.all(np.abs(site.calcZ(freqs, extrapolate="zeros")) == 0.)
+    assert np.all(np.abs(site.calcZ(freqs, extrapolate="zeros")) == 0.0)
     Z_asym = site.calcZ(freqs, extrapolate="asymptotic")
     # For a half space |Z| ~ sqrt(f) with constant 45 deg phase, so the
     # anchored asymptote reproduces the analytic values.
@@ -335,8 +342,8 @@ def test_calcz_asymptotic_matches_halfspace():
 
 def test_calcz_asymptotic_zero_at_dc():
     site, _ = make_halfspace_site3d()
-    Z = site.calcZ(np.array([0., 1e-5]), extrapolate="asymptotic")
-    assert np.all(Z[:, 0] == 0.)
+    Z = site.calcZ(np.array([0.0, 1e-5]), extrapolate="asymptotic")
+    assert np.all(Z[:, 0] == 0.0)
 
 
 def test_calcz_cache_keyed_on_extrapolate():
@@ -352,19 +359,18 @@ def test_telluric_extrapolation_recovers_short_periods(site_grid, site_xys):
     # The D6 comparison: with a band-stop, out-of-band signal content is
     # truncated from the voltages; the asymptotic continuation keeps it.
     lines = make_lines()
-    t = np.arange(2000) * 60.
-    period_in, period_out = 3000., 60.  # site band is ~3-20000 s
-    mag_x = np.sin(2*np.pi*t/period_in) + np.sin(2*np.pi*t/period_out)
+    t = np.arange(2000) * 60.0
+    period_in, period_out = 3000.0, 60.0  # site band is ~3-20000 s
+    mag_x = np.sin(2 * np.pi * t / period_in) + np.sin(2 * np.pi * t / period_out)
     mag_y = np.zeros_like(t)
 
     V = {}
     for extrapolate in ("zeros", "asymptotic"):
-        tr = TelluricResponse.from_lines(lines, site_grid, how="delaunay",
-                                         extrapolate=extrapolate)
+        tr = TelluricResponse.from_lines(lines, site_grid, how="delaunay", extrapolate=extrapolate)
         V[extrapolate] = tr.calc_voltages(mag_x, mag_y, dt=60)
 
-    scale = np.sqrt(np.mean(V["zeros"]**2))
-    diff = np.sqrt(np.mean((V["asymptotic"] - V["zeros"])**2))
+    scale = np.sqrt(np.mean(V["zeros"] ** 2))
+    diff = np.sqrt(np.mean((V["asymptotic"] - V["zeros"]) ** 2))
     assert diff > 0.01 * scale
 
 
@@ -373,15 +379,18 @@ def test_telluric_master_grid_asymptotic_close_to_exact(site_grid, site_xys):
     mag_x = RNG.standard_normal(2000)
     mag_y = RNG.standard_normal(2000)
 
-    exact = TelluricResponse.from_lines(lines, site_grid, how="delaunay",
-                                        extrapolate="asymptotic")
-    master = TelluricResponse(exact.L, site_grid, valid=exact.valid,
-                              periods=site_grid[0].periods,
-                              extrapolate="asymptotic")
+    exact = TelluricResponse.from_lines(lines, site_grid, how="delaunay", extrapolate="asymptotic")
+    master = TelluricResponse(
+        exact.L,
+        site_grid,
+        valid=exact.valid,
+        periods=site_grid[0].periods,
+        extrapolate="asymptotic",
+    )
     V_exact = exact.calc_voltages(mag_x, mag_y, dt=60)
     V_master = master.calc_voltages(mag_x, mag_y, dt=60)
     scale = np.sqrt(np.mean(V_exact**2))
-    assert np.sqrt(np.mean((V_master - V_exact)**2)) < 0.05 * scale
+    assert np.sqrt(np.mean((V_master - V_exact) ** 2)) < 0.05 * scale
 
 
 def test_telluric_response_rejects_nan_input():
@@ -406,6 +415,7 @@ def test_telluric_response_rejects_nan_input():
 # (constant observatory-to-site SECS transfer matrix)
 # ---------------------------------------------------------------------
 
+
 def test_telluric_multi_obs_identity_matches_single_input(site_grid, site_xys):
     """One observatory (identity M)
     must reproduce the classic single-input path to rounding error."""
@@ -420,7 +430,7 @@ def test_telluric_multi_obs_identity_matches_single_input(site_grid, site_xys):
 
     V_classic = classic.calc_voltages(mag_x, mag_y, dt=60)
     V_multi = multi.calc_voltages(mag_x[:, None], mag_y[:, None], dt=60)
-    np.testing.assert_allclose(V_multi, V_classic, atol=1e-9*np.max(np.abs(V_classic)))
+    np.testing.assert_allclose(V_multi, V_classic, atol=1e-9 * np.max(np.abs(V_classic)))
 
 
 def test_telluric_multi_obs_identity_matches_single_input_master_grid(site_grid, site_xys):
@@ -434,7 +444,7 @@ def test_telluric_multi_obs_identity_matches_single_input_master_grid(site_grid,
     multi = TelluricResponse.from_lines(lines, site_grid, how="delaunay", periods=periods, M=M)
     V_classic = classic.calc_voltages(mag_x, mag_y, dt=60)
     V_multi = multi.calc_voltages(mag_x[:, None], mag_y[:, None], dt=60)
-    np.testing.assert_allclose(V_multi, V_classic, atol=1e-9*np.max(np.abs(V_classic)))
+    np.testing.assert_allclose(V_multi, V_classic, atol=1e-9 * np.max(np.abs(V_classic)))
 
 
 def test_telluric_multi_obs_matches_secs_plus_single_input(site_grid, site_xys):
@@ -447,8 +457,7 @@ def test_telluric_multi_obs_matches_secs_plus_single_input(site_grid, site_xys):
     lines = make_lines()
     for line in lines:
         line.set_delaunay_weights(site_xys)
-    obs_latlons = np.array([[36.0, -109.0], [44.0, -109.0],
-                            [40.0, -99.0], [40.0, -101.0]])
+    obs_latlons = np.array([[36.0, -109.0], [44.0, -109.0], [40.0, -99.0], [40.0, -101.0]])
     ntimes = 500
     mag_x = RNG.standard_normal((ntimes, len(obs_latlons))) * 20
     mag_y = RNG.standard_normal((ntimes, len(obs_latlons))) * 20
@@ -467,7 +476,7 @@ def test_telluric_multi_obs_matches_secs_plus_single_input(site_grid, site_xys):
     V_new = multi.calc_voltages(mag_x, mag_y, dt=60)
 
     scale = np.max(np.abs(V_ref))
-    np.testing.assert_allclose(V_new, V_ref, atol=1e-8*scale)
+    np.testing.assert_allclose(V_new, V_ref, atol=1e-8 * scale)
 
 
 def test_telluric_master_grid_multi_obs(site_grid, site_xys):
@@ -483,12 +492,13 @@ def test_telluric_master_grid_multi_obs(site_grid, site_xys):
     secs = SECSInterpolator().fit(B_obs, obs_latlons=obs_latlons)
 
     exact = TelluricResponse.from_lines(lines, site_grid, how="delaunay", secs=secs)
-    master = TelluricResponse.from_lines(lines, site_grid, how="delaunay", secs=secs,
-                                         periods=site_grid[0].periods)
+    master = TelluricResponse.from_lines(
+        lines, site_grid, how="delaunay", secs=secs, periods=site_grid[0].periods
+    )
     V_exact = exact.calc_voltages(mag_x, mag_y, dt=60)
     V_master = master.calc_voltages(mag_x, mag_y, dt=60)
     scale = np.sqrt(np.mean(V_exact**2))
-    assert np.sqrt(np.mean((V_master - V_exact)**2)) < 0.02*scale
+    assert np.sqrt(np.mean((V_master - V_exact) ** 2)) < 0.02 * scale
 
 
 def test_telluric_multi_obs_shape_validation(site_grid, site_xys):
@@ -500,8 +510,7 @@ def test_telluric_multi_obs_shape_validation(site_grid, site_xys):
 
     classic = TelluricResponse.from_lines(lines, site_grid, how="delaunay")
     with pytest.raises(ValueError, match="single-input"):
-        classic.calc_voltages(RNG.standard_normal((200, 2)),
-                              RNG.standard_normal((200, 2)), dt=60)
+        classic.calc_voltages(RNG.standard_normal((200, 2)), RNG.standard_normal((200, 2)), dt=60)
 
 
 def test_telluric_rejects_mismatched_M_shape(site_grid):
@@ -533,26 +542,30 @@ def test_netcdf_roundtrip_multi_obs(site_grid, site_xys, tmp_path):
     secs = SECSInterpolator().fit(B_obs, obs_latlons=obs_latlons)
     secs.obs_names_ = np.array(codes)
 
-    tr = TelluricResponse.from_lines(lines, site_grid, how="delaunay", secs=secs,
-                                     periods=site_grid[0].periods)
+    tr = TelluricResponse.from_lines(
+        lines, site_grid, how="delaunay", secs=secs, periods=site_grid[0].periods
+    )
     path = tmp_path / "tau_multi.nc"
     tr.to_netcdf(path)
     restored = TelluricResponse.from_netcdf(path)
 
     assert restored.n_obs == tr.n_obs == len(obs_latlons)
     assert restored.obs_names == codes
-    np.testing.assert_allclose(restored.calc_voltages(mag_x, mag_y, dt=60),
-                               tr.calc_voltages(mag_x, mag_y, dt=60))
+    np.testing.assert_allclose(
+        restored.calc_voltages(mag_x, mag_y, dt=60), tr.calc_voltages(mag_x, mag_y, dt=60)
+    )
 
 
 def test_netcdf_from_netcdf_old_single_input_file_still_works(site_grid, tmp_path):
     pytest.importorskip("xarray")
-    tr = TelluricResponse.from_lines(make_lines(), site_grid, how="delaunay",
-                                     periods=site_grid[0].periods)
+    tr = TelluricResponse.from_lines(
+        make_lines(), site_grid, how="delaunay", periods=site_grid[0].periods
+    )
     path = tmp_path / "tau_classic.nc"
     tr.to_netcdf(path)
     restored = TelluricResponse.from_netcdf(path)
     assert restored.n_obs is None
     mag_x, mag_y = RNG.standard_normal(500), RNG.standard_normal(500)
-    np.testing.assert_allclose(restored.calc_voltages(mag_x, mag_y, dt=60),
-                               tr.calc_voltages(mag_x, mag_y, dt=60))
+    np.testing.assert_allclose(
+        restored.calc_voltages(mag_x, mag_y, dt=60), tr.calc_voltages(mag_x, mag_y, dt=60)
+    )

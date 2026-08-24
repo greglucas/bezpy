@@ -18,6 +18,7 @@ Network-free, unit-testable pieces:
 * :func:`parse_zip` -- turn a returned zip archive into an XYZF DataFrame
   (pure).
 """
+
 __all__ = ["build_url", "parse_zip", "fetch_dataframe", "DEFAULT_BASE_URL"]
 
 import io
@@ -37,8 +38,15 @@ PROVIDER = "WDC for Geomagnetism, Edinburgh (wdcapi.bgs.ac.uk)"
 _CADENCE = {60: ("minute", 1), 3600: ("hour", 10)}
 
 
-def build_url(code, start, end, cadence="minute", orientation="XYZF",
-              file_format="iaga", base_url=DEFAULT_BASE_URL):
+def build_url(
+    code,
+    start,
+    end,
+    cadence="minute",
+    orientation="XYZF",
+    file_format="iaga",
+    base_url=DEFAULT_BASE_URL,
+):
     """Build a WDC zipped-data request URL.
 
     ``start``/``end`` are inclusive dates (the service returns whole monthly
@@ -66,9 +74,12 @@ def parse_zip(content):
     from ..mag import read_iaga
 
     archive = zipfile.ZipFile(io.BytesIO(content))
-    data_names = sorted(n for n in archive.namelist()
-                        if not n.split("/")[-1].startswith("_")
-                        and n.lower().endswith((".min", ".hor", ".sec", ".day")))
+    data_names = sorted(
+        n
+        for n in archive.namelist()
+        if not n.split("/")[-1].startswith("_")
+        and n.lower().endswith((".min", ".hor", ".sec", ".day"))
+    )
     frames, header = [], None
     for name in data_names:
         # read_iaga reads from a path; stage the member in a temp file and
@@ -76,8 +87,7 @@ def parse_zip(content):
         with tempfile.NamedTemporaryFile("wb", suffix=".min") as handle:
             handle.write(archive.read(name))
             handle.flush()
-            frame, this_header = read_iaga(handle.name, return_xyzf=True,
-                                           return_header=True)
+            frame, this_header = read_iaga(handle.name, return_xyzf=True, return_header=True)
         header = header or this_header
         frames.append(frame)
 
@@ -86,12 +96,14 @@ def parse_zip(content):
     df = pd.concat(frames).sort_index()
     df = df[~df.index.duplicated(keep="first")]
     if header is not None:
-        df.attrs.update({
-            "station_name": header.get("station name"),
-            "latitude": _float(header.get("geodetic latitude")),
-            "longitude": _float(header.get("geodetic longitude")),
-            "provider": PROVIDER,
-        })
+        df.attrs.update(
+            {
+                "station_name": header.get("station name"),
+                "latitude": _float(header.get("geodetic latitude")),
+                "longitude": _float(header.get("geodetic longitude")),
+                "provider": PROVIDER,
+            }
+        )
     return df
 
 
@@ -102,9 +114,17 @@ def _float(value):
         return None
 
 
-def fetch_dataframe(code, start, end, sampling_period=60, level="definitive",
-                    base_url=DEFAULT_BASE_URL, timeout=180, session=None,
-                    verbose=False):
+def fetch_dataframe(
+    code,
+    start,
+    end,
+    sampling_period=60,
+    level="definitive",
+    base_url=DEFAULT_BASE_URL,
+    timeout=180,
+    session=None,
+    verbose=False,
+):
     """Fetch an interval from the WDC API, chunking long requests.
 
     Returns a :class:`pandas.DataFrame` indexed by UTC time (XYZF columns),
@@ -114,7 +134,8 @@ def fetch_dataframe(code, start, end, sampling_period=60, level="definitive",
     if int(sampling_period) not in _CADENCE:
         raise ValueError(
             f"WDC source supports minute (60 s) and hourly (3600 s) data; "
-            f"got sampling_period={sampling_period}.")
+            f"got sampling_period={sampling_period}."
+        )
     cadence, chunk_years = _CADENCE[int(sampling_period)]
 
     start, end = pd.Timestamp(start), pd.Timestamp(end)
@@ -125,11 +146,9 @@ def fetch_dataframe(code, start, end, sampling_period=60, level="definitive",
     chunk_start = start
     while chunk_start < end:
         chunk_end = min(chunk_start + pd.DateOffset(years=chunk_years), end)
-        url = build_url(code, chunk_start, chunk_end, cadence=cadence,
-                        base_url=base_url)
+        url = build_url(code, chunk_start, chunk_end, cadence=cadence, base_url=base_url)
         if verbose:
-            print(f"Fetching {code} [WDC {cadence}] "
-                  f"{chunk_start.date()} -> {chunk_end.date()}")
+            print(f"Fetching {code} [WDC {cadence}] {chunk_start.date()} -> {chunk_end.date()}")
         response = http_get(url, timeout=timeout, session=session)
         frames.append(parse_zip(response.content))
         chunk_start = chunk_end

@@ -2,6 +2,7 @@
 bezpy: Python module for processing and analyzing magnetic field (B),
        electric field (E), and impedance (Z) data.
 """
+
 from . import mag, mt, pipeline, plot, stats, storms, tl, tpl007, validation
 from .pipeline import Nowcast, calc_geoelectric_field, calc_substation_fields, calc_voltages
 
@@ -19,7 +20,9 @@ except ImportError as exc:
             raise ImportError(
                 "bezpy.data requires optional dependencies; install them with "
                 "`pip install 'bezpy[data]'` "
-                f"(import failed with: {_DATA_IMPORT_ERROR})")
+                f"(import failed with: {_DATA_IMPORT_ERROR})"
+            )
         raise AttributeError(f"module 'bezpy' has no attribute {name!r}")
 
-__version__ = '0.5.0'
+
+__version__ = "0.5.0"

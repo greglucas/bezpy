@@ -18,8 +18,14 @@ years and access has at times required registration. The defaults here follow
 the current public GINServices interface; pass ``base_url=`` to point at a
 different node if needed.
 """
-__all__ = ["build_url", "parse_iaga_text", "fetch_dataframe",
-           "publication_state", "DEFAULT_BASE_URL"]
+
+__all__ = [
+    "build_url",
+    "parse_iaga_text",
+    "fetch_dataframe",
+    "publication_state",
+    "DEFAULT_BASE_URL",
+]
 
 import datetime
 import math
@@ -70,7 +76,8 @@ def _samples_per_day(sampling_period):
         return "Minute"
     raise ValueError(
         "INTERMAGNET GIN serves 'Minute' (60 s) or 'Second' (1 s) data; "
-        f"got sampling_period={sampling_period}.")
+        f"got sampling_period={sampling_period}."
+    )
 
 
 def _max_chunk_days(sampling_period):
@@ -78,8 +85,9 @@ def _max_chunk_days(sampling_period):
     return _MAX_CHUNK_DAYS_SECOND if int(sampling_period) == 1 else _MAX_CHUNK_DAYS_MINUTE
 
 
-def build_url(code, start, duration_days, sampling_period=60,
-              level="best", base_url=DEFAULT_BASE_URL):
+def build_url(
+    code, start, duration_days, sampling_period=60, level="best", base_url=DEFAULT_BASE_URL
+):
     """Build a GIN GetData query URL.
 
     Parameters
@@ -121,8 +129,8 @@ def parse_iaga_text(text):
     if "IAGA-2002" not in text[:2000]:
         snippet = text.strip()[:200]
         raise ValueError(
-            "INTERMAGNET response is not IAGA-2002 data. The service returned:\n"
-            f"{snippet!r}")
+            f"INTERMAGNET response is not IAGA-2002 data. The service returned:\n{snippet!r}"
+        )
 
     # read_iaga reads from a path; write the body to a temporary file and reuse
     # the well-tested IAGA reader rather than duplicating its parsing logic.
@@ -134,9 +142,17 @@ def parse_iaga_text(text):
         return read_iaga(handle.name, return_xyzf=True)
 
 
-def fetch_dataframe(code, start, end, sampling_period=60, level="best",
-                    base_url=DEFAULT_BASE_URL, timeout=120, session=None,
-                    verbose=False):
+def fetch_dataframe(
+    code,
+    start,
+    end,
+    sampling_period=60,
+    level="best",
+    base_url=DEFAULT_BASE_URL,
+    timeout=120,
+    session=None,
+    verbose=False,
+):
     """Fetch an interval from the GIN, chunking long requests.
 
     Requests are chunked to the empirically reliable duration and the chunk
@@ -162,9 +178,14 @@ def fetch_dataframe(code, start, end, sampling_period=60, level="best",
         # GIN duration is whole days; request enough days to cover the chunk.
         remaining = (end - chunk_start).total_seconds() / 86400
         duration = min(chunk_days, max(1, math.ceil(remaining)))
-        url = build_url(code, chunk_start, duration,
-                        sampling_period=sampling_period, level=level,
-                        base_url=base_url)
+        url = build_url(
+            code,
+            chunk_start,
+            duration,
+            sampling_period=sampling_period,
+            level=level,
+            base_url=base_url,
+        )
         if verbose:
             print(f"Fetching {code} [{level}] {chunk_start.date()} +{duration}d")
         try:
@@ -182,8 +203,7 @@ def fetch_dataframe(code, start, end, sampling_period=60, level="best",
                 # with half the duration.
                 chunk_days = max(1, duration // 2)
                 if verbose:
-                    print(f"  {type(exc).__name__}; retrying with "
-                          f"{chunk_days}-day chunks")
+                    print(f"  {type(exc).__name__}; retrying with {chunk_days}-day chunks")
                 continue
             failures += 1
             if failures < 3:  # transient failure at the 1-day floor

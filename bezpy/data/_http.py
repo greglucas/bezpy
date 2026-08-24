@@ -1,4 +1,5 @@
 """Shared HTTP helper for the bezpy.data download clients."""
+
 __all__ = ["http_get"]
 
 

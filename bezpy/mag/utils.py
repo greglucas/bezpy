@@ -1,7 +1,13 @@
 """Magnetic field utility routines."""
 
-__all__ = ["read_iaga", "detrend_polynomial", "filter_signal", "write_iaga_2002",
-           "get_iaga_observatory", "get_iaga_observatory_codes"]
+__all__ = [
+    "read_iaga",
+    "detrend_polynomial",
+    "filter_signal",
+    "write_iaga_2002",
+    "get_iaga_observatory",
+    "get_iaga_observatory_codes",
+]
 
 from importlib.resources import files
 
@@ -9,7 +15,8 @@ import numpy as np
 import pandas as pd
 from scipy.signal import butter, filtfilt
 
-IAGA_PATH = str(files('bezpy.mag').joinpath('data')) + "/"
+IAGA_PATH = str(files("bezpy.mag").joinpath("data")) + "/"
+
 
 def read_iaga_header(fname):
     """
@@ -24,7 +31,7 @@ def read_iaga_header(fname):
 
     with open(fname) as openfile:
         for newline in openfile:
-            if newline[0] == ' ':
+            if newline[0] == " ":
                 header_records["header_length"] += 1
                 label = newline[1:24].strip()
                 description = newline[24:-2].strip()
@@ -40,16 +47,17 @@ def read_iaga(fname, return_xyzf=True, return_header=False):
 
     # This contains 4 letters stating the reported values
     #  - XYZF, HDZF, etc...
-    if len(header_records['reported']) % 4 != 0:
+    if len(header_records["reported"]) % 4 != 0:
         raise ValueError(
-            f"The header record does not contain 4 values: {header_records['reported']}")
+            f"The header record does not contain 4 values: {header_records['reported']}"
+        )
 
-    record_length = len(header_records['reported']) // 4
+    record_length = len(header_records["reported"]) // 4
 
     # This splits the string into 4 equal parts.
     # Some reportings from USGS can be 3 letters each, rather than 1
     # This keeps the last letter of each reported channel
-    column_names = [x for x in header_records['reported'][record_length-1::record_length]]
+    column_names = [x for x in header_records["reported"][record_length - 1 :: record_length]]
 
     # Dealing with duplicate column names and appending the count if necessary
     seen_count = {}
@@ -60,27 +68,32 @@ def read_iaga(fname, return_xyzf=True, return_header=False):
         else:
             seen_count[col] = 1
 
-    df = pd.read_csv(fname,
-                     header=header_records["header_length"],
-                     sep=r"\s+",  # whitespace
-                     usecols=[0, 1, 3, 4, 5, 6],
-                     na_values=[99999.90, 99999.0, 88888.80, 88888.00],
-                     names=["Date", "Time"] + column_names)
+    df = pd.read_csv(
+        fname,
+        header=header_records["header_length"],
+        sep=r"\s+",  # whitespace
+        usecols=[0, 1, 3, 4, 5, 6],
+        na_values=[99999.90, 99999.0, 88888.80, 88888.00],
+        names=["Date", "Time"] + column_names,
+    )
     df["Time"] = pd.to_datetime(df["Date"] + " " + df["Time"])
     df = df.drop(columns=["Date"])
     df = df.set_index("Time")
-    if (return_xyzf and "X" not in column_names and "Y" not in column_names):
+    if return_xyzf and "X" not in column_names and "Y" not in column_names:
         # Convert the data to XYZF format
         # Only convert HD
         if "H" not in column_names or "D" not in column_names:
-            raise ValueError("Only have a converter for HDZF->XYZF\n" +
-                             "Input file is: " + header_records['reported'])
+            raise ValueError(
+                "Only have a converter for HDZF->XYZF\n"
+                + "Input file is: "
+                + header_records["reported"]
+            )
 
         # IAGA-2002 D is reported in minutes of arc.
-        df["X"] = df["H"] * np.cos(np.deg2rad(df["D"]/60.))
-        df["Y"] = df["H"] * np.sin(np.deg2rad(df["D"]/60.))
+        df["X"] = df["H"] * np.cos(np.deg2rad(df["D"] / 60.0))
+        df["Y"] = df["H"] * np.sin(np.deg2rad(df["D"] / 60.0))
         df = df.drop(columns=["H", "D"])
-    
+
     if return_header:
         return df, header_records
     else:
@@ -96,25 +109,25 @@ def detrend_polynomial(data, deg=2):
     return data - np.polyval(poly, xvals)
 
 
-def filter_signal(data, sample_freq=1./60, lowcut=1e-4, highcut=1e-1, order=3):
+def filter_signal(data, sample_freq=1.0 / 60, lowcut=1e-4, highcut=1e-1, order=3):
     """A convenience method to apply butterworth filters to the data.
 
-       data: array of samples at the given sampling frequency (no gaps)
+    data: array of samples at the given sampling frequency (no gaps)
 
-       sample_freq: sampling frequency that data is given in (Hz)
-                    [Default: 1/60 Hz (60 s sample period)]
+    sample_freq: sampling frequency that data is given in (Hz)
+                 [Default: 1/60 Hz (60 s sample period)]
 
-       lowcut: low cutoff frequency (Hz)
-               [Default: 1e-4 Hz, (10,000 s period)]
+    lowcut: low cutoff frequency (Hz)
+            [Default: 1e-4 Hz, (10,000 s period)]
 
-       highcut: high cutoff frequency (Hz)
-                [Default: 1e-1 Hz, (10 s period)]
+    highcut: high cutoff frequency (Hz)
+             [Default: 1e-1 Hz, (10 s period)]
 
-       order: Order of the butterworth filter to use
-              [Default: 3]
+    order: Order of the butterworth filter to use
+           [Default: 3]
     """
 
-    nyquist = 0.5*sample_freq
+    nyquist = 0.5 * sample_freq
     low = lowcut / nyquist
     high = highcut / nyquist
 
@@ -123,28 +136,31 @@ def filter_signal(data, sample_freq=1./60, lowcut=1e-4, highcut=1e-1, order=3):
     # TODO: Might want to add in a low pass filter option?
     #       Or does the bandpass account for that automatically?
     if sample_freq > highcut:
-        b, a = butter(order, [low, high], btype='band')
+        b, a = butter(order, [low, high], btype="band")
     else:
-        b, a = butter(order, low, btype='highpass')
+        b, a = butter(order, low, btype="highpass")
 
     # Apply the filter coefficients to the data and return
     return filtfilt(b, a, data)
 
 
-IAGA_HEADER = "\n".join([
-    " Format                 IAGA-2002                                    |",
-    " Source of Data         Greg Lucas                                   |",
-    " Station Name           Random                                       |",
-    " IAGA CODE              RAN                                          |",
-    " Geodetic Latitude      0.000                                        |",
-    " Geodetic Longitude     0.000                                        |",
-    " Elevation              0                                            |",
-    " Reported               XYZF                                         |",
-    " Sensor Orientation     HDZF                                         |",
-    " Digital Sampling       0.01 second                                  |",
-    " Data Interval Type     filtered 1-minute (00:15-01:45)              |",
-    " Data Type              definitive                                   |",
-    "DATE       TIME         DOY     Ex        Ey        RANZ      RANF   |\n"])
+IAGA_HEADER = "\n".join(
+    [
+        " Format                 IAGA-2002                                    |",
+        " Source of Data         Greg Lucas                                   |",
+        " Station Name           Random                                       |",
+        " IAGA CODE              RAN                                          |",
+        " Geodetic Latitude      0.000                                        |",
+        " Geodetic Longitude     0.000                                        |",
+        " Elevation              0                                            |",
+        " Reported               XYZF                                         |",
+        " Sensor Orientation     HDZF                                         |",
+        " Digital Sampling       0.01 second                                  |",
+        " Data Interval Type     filtered 1-minute (00:15-01:45)              |",
+        " Data Type              definitive                                   |",
+        "DATE       TIME         DOY     Ex        Ey        RANZ      RANF   |\n",
+    ]
+)
 
 
 def write_iaga_2002(df, fname):
@@ -164,12 +180,18 @@ def write_iaga_2002(df, fname):
         openfile.write(IAGA_HEADER)
         openfile.write(
             newdf.to_string(
-                formatters={"DOY": "    {0:03d}   ".format,
-                            col1: "{0:9.2f}".format,
-                            col2: "{0:9.2f}".format,
-                            col3: "{0:9.2f}".format,
-                            col4: "{0:9.2f}".format},
-                na_rep=' 99999.00', header=False, index_names=False))
+                formatters={
+                    "DOY": "    {0:03d}   ".format,
+                    col1: "{0:9.2f}".format,
+                    col2: "{0:9.2f}".format,
+                    col3: "{0:9.2f}".format,
+                    col4: "{0:9.2f}".format,
+                },
+                na_rep=" 99999.00",
+                header=False,
+                index_names=False,
+            )
+        )
 
 
 # Reading in IAGA codes and getting observatory information.
@@ -181,15 +203,19 @@ with open(IAGA_PATH + "intermagnet_observatories.dat") as f:
     for line in f:
         if line.startswith("#") or line.startswith("IAGA"):
             continue
-        elements = line.rstrip("\n").split('\t')
+        elements = line.rstrip("\n").split("\t")
         longitude = float(elements[4])
         if longitude > 180:
             longitude -= 360
-        _IAGA_SITES[elements[0][:3]] = {"name": elements[1], "country": elements[2],
-                                        "latitude": float(elements[3]),
-                                        "longitude": longitude,
-                                        "institute": elements[5], "GIN": elements[6],
-                                        "status": elements[7]}
+        _IAGA_SITES[elements[0][:3]] = {
+            "name": elements[1],
+            "country": elements[2],
+            "latitude": float(elements[3]),
+            "longitude": longitude,
+            "institute": elements[5],
+            "GIN": elements[6],
+            "status": elements[7],
+        }
 
 
 def get_iaga_observatory_codes():

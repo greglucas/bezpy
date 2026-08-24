@@ -1,4 +1,5 @@
 """Tests for bezpy.mt.io XML and 1D profile parsing."""
+
 import re
 
 import numpy as np
@@ -89,9 +90,12 @@ def test_ak1_aliases_ak1a():
 def test_read_xml_negative_sign_convention_conjugates(tmp_path, sample_emtf_path):
     """exp(-i omega t) files are conjugated to the package convention (B1)."""
     xml = sample_emtf_path.read_text()
-    flipped = re.sub(r"<SignConvention>.*?</SignConvention>",
-                     r"<SignConvention>exp(- i\\omega t)</SignConvention>",
-                     xml, flags=re.S)
+    flipped = re.sub(
+        r"<SignConvention>.*?</SignConvention>",
+        r"<SignConvention>exp(- i\\omega t)</SignConvention>",
+        xml,
+        flags=re.S,
+    )
     fname = tmp_path / "negative_sign.xml"
     fname.write_text(flipped)
     site_pos = bezpy.mt.read_xml(str(sample_emtf_path))
