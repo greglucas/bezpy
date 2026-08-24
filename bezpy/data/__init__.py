@@ -30,7 +30,9 @@ try:
     import pooch as _pooch  # noqa: F401
     import xarray as _xarray  # noqa: F401
 except ImportError as exc:  # pragma: no cover - exercised only without extras
-    raise ImportError(
+    # ModuleNotFoundError (an ImportError subclass) rather than a bare
+    # ImportError: pytest.importorskip only skips on the former since 9.1.
+    raise ModuleNotFoundError(
         "bezpy.data requires optional dependencies (pooch, xarray, and a "
         "netCDF engine). Install them with:\n\n    pip install 'bezpy[data]'\n"
     ) from exc

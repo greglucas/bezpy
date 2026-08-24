@@ -67,6 +67,7 @@ def test_depths_are_cumulative():
 
 
 def test_optional_halfspace_plot_thickness_is_not_an_extra_layer():
+    pytest.importorskip("matplotlib")
     site = bezpy.mt.Site1d(
         "profile",
         thicknesses=[100.0, 200.0, 300.0],
