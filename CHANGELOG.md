@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 (unreleased)
+## 0.5.0 (2026-08-23)
 
 The first release of the rebuilt package: bezpy grows from a collection of
 per-paper utilities into a full B → E → V → I hazard-analysis pipeline with

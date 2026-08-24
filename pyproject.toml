@@ -70,6 +70,7 @@ test = ["pytest>=7.0", "pytest-cov", "ruff",
 
 [project.urls]
 Homepage = "https://github.com/greglucas/bezpy"
+Documentation = "https://greglucas.github.io/bezpy/"
 Repository = "https://github.com/greglucas/bezpy"
 Issues = "https://github.com/greglucas/bezpy/issues"
 Changelog = "https://github.com/greglucas/bezpy/blob/main/CHANGELOG.md"

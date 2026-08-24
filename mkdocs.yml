@@ -1,6 +1,7 @@
 site_name: bezpy
 site_description: >-
   Magnetic field (B), Electric field (E), and Impedance (Z) analysis in Python
+site_url: https://greglucas.github.io/bezpy/
 repo_url: https://github.com/greglucas/bezpy
 repo_name: greglucas/bezpy
 
