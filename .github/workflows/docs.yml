@@ -3,8 +3,6 @@ name: Documentation
 on:
   push:
     branches: [main]
-  release:
-    types: [published]
   workflow_dispatch:
 
 # Allow one concurrent deployment; let an in-progress run finish so a
